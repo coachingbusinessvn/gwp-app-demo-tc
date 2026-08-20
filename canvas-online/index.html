@@ -196,6 +196,12 @@ ol.guide .sub-note{color:var(--gp-ink-soft)}
 footer.app{background:var(--gp-navy-950);color:var(--gp-slate-deep);border-top:1px solid var(--gp-line-gold);
   margin-top:20px;padding:22px 16px;font-size:12px;text-align:center}
 footer.app .gold{color:var(--gp-gold-500)}
+.sitenav-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;max-width:1080px;margin:14px auto 0;padding:0}
+.sitenav-bar a{color:var(--gp-mist);font-size:12px;font-weight:600;letter-spacing:.04em;text-decoration:none;
+  border:1px solid rgba(201,166,104,.28);border-radius:var(--gp-radius-sm);padding:7px 12px;
+  transition:border-color .2s,color .2s,background .2s}
+.sitenav-bar a:hover{border-color:var(--gp-gold-400);color:var(--gp-gold-200);background:rgba(201,166,104,.08)}
+.sitenav-bar a.current{border-color:var(--gp-gold-400);color:var(--gp-gold-200);background:rgba(201,166,104,.12)}
 
 @media (prefers-reduced-motion: reduce){
   .toolbar button,.toolbar button:hover{transition:none;transform:none}
@@ -218,6 +224,12 @@ footer.app .gold{color:var(--gp-gold-500)}
       <div class="eyebrow">GoWise Partners · Performance Architecture</div>
       <h1>Performance Architecture <span class="gp-accent">Canvas</span> — bản điền trực tuyến</h1>
       <p class="sub">Khung cấu trúc hiệu suất — từ mục tiêu đến hành trình tạo kết quả · Schema 3.0. Điền trực tiếp trên trang, hoặc dán bản canvas có sẵn (Nhập từ Markdown), rồi tải về Excel / PDF / PNG / Markdown để Leader và đội cùng theo dõi thực hiện.</p>
+      <nav class="sitenav-bar" aria-label="Điều hướng">
+        <a href="../index.html">Đăng nhập demo</a>
+        <a href="../dashboard.html">Bảng theo dõi</a>
+        <a class="current" href="./">Canvas Online</a>
+        <a href="../coaching-report/">Coaching Report</a>
+      </nav>
     </div>
   </div>
 </header>

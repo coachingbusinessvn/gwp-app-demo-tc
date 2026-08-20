@@ -32,6 +32,11 @@ function renderHeader(me){
    '<header class="app"><div class="bar">'+
    '<img class="mark" src="'+LOGO+'" alt="">'+
    '<div><div class="brand">GoWise Partners</div><div class="appname">Performance Follow-up</div></div>'+
+   '<nav class="sitenav" aria-label="Công cụ">'+
+     '<a href="dashboard.html">Bảng theo dõi</a>'+
+     '<a href="canvas-online/">Canvas Online</a>'+
+     '<a href="coaching-report/">Coaching Report</a>'+
+   '</nav>'+
    '<div class="spacer"></div>'+
    '<div class="who"><b>'+esc(me.name)+'</b><br>'+esc(me.role)+'</div>'+
    '<a class="out" href="#" id="btnOut">Đăng xuất</a>'+

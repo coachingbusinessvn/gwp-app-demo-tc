@@ -33,7 +33,8 @@ if(!person || !cv){
     '<div class="card"><h1 class="title">Không tìm thấy canvas</h1>'+
     '<p class="note">Người này chưa có canvas nào, hoặc đường dẫn không đúng.</p>'+
     '<div class="btnrow" style="margin-top:12px"><a class="btn ghost" href="dashboard.html">Về bảng theo dõi</a>'+
-    '<a class="btn" href="../canvas-online/" target="_blank" rel="noopener">Tạo canvas mới</a></div></div>';
+    '<a class="btn" href="canvas-online/">Tạo canvas mới</a>'+
+    '<a class="btn ghost" href="coaching-report/">Coaching Report</a></div></div>';
 } else {
   document.getElementById("cname").textContent = person.name;
   const s = statusOf(pid);
@@ -47,8 +48,9 @@ if(!person || !cv){
       ' <span class="chip '+(s.tone==="risk"?"risk":s.tone)+'">'+esc(s.label)+'</span></p>'+
     '<div class="btnrow" style="margin-top:14px">'+
       '<a class="btn" href="canvas.html?p='+encodeURIComponent(pid)+'&v=0">Mở bản mới nhất</a>'+
-      '<a class="btn ghost" href="../canvas-online/" target="_blank" rel="noopener">Tạo canvas mới</a>'+
-      '<a class="btn ghost" href="../canvas-online/#import" target="_blank" rel="noopener" id="btnImport">Nhập canvas từ Markdown</a>'+
+      '<a class="btn ghost" href="canvas-online/">Tạo canvas mới</a>'+
+      '<a class="btn ghost" href="canvas-online/#import" id="btnImport">Nhập canvas từ Markdown</a>'+
+      '<a class="btn ghost" href="coaching-report/">Coaching Report</a>'+
     '</div></div>';
 
   /* Xu hướng hiệu suất */

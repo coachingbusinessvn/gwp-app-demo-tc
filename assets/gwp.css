@@ -31,17 +31,38 @@ header.app img.mark{width:34px;height:34px;flex-shrink:0}
 header.app .brand{font-size:11px;font-weight:600;letter-spacing:.22em;text-transform:uppercase;color:var(--gp-gold-400)}
 header.app .appname{font-family:var(--gp-font-serif);font-size:17px;color:var(--gp-text);line-height:1.2}
 header.app .spacer{margin-left:auto}
+header.app .sitenav{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-left:8px}
+header.app .sitenav a{color:var(--gp-mist);font-size:11.5px;font-weight:600;letter-spacing:.04em;text-decoration:none;
+  border:1px solid rgba(201,166,104,.28);border-radius:var(--gp-radius-sm);padding:6px 10px;
+  transition:border-color .2s,color .2s,background .2s;white-space:nowrap}
+header.app .sitenav a:hover{border-color:var(--gp-gold-400);color:var(--gp-gold-200);background:rgba(201,166,104,.08)}
 header.app .who{font-size:12.5px;color:var(--gp-mist);text-align:right;line-height:1.35}
 header.app .who b{color:var(--gp-gold-200);font-weight:600}
 header.app a.out{color:var(--gp-slate);font-size:12px;text-decoration:none;border:1px solid rgba(129,147,164,.35);
   border-radius:var(--gp-radius-sm);padding:6px 11px;transition:border-color .25s,color .25s}
 header.app a.out:hover{border-color:var(--gp-slate);color:var(--gp-mist)}
+.sitenav-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;max-width:1080px;margin:14px auto 0;padding:0}
+.sitenav-bar a{color:var(--gp-mist);font-size:12px;font-weight:600;letter-spacing:.04em;text-decoration:none;
+  border:1px solid rgba(201,166,104,.28);border-radius:var(--gp-radius-sm);padding:7px 12px;
+  transition:border-color .2s,color .2s,background .2s}
+.sitenav-bar a:hover{border-color:var(--gp-gold-400);color:var(--gp-gold-200);background:rgba(201,166,104,.08)}
+.sitenav-bar a.current{border-color:var(--gp-gold-400);color:var(--gp-gold-200);background:rgba(201,166,104,.12)}
+.login-tools{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:14px}
+.login-tools a{color:var(--gp-gold-200);font-size:12px;font-weight:600;text-decoration:none;
+  border:1px solid rgba(201,166,104,.35);border-radius:var(--gp-radius-sm);padding:8px 12px}
+.login-tools a:hover{border-color:var(--gp-gold-400);background:rgba(201,166,104,.08)}
 main{max-width:1140px;margin:0 auto;padding:22px 18px 70px}
+@media(max-width:760px){
+  header.app .bar{flex-wrap:wrap}
+  header.app .sitenav{order:5;width:100%;margin:4px 0 0;margin-left:0}
+  header.app .spacer{display:none}
+}
 @media(max-width:560px){
   header.app .bar{gap:10px;padding:11px 14px}
   header.app .who{font-size:11px;max-width:42vw}
   header.app .appname{font-size:15px}
   header.app .brand{font-size:9.5px;letter-spacing:.16em}
+  header.app .sitenav a{font-size:11px;padding:5px 8px}
   h1.title{font-size:22px}
 }
 

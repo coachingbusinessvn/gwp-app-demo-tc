@@ -2,7 +2,9 @@
 
 Bản demo giao diện (HTML/CSS/JS tĩnh, không backend, không thư viện ngoài) cho luồng **Leader theo dõi hiệu suất đội ngũ bằng Performance Architecture Canvas**, có trợ lý AI đi kèm là hai chatbot đã triển khai của dự án.
 
-Mở bằng dev server có sẵn: `python3 -m http.server 8765 --directory docs` rồi vào `http://localhost:8765/app-demo-tc/`. Chạy được cả bằng `file://`.
+GitHub Pages: https://coachingbusinessvn.github.io/gwp-app-demo-tc/
+
+Chạy local: `python3 -m http.server 8765` rồi mở `http://localhost:8765/`.
 
 ## Luồng màn hình
 
@@ -14,9 +16,12 @@ dashboard.html     Cần bạn xử lý · Đội ngũ của tôi (cây 3 tầng
 employee.html      Biểu đồ 3 tầng bằng chứng + danh sách canvas theo tuần
       ↓ bấm một bản
 canvas.html        Canvas chi tiết · Gợi ý cho phiên 1-1 · Xuất Excel / Markdown
+
+canvas-online/     Form điền / nhập Markdown · xuất Excel / PDF / PNG
+coaching-report/   Báo cáo sau phiên coach ORACLE
 ```
 
-Mọi màn hình đều có lối sang **Tạo canvas mới** và **Nhập canvas từ Markdown** (mở `../canvas-online/`, riêng link `#import` mở sẵn ô nhập).
+Mọi HTML đều link sang `canvas-online/` và `coaching-report/` (đường dẫn tương đối trong repo, dùng được trên GitHub Pages). Link `#import` mở sẵn ô nhập Markdown.
 
 ## Chỉ số hiệu suất được vẽ là gì
 
