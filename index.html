@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Đăng nhập — Performance Follow-up | GoWise Partners</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/gwp.css">
+</head>
+<body class="login">
+<form class="loginbox" id="frm" autocomplete="off">
+  <img id="logo" alt="GoWise Partners">
+  <div class="brand">GoWise Partners</div>
+  <h1>Performance Follow-up</h1>
+  <p class="sub">Theo dõi canvas hiệu suất của đội ngũ theo nhịp tuần: ai đang đúng nhịp, ai cần bạn vào cuộc, và điều gì đang chặn kết quả.</p>
+
+  <label for="who">Đăng nhập bằng vai trò</label>
+  <select id="who">
+    <option value="l1">Trần Hải Đăng — Giám đốc vùng HCM</option>
+    <option value="p7">Phạm Thu Hà — Trưởng PGD Quận 7</option>
+    <option value="thn">Vũ Quốc Bảo — Tổ trưởng Thu hồi nợ sớm</option>
+  </select>
+
+  <label for="pw">Mật khẩu</label>
+  <input type="password" id="pw" value="demo" placeholder="demo">
+
+  <button class="btn" type="submit">Vào bảng theo dõi</button>
+  <p class="demo">Bản demo: chọn vai trò rồi bấm vào, mật khẩu để nguyên. Dữ liệu chỉ nằm trong trình duyệt máy này; tên người và số liệu đều là giả định.</p>
+</form>
+
+<script src="assets/data.js"></script>
+<script src="assets/app.js"></script>
+<script>
+document.getElementById("logo").src=LOGO;
+if(session() && PEOPLE[session().personId]) location.replace("dashboard.html");
+document.getElementById("frm").addEventListener("submit",e=>{
+  e.preventDefault();
+  signIn(document.getElementById("who").value);
+  location.href="dashboard.html";
+});
+</script>
+</body>
+</html>

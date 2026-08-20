@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coaching Report ORACLE — GoWise Partners</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* GoWise Partners — Design System v2.0 (frozen tokens, brand/gowise.css) */
+:root{
+  --gp-navy-950:#07121F; --gp-navy-900:#0D1B2A; --gp-navy-800:#102338; --gp-navy-700:#12304C;
+  --gp-gold-200:#E7D0A2; --gp-gold-300:#D7B16E; --gp-gold-400:#C9A668; --gp-gold-500:#B98A48; --gp-gold-600:#A87636;
+  --gp-ivory:#F7F1E7; --gp-porcelain:#F5F7FA; --gp-white:#FFFFFF;
+  --gp-text:#F7F1E7; --gp-mist:#D9E0E7; --gp-slate:#8193A4; --gp-slate-deep:#4C6076;
+  --gp-ink:#07121F; --gp-ink-soft:#45505C;
+  --gp-line-gold:rgba(201,166,104,.16); --gp-line-gold-strong:rgba(201,166,104,.40);
+  --gp-line-dark:rgba(13,27,42,.09);
+  --gp-font-serif:"Playfair Display",Georgia,"Times New Roman",serif;
+  --gp-font-sans:"Montserrat",system-ui,-apple-system,sans-serif;
+  --gp-radius-sm:4px; --gp-radius-card:16px; --gp-radius-lg:20px;
+  --gp-shadow-card:0 12px 34px rgba(7,18,31,.06);
+  --gp-shadow-gold:0 12px 30px rgba(201,166,104,.28);
+  --gp-ease:cubic-bezier(.22,.68,.24,1);
+  /* alias nội bộ của trang (giữ tương thích markup form) */
+  --brand:var(--gp-navy-900); --brand-soft:rgba(201,166,104,.10);
+  --ink:var(--gp-ink); --muted:var(--gp-ink-soft); --line:rgba(13,27,42,.14);
+  --bg:var(--gp-ivory); --card:var(--gp-white); --warn:var(--gp-gold-600);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{font-family:var(--gp-font-sans);background:var(--gp-ivory);color:var(--gp-ink);
+  font-size:15px;line-height:1.6}
+
+/* ===== Hero / header ===== */
+header.app{background:radial-gradient(120% 90% at 78% 22%,var(--gp-navy-700) 0%,var(--gp-navy-900) 42%,var(--gp-navy-950) 100%);
+  color:var(--gp-mist);padding:40px 24px 34px;border-bottom:1px solid var(--gp-line-gold-strong)}
+header.app .brandrow{max-width:1080px;margin:0 auto;display:flex;gap:20px;align-items:flex-start}
+header.app img.mark{width:56px;height:56px;flex-shrink:0;margin-top:4px}
+header.app .eyebrow{font-size:12px;font-weight:600;letter-spacing:.24em;text-transform:uppercase;
+  color:var(--gp-gold-400);margin-bottom:8px}
+header.app h1{margin:0;font-family:var(--gp-font-serif);font-weight:500;
+  font-size:clamp(26px,3.4vw,38px);line-height:1.1;letter-spacing:-.01em;color:var(--gp-text);text-wrap:balance}
+header.app h1 .gp-accent{color:var(--gp-gold-200)}
+header.app p.sub{margin:10px 0 0;font-size:14px;line-height:1.7;color:var(--gp-mist);max-width:70ch}
+main{max-width:1080px;margin:0 auto;padding:22px 16px 80px}
+
+/* ===== Toolbar ===== */
+.toolbar{position:sticky;top:0;z-index:30;background:rgba(7,18,31,.86);
+  -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);
+  border:1px solid var(--gp-line-gold);border-radius:var(--gp-radius-sm);
+  padding:12px 14px;margin-bottom:18px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.toolbar button{display:inline-flex;align-items:center;gap:8px;cursor:pointer;border:0;
+  font-family:var(--gp-font-sans);font-size:12px;font-weight:700;letter-spacing:.06em;
+  padding:11px 18px;color:var(--gp-navy-950);
+  background:linear-gradient(180deg,var(--gp-gold-200),var(--gp-gold-400));
+  transition:filter .25s,transform .25s var(--gp-ease),box-shadow .25s}
+.toolbar button:hover{filter:brightness(1.05);transform:translateY(-2px);box-shadow:var(--gp-shadow-gold)}
+.toolbar button.ghost{background:transparent;color:var(--gp-text);font-weight:600;
+  border:1px solid var(--gp-line-gold-strong)}
+.toolbar button.ghost:hover{border-color:var(--gp-gold-400);background:rgba(201,166,104,.06);box-shadow:none}
+.toolbar button.danger{background:transparent;color:var(--gp-slate);font-weight:600;
+  border:1px solid rgba(129,147,164,.4);margin-left:auto}
+.toolbar button.danger:hover{border-color:var(--gp-slate);color:var(--gp-mist);box-shadow:none}
+.toolbar .saved{font-size:12px;color:var(--gp-gold-200)}
+
+/* ===== Chuỗi nhân quả ===== */
+.chain{background:var(--gp-navy-950);color:var(--gp-mist);text-align:center;
+  border:1px solid var(--gp-line-gold);border-radius:var(--gp-radius-sm);
+  padding:14px 12px;font-size:13px;margin-bottom:18px}
+.chain b{color:var(--gp-gold-200);letter-spacing:.08em;font-weight:600}
+
+/* ===== Cards / steps ===== */
+section.card{background:var(--gp-white);border:1px solid var(--gp-line-dark);
+  border-radius:var(--gp-radius-lg);padding:26px 30px;margin-bottom:18px;box-shadow:var(--gp-shadow-card)}
+.step-en{font-size:11.5px;font-weight:600;color:var(--gp-gold-600);
+  text-transform:uppercase;letter-spacing:.24em;margin-bottom:4px}
+h2.step-title{margin:0 0 2px;font-family:var(--gp-font-serif);font-weight:600;
+  font-size:23px;line-height:1.24;color:var(--gp-navy-950)}
+.step-q{margin:6px 0 12px;font-family:var(--gp-font-serif);font-style:italic;
+  color:var(--gp-ink-soft);font-size:15.5px}
+label{display:block;font-weight:600;font-size:13px;margin:14px 0 5px;color:var(--gp-ink)}
+label .opt{font-weight:400;color:var(--gp-ink-soft)}
+input[type=text],input[type=date],textarea,select{
+  width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:var(--gp-radius-sm);
+  font:inherit;font-size:14px;color:var(--gp-ink);background:#fff}
+textarea{min-height:64px;resize:vertical}
+input:focus,textarea:focus,select:focus{outline:none;border-color:var(--gp-gold-500);
+  box-shadow:0 0 0 3px rgba(201,166,104,.20)}
+
+/* ===== Gợi ý ===== */
+details.hints{margin:12px 0 6px;border:1px solid var(--gp-line-gold-strong);
+  border-radius:var(--gp-radius-sm);background:rgba(201,166,104,.07)}
+details.hints summary{cursor:pointer;padding:10px 14px;font-weight:600;font-size:13px;
+  color:var(--gp-gold-600);letter-spacing:.02em;list-style:none;display:flex;align-items:center;gap:8px}
+details.hints summary::before{content:"✦";color:var(--gp-gold-400)}
+details.hints[open] summary{border-bottom:1px solid var(--gp-line-gold)}
+details.hints .hint-body{padding:12px 16px;font-size:13.5px;color:var(--gp-ink-soft)}
+details.hints .hint-body h4{margin:10px 0 3px;font-size:11px;text-transform:uppercase;
+  letter-spacing:.18em;color:var(--gp-gold-600);font-weight:600}
+details.hints .hint-body h4:first-child{margin-top:0}
+details.hints .hint-body p{margin:0 0 4px;color:var(--gp-ink)}
+.hint-mistake{color:#8a4a1c}
+
+/* ===== Bảng nhập ===== */
+.tbl{width:100%;border-collapse:collapse;margin:8px 0;font-size:13.5px}
+.tbl th{background:var(--gp-navy-900);color:var(--gp-gold-200);padding:8px 9px;text-align:left;
+  font-size:11.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;
+  border:1px solid var(--gp-navy-900)}
+.tbl td{border:1px solid var(--line);padding:4px;vertical-align:top;background:#fff}
+.tbl td input,.tbl td textarea,.tbl td select{border:none;padding:6px;border-radius:0;min-height:0;box-shadow:none}
+.tbl td input:focus,.tbl td textarea:focus,.tbl td select:focus{box-shadow:inset 0 0 0 2px rgba(201,166,104,.35)}
+.tbl td textarea{min-height:38px}
+.tbl-scroll{overflow-x:auto}
+.rowbtn{background:none;border:none;color:var(--gp-slate-deep);cursor:pointer;font-size:15px;padding:2px 6px}
+.rowbtn:hover{color:#8a4a1c}
+button.add{background:transparent;color:var(--gp-gold-600);border:1px dashed var(--gp-gold-500);
+  border-radius:var(--gp-radius-sm);padding:8px 14px;font:inherit;font-size:11.5px;font-weight:600;
+  letter-spacing:.08em;text-transform:uppercase;cursor:pointer;margin-top:6px;transition:background .25s}
+button.add:hover{background:rgba(201,166,104,.08)}
+button.add:disabled{opacity:.4;cursor:not-allowed}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 18px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 18px}
+.grid4{display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:0 18px}
+@media(max-width:760px){.grid2,.grid3,.grid4{grid-template-columns:1fr}
+  header.app .brandrow{flex-direction:column;gap:12px}}
+.note{font-size:12.5px;color:var(--gp-ink-soft);margin:4px 0 0}
+.stage-note{border-left:3px solid var(--gp-gold-500);background:rgba(201,166,104,.10);
+  padding:9px 14px;font-size:13px;border-radius:0 var(--gp-radius-sm) var(--gp-radius-sm) 0;
+  margin:10px 0;color:var(--gp-ink)}
+
+/* ===== Hướng dẫn điền ===== */
+ol.guide{margin:8px 0 2px;padding-left:22px}
+ol.guide li{margin-bottom:9px;font-size:13.5px;color:var(--gp-ink)}
+ol.guide li b{color:var(--gp-navy-950)}
+ol.guide .sub-note{color:var(--gp-ink-soft)}
+
+/* ===== Preview (PDF / PNG) ===== */
+#preview{background:#fff;color:var(--gp-ink);border:1px solid var(--gp-line-dark);
+  border-radius:var(--gp-radius-lg);padding:38px 44px;font-size:13.5px;line-height:1.55;
+  font-family:var(--gp-font-sans)}
+#preview .phead{display:flex;gap:16px;align-items:center;border-bottom:2px solid var(--gp-gold-400);
+  padding-bottom:12px}
+#preview .phead img{width:44px;height:44px;flex-shrink:0}
+#preview .pbrand{font-size:10.5px;font-weight:600;letter-spacing:.24em;text-transform:uppercase;
+  color:var(--gp-gold-600);margin-bottom:3px}
+#preview h1{font-family:var(--gp-font-serif);font-weight:500;font-size:21px;line-height:1.2;
+  color:var(--gp-navy-950);margin:0;border:none;padding:0}
+#preview .pmeta{font-size:11.5px;color:var(--gp-ink-soft);margin:10px 0 18px}
+#preview h2{font-family:var(--gp-font-serif);font-weight:600;font-size:15.5px;color:var(--gp-navy-900);
+  margin:24px 0 7px;padding:0 0 5px;background:none;border-bottom:1px solid var(--gp-line-gold-strong)}
+#preview h3{font-size:11px;font-weight:600;color:var(--gp-gold-600);margin:14px 0 4px;
+  text-transform:uppercase;letter-spacing:.18em;font-family:var(--gp-font-sans)}
+#preview table{width:100%;border-collapse:collapse;margin:6px 0;font-size:11.5px}
+#preview th{background:var(--gp-navy-900);color:var(--gp-gold-200);padding:5px 7px;text-align:left;
+  font-weight:600;font-size:10.5px;letter-spacing:.04em;text-transform:uppercase}
+#preview td{border:1px solid rgba(13,27,42,.15);padding:5px 7px;vertical-align:top}
+#preview p{margin:4px 0}
+#preview .pfoot{margin-top:28px;text-align:center;font-size:11px;color:var(--gp-ink-soft);
+  border-top:1px solid var(--gp-line-gold-strong);padding-top:10px}
+#preview .pfoot b{color:var(--gp-gold-600);letter-spacing:.06em}
+#previewWrap{display:none}
+#previewWrap.show{display:block}
+.preview-bar{display:flex;gap:8px;align-items:center;margin-bottom:10px}
+.preview-bar button{border:1px solid rgba(168,118,54,.4);background:#fff;color:var(--gp-ink);
+  border-radius:var(--gp-radius-sm);padding:7px 14px;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;
+  transition:border-color .25s,background .25s}
+.preview-bar button:hover{border-color:var(--gp-gold-600);background:rgba(168,118,54,.06)}
+footer.app{background:var(--gp-navy-950);color:var(--gp-slate-deep);border-top:1px solid var(--gp-line-gold);
+  margin-top:20px;padding:22px 16px;font-size:12px;text-align:center}
+footer.app .gold{color:var(--gp-gold-500)}
+
+@media (prefers-reduced-motion: reduce){
+  .toolbar button,.toolbar button:hover{transition:none;transform:none}
+}
+@media print{
+  body{background:#fff}
+  header.app,.toolbar,main>section.card,.preview-bar,footer.app,.chain{display:none !important}
+  #previewWrap{display:block !important}
+  main{max-width:none;padding:0}
+  #preview{border:none;padding:0;font-size:10.5pt}
+  #preview table{page-break-inside:avoid}
+}
+
+/* ===== Bổ sung riêng cho Coaching Report ===== */
+.canvas-comp{display:inline-block;font-size:11px;font-weight:600;letter-spacing:.06em;
+  color:var(--gp-gold-600);border:1px solid var(--gp-line-gold-strong);
+  border-radius:var(--gp-radius-sm);padding:3px 10px;margin:2px 0 4px;background:rgba(201,166,104,.06)}
+.dlv-list{list-style:none;margin:6px 0 2px;padding:0}
+.dlv-list li{display:flex;gap:10px;align-items:flex-start;padding:7px 10px;
+  border:1px solid var(--line);border-radius:var(--gp-radius-sm);margin-bottom:6px;background:#fff}
+.dlv-list input[type=checkbox]{width:17px;height:17px;margin:2px 0 0;accent-color:var(--gp-gold-500);flex-shrink:0}
+.dlv-list label{margin:0;font-weight:500;font-size:13.5px;cursor:pointer;flex:1}
+.level-row{display:flex;gap:10px;align-items:center;margin:10px 0 2px}
+.level-row .lv{font-weight:600;font-size:13px}
+.level-row select{width:auto;min-width:170px}
+#preview .badge{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.08em;
+  text-transform:uppercase;border-radius:3px;padding:2px 9px;vertical-align:2px;margin-left:8px}
+#preview .badge.dat{background:rgba(46,125,82,.12);color:#2e7d52;border:1px solid rgba(46,125,82,.35)}
+#preview .badge.mp{background:rgba(201,166,104,.16);color:var(--gp-gold-600);border:1px solid var(--gp-line-gold-strong)}
+#preview .badge.cd{background:rgba(138,74,28,.10);color:#8a4a1c;border:1px solid rgba(138,74,28,.35)}
+#preview ul.pdlv{list-style:none;margin:4px 0;padding:0}
+#preview ul.pdlv li{padding:2px 0}
+#preview ul.pdlv .on{color:var(--gp-ink)}
+#preview ul.pdlv .off{color:var(--gp-slate)}
+#preview .pnote{border-left:2px solid var(--gp-line-gold-strong);padding:2px 0 2px 12px;
+  color:var(--gp-ink-soft);margin:6px 0}
+#preview .pmsg{font-family:var(--gp-font-serif);font-style:italic;font-size:14.5px;
+  color:var(--gp-navy-900);border:1px solid var(--gp-line-gold-strong);
+  border-radius:var(--gp-radius-sm);background:rgba(201,166,104,.07);padding:14px 18px;margin:8px 0}
+</style>
+</head>
+<body>
+<header class="app">
+  <div class="brandrow">
+    <img class="mark" id="brandMark" alt="GoWise Partners">
+    <div>
+      <div class="eyebrow">GoWise Partners · Performance Coaching</div>
+      <h1>Coaching Report <span class="gp-accent">ORACLE</span> — báo cáo sau phiên coach</h1>
+      <p class="sub">Coach điền kết quả phiên coaching hiệu suất theo kịch bản ORACLE (gắn 1–1 với Performance Architecture Canvas schema 3.0), xem trước rồi tải về PDF / PNG / Markdown để gửi cho người được coach.</p>
+    </div>
+  </div>
+</header>
+<main>
+  <div class="toolbar" id="toolbar">
+    <button id="btnPreview">👁 Xem trước</button>
+    <button id="btnPdf">🖨 In / Lưu PDF</button>
+    <button id="btnPng" class="ghost">⬇ Ảnh PNG</button>
+    <button id="btnMd" class="ghost">⬇ Markdown (.md)</button>
+    <button id="btnCopyMd" class="ghost">📋 Sao chép Markdown</button>
+    <button id="btnSample" class="ghost">Nạp ví dụ mẫu</button>
+    <button id="btnClear" class="danger">Xóa dữ liệu</button>
+    <span class="saved" id="savedNote"></span>
+  </div>
+
+  <div class="chain"><b>O → R → A → C → L → E</b><br>
+  Objective → Reflection → Awareness → Creation → Leverage → Encouragement · mỗi bước tạo đúng một thành phần canvas</div>
+<section class="card" id="guideCard">
+    <div class="step-en">Hướng dẫn</div>
+    <h2 class="step-title">Hướng dẫn điền cơ bản</h2>
+    <details class="hints"><summary>Xem hướng dẫn từng bước (đọc 2 phút trước khi điền)</summary>
+      <div class="hint-body">
+        <ol class="guide">
+          <li><b>Điền ngay sau phiên coach</b> (hoặc ghi nhanh trong phiên), theo đúng thứ tự O → R → A → C → L → E — mỗi bước tạo đúng một thành phần của Performance Architecture Canvas.</li>
+          <li><b>Ở mỗi bước:</b> tick các deliverable đã đạt trong phiên, chọn mức độ đạt (Đạt / Một phần / Chưa đạt), rồi ghi "kết quả chốt tại phiên" <b>bằng lời của coachee</b> — không viết thay điều coachee chưa nói.</li>
+          <li><b>Ghi chú của Coach tách 4 lớp:</b> Fact — trích nguyên văn lời coachee hoặc canvas; Interpretation / Assumption — gắn nhãn rõ là diễn giải / giả định; Recommendation — chỉ ghi khi coachee đã đồng ý nghe gợi ý. Chẩn đoán hệ thống (điều kiện, hành vi), không quy lỗi cá nhân.</li>
+          <li><b>Bảng cam kết là của coachee:</b> ghi nguyên văn việc – thời hạn – dấu hiệu thành công – người hỗ trợ mà coachee tự chốt; không tự thêm việc coachee chưa cam kết.</li>
+          <li><b>Lịch review tối thiểu 2 mốc</b> (Sau 7 ngày, Sau 2–4 tuần) kèm người xác nhận — đây là cơ chế duy trì thay đổi của bước Encouragement.</li>
+          <li><b>Điền xong:</b> bấm "Xem trước" đọc lại bằng con mắt của coachee → <b>In / Lưu PDF</b> để gửi (khuyên dùng), hoặc PNG / Markdown. Dữ liệu tự lưu trong trình duyệt máy này; "Nạp ví dụ mẫu" để xem một báo cáo hoàn chỉnh.</li>
+          <li><b>Nếu coachee chốt cập nhật canvas v2:</b> yêu cầu chatbot render bản canvas đầy đủ (chỉ Markdown, đúng khung chuẩn), rồi dán vào <a href="../canvas-online/">Canvas Online</a> (nút "📥 Nhập từ Markdown") để xuất <b>PNG + Excel</b> gửi Leader và nhân viên cùng follow-up.</li>
+        </ol>
+        <p class="sub-note">Lưu ý riêng tư: ẩn danh hóa thông tin nhạy cảm của coachee trước khi lưu chuyển; báo cáo là tài liệu hỗ trợ phát triển, không dùng làm căn cứ duy nhất cho quyết định nhân sự.</p>
+      </div>
+    </details>
+  </section>
+
+  <section class="card" id="metaCard">
+    <div class="step-en">Thông tin phiên</div>
+    <h2 class="step-title">Phiên coaching</h2>
+    <div class="grid2">
+      <div>
+        <label>Chủ đề phiên coach</label>
+        <input type="text" id="f_topic" placeholder="Ví dụ: Cải tiến canvas Marketing Q2/2026 sau kết quả chấm">
+      </div>
+      <div>
+        <label>Ngày phiên</label>
+        <input type="date" id="f_date">
+      </div>
+    </div>
+    <div class="grid2">
+      <div>
+        <label>Coach</label>
+        <input type="text" id="f_coach" placeholder="Tên hoặc vai trò của Coach">
+      </div>
+      <div>
+        <label>Người được coach (Coachee)</label>
+        <input type="text" id="f_coachee" placeholder="Tên hoặc vai trò (khuyến nghị ẩn danh hóa)">
+      </div>
+    </div>
+    <div class="grid3">
+      <div>
+        <label>Hình thức</label>
+        <select id="f_mode">
+          <option value="">—</option>
+          <option>Trực tiếp</option>
+          <option>Online</option>
+          <option>Kết hợp</option>
+        </select>
+      </div>
+      <div>
+        <label>Thời lượng</label>
+        <input type="text" id="f_duration" placeholder="Ví dụ: 60 phút">
+      </div>
+      <div>
+        <label>Phiên số</label>
+        <input type="text" id="f_sessionNo" placeholder="Ví dụ: 1">
+      </div>
+    </div>
+    <div class="grid2">
+      <div>
+        <label>Canvas liên quan</label>
+        <input type="text" id="f_canvasName" placeholder="Tên canvas, ví dụ: Marketing Q2/2026">
+      </div>
+      <div>
+        <label>Canvas Stage tại thời điểm phiên</label>
+        <select id="f_canvasStage">
+          <option value="">—</option>
+          <option>DRAFT</option>
+          <option>PILOTING</option>
+          <option>VALIDATED</option>
+        </select>
+      </div>
+    </div>
+    <p class="note">Báo cáo lập theo phương pháp coaching ORACLE / GoWise Performance Theory — chẩn đoán <b>hệ thống</b> (điều kiện, hành vi), không quy lỗi cá nhân. Dữ liệu chỉ lưu trong trình duyệt của Coach.</p>
+  </section>
+
+  <section class="card">
+    <div class="step-en">Tổng quan</div>
+    <h2 class="step-title">Tóm tắt phiên</h2>
+    <label>Tóm tắt 3–5 dòng: phiên tập trung vào đâu, kết quả lớn nhất, điều còn mở</label>
+    <textarea id="f_summary" style="min-height:88px" placeholder="Ví dụ: Phiên tập trung làm rõ Key Result và chốt một Action Experiment 7 ngày. Coachee tự chọn hướng cải tiến chất lượng ra quyết định dựa trên dữ liệu…"></textarea>
+  </section>
+
+  <div id="steps"></div>
+
+  <section class="card">
+    <div class="step-en">Cam kết sau phiên</div>
+    <h2 class="step-title">Bảng cam kết của người được coach</h2>
+    <p class="note" style="margin-bottom:6px">Bảng cam kết do <b>coachee tự chốt</b> trong phiên — Coach ghi lại nguyên văn, không thêm việc coachee chưa cam kết.</p>
+    <div class="tbl-scroll"><table class="tbl" id="tblCommits">
+      <thead><tr><th style="width:32%">Việc</th><th style="width:15%">Thời hạn</th><th style="width:30%">Dấu hiệu thành công</th><th>Người hỗ trợ</th><th style="width:30px"></th></tr></thead>
+      <tbody></tbody>
+    </table></div>
+    <button class="add" id="addCommit">+ Thêm cam kết</button>
+  </section>
+
+  <section class="card">
+    <div class="step-en">Theo dõi</div>
+    <h2 class="step-title">Lịch review &amp; người xác nhận</h2>
+    <div class="tbl-scroll"><table class="tbl" id="tblReviews">
+      <thead><tr><th style="width:30%">Mốc review</th><th style="width:20%">Ngày</th><th style="width:35%">Nội dung review</th><th>Người xác nhận</th><th style="width:30px"></th></tr></thead>
+      <tbody></tbody>
+    </table></div>
+    <button class="add" id="addReview">+ Thêm mốc review</button>
+  </section>
+
+  <section class="card">
+    <div class="step-en">Encouragement</div>
+    <h2 class="step-title">Lời nhắn của Coach &amp; bước tiếp theo</h2>
+    <label>Lời nhắn khích lệ gửi coachee <span class="opt">(củng cố quyền sở hữu và điểm mạnh đã thể hiện trong phiên)</span></label>
+    <textarea id="f_message" style="min-height:80px" placeholder="Ví dụ: Bạn đã tự chốt được hướng đi và một thử nghiệm rất gọn trong 7 ngày…"></textarea>
+    <div class="grid2">
+      <div>
+        <label>Đề nghị cập nhật canvas (render v2) <span class="opt">(quyền tự quyết của coachee)</span></label>
+        <select id="f_canvasUpdate">
+          <option value="">—</option>
+          <option>Coachee đồng ý cập nhật canvas v2</option>
+          <option>Coachee chưa quyết định</option>
+          <option>Coachee chọn không cập nhật</option>
+        </select>
+        <p class="note">Nếu đồng ý: nhờ chatbot render canvas v2 đầy đủ → dán vào <a href="../canvas-online/">Canvas Online</a> ("📥 Nhập từ Markdown") → xuất PNG + Excel gửi các bên follow-up.</p>
+      </div>
+      <div>
+        <label>Trọng tâm dự kiến của phiên tiếp theo <span class="opt">(nếu có)</span></label>
+        <input type="text" id="f_nextFocus" placeholder="Ví dụ: Review kết quả Action Experiment sau 7 ngày">
+      </div>
+    </div>
+  </section>
+
+  <section id="previewWrap">
+    <div class="preview-bar">
+      <button id="btnClosePreview">✕ Đóng xem trước</button>
+      <span class="note">Đây là bản sẽ gửi cho người được coach (in PDF / chụp PNG).</span>
+    </div>
+    <div id="preview"></div>
+  </section>
+</main>
+<footer class="app"><span class="gold">GoWise Partners</span> · Coaching Report theo phương pháp ORACLE — hỗ trợ theo phương pháp coaching, minh bạch và tôn trọng quyền tự quyết của người được coach.</footer>
+
+<script>
+"use strict";
+const GWP_LOGO="data:image/png;base64,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";
+document.getElementById("brandMark").src=GWP_LOGO;
+
+/* ===== Dữ liệu canonical ORACLE (oracle-coaching.md §2–3 + sheet 05_ORACLE_danh_gia) ===== */
+const LEVELS=["Đạt","Một phần","Chưa đạt"];
+const ORACLE=[
+ {k:"O",en:"Objective",vn:"Mục tiêu",canvas:"Goal + Key Result",
+  goal:"Chuyển mong muốn còn mơ hồ thành một mục tiêu và Key Result cụ thể, có thể đo lường.",
+  dlv:["Goal được xác định rõ","Key Result có chỉ số đo lường và thời hạn","Coach và Coachee thống nhất mục tiêu của phiên Coaching"],
+  qs:["Chúng ta thực sự muốn đạt điều gì, và điều đó quan trọng với ai?","Con số nào chứng minh mục tiêu đã đạt, và đến khi nào?"],
+  resultLabel:"Goal & Key Result đã chốt tại phiên",
+  resultPh:"Ví dụ: Tăng Qualified Leads từ 200 lên 260/tháng, hạn 30/06/2026…"},
+ {k:"R",en:"Reflection",vn:"Nhìn lại hệ thống",canvas:"Critical Outputs / CS",
+  goal:"Nhìn lại cách hệ thống hiện tại đang tạo ra kết quả; xác định các đầu ra công việc (Critical Outputs) đang quyết định Key Result.",
+  dlv:["Hiểu rõ các hoạt động hiện tại","Phân biệt được Activities và Outputs","Xác định 1–3 Critical Outputs cần cải thiện","Lượng hóa khoảng cách của từng Output"],
+  qs:["Hiện tại đội đang làm gì để tạo ra con số đó?","Đâu là Output (đầu ra công việc quan sát được) chứ không phải Activity?"],
+  resultLabel:"Critical Outputs & khoảng cách đã xác định",
+  resultPh:"Ví dụ: Landing Page Conversion 8% → cần 12%; Content Engagement 2,8% → cần 5%…"},
+ {k:"A",en:"Awareness",vn:"Chọn hướng",canvas:"Solution Direction",
+  goal:"Khám phá, kiểm chứng và lựa chọn hướng tạo hiệu suất (Solution Direction) có khả năng tác động mạnh nhất tới các Critical Outputs.",
+  dlv:["Các hướng giải pháp đã được khám phá","Đã kiểm chứng bằng bằng chứng thực tế và logic tác động","Thống nhất một Solution Direction rõ ràng"],
+  qs:["Bạn thấy có những hướng nào có thể tác động đồng thời tới các Output?","Bằng chứng nào cho thấy hướng đó hợp lý?"],
+  resultLabel:"Solution Direction coachee đã chốt (coachee nêu trước, Coach chỉ gợi ý sau khi xin phép)",
+  resultPh:"Ví dụ: Nâng cao chất lượng ra quyết định Marketing dựa trên dữ liệu nhằm tăng Qualified Leads từ 200 lên 260 mỗi tháng…"},
+ {k:"C",en:"Creation",vn:"Thiết kế hệ thống",canvas:"Lever Behaviors + 6 Boxes",
+  goal:"Đồng sáng tạo hệ thống tạo hiệu suất gồm Lever Behaviors và các Conditions giúp hành vi xuất hiện bền vững.",
+  dlv:["Xác định 2–5 Lever Behaviors","Xác định các điều kiện cần thay đổi (Six Boxes)","Hình thành bản thiết kế hệ thống hiệu suất"],
+  qs:["Nếu chọn hướng này, đội phải làm khác điều gì?","Điều gì cần có để hành vi đó xảy ra ổn định — nhìn từ 6 Boxes, điều kiện nào chưa được khơi thông?"],
+  resultLabel:"Lever Behaviors & điều kiện then chốt đã chốt",
+  resultPh:"Ví dụ: Weekly Dashboard Review (đòn bẩy chính); điều kiện ưu tiên: thống nhất 5 KPI, dashboard chung, rõ owner…"},
+ {k:"L",en:"Leverage",vn:"Điểm đòn bẩy",canvas:"Action Experiment",
+  goal:"Chọn điểm đòn bẩy quan trọng nhất và chuyển thành một Action Experiment nhỏ, khả thi và có thể đo lường.",
+  dlv:["Một Action Experiment cụ thể","Người chịu trách nhiệm","Thời hạn","Tiêu chí hoàn thành rõ ràng"],
+  qs:["Trong 7–14 ngày, thử nghiệm nhỏ nhất nào kiểm chứng được giả thuyết của bạn?","Ai làm, đến khi nào, cần hỗ trợ gì?"],
+  resultLabel:"Action Experiment đã chốt (việc – owner – thời hạn – tiêu chí)",
+  resultPh:"Ví dụ: Hoàn thành Marketing Dashboard v1 trong 5 ngày làm việc — Owner: Data Analyst — Tiêu chí: có dữ liệu 5 KPI trọng yếu…"},
+ {k:"E",en:"Encouragement",vn:"Củng cố & theo dõi",canvas:"Follow-up Evidence",
+  goal:"Củng cố quyền sở hữu, thiết lập cơ chế theo dõi và học hỏi để duy trì thay đổi.",
+  dlv:["Follow-up Evidence được xác định","Lịch Review thống nhất","Cam kết hành động của Coachee","Cơ chế học hỏi sau thử nghiệm"],
+  qs:["Bằng chứng nào cho bạn biết hành vi đã đổi, Output đã cải thiện và Key Result đang tiến triển?","Khi nào Review, và ai là người xác nhận?"],
+  resultLabel:"Follow-up Evidence & cơ chế học hỏi đã thống nhất",
+  resultPh:"Ví dụ: Đo 3 tầng BEHAVIOR / OUTPUT / RESULT; review sau 7 ngày và sau 2–4 tuần; người xác nhận: Marketing Director…"}
+];
+
+/* ===== State ===== */
+const STORE_KEY="gwp-coaching-report-v1";
+function blankState(){
+  return {
+    meta:{topic:"",coach:"",coachee:"",date:new Date().toISOString().slice(0,10),
+      mode:"",duration:"",sessionNo:"",canvasName:"",canvasStage:""},
+    summary:"",
+    steps:ORACLE.map(s=>({checks:s.dlv.map(()=>false),level:"",result:"",notes:""})),
+    commits:[{task:"",deadline:"",signal:"",supporter:""}],
+    reviews:[{checkpoint:"Sau 7 ngày",date:"",content:"",verifier:""},
+             {checkpoint:"Sau 2–4 tuần",date:"",content:"",verifier:""}],
+    message:"",canvasUpdate:"",nextFocus:""
+  };
+}
+let state=load()||blankState();
+function load(){try{const r=localStorage.getItem(STORE_KEY);return r?JSON.parse(r):null}catch(e){return null}}
+let saveTimer=null;
+function save(){
+  clearTimeout(saveTimer);
+  saveTimer=setTimeout(()=>{
+    try{localStorage.setItem(STORE_KEY,JSON.stringify(state));
+      document.getElementById("savedNote").textContent="✓ Đã tự lưu "+new Date().toLocaleTimeString("vi-VN");
+    }catch(e){}
+  },300);
+}
+function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}
+
+/* ===== Render form ===== */
+function renderSteps(){
+  const host=document.getElementById("steps");
+  host.innerHTML=ORACLE.map((s,i)=>{
+    const st=state.steps[i];
+    return `<section class="card" id="step${s.k}">
+      <div class="step-en">${s.k} — ${esc(s.en)}</div>
+      <h2 class="step-title">${esc(s.vn)}</h2>
+      <span class="canvas-comp">Thành phần canvas: ${esc(s.canvas)}</span>
+      <details class="hints"><summary>Mục tiêu bước &amp; câu hỏi coaching mẫu</summary>
+        <div class="hint-body">
+          <h4>Mục tiêu hội thoại</h4><p>${esc(s.goal)}</p>
+          <h4>Câu hỏi mẫu (tối đa 2 câu hỏi mở mỗi lượt)</h4>
+          ${s.qs.map(q=>`<p>“${esc(q)}”</p>`).join("")}
+        </div>
+      </details>
+      <label>Deliverables của bước — đánh dấu mục đã đạt trong phiên</label>
+      <ul class="dlv-list">
+        ${s.dlv.map((d,j)=>`<li><input type="checkbox" id="chk${s.k}${j}" data-step="${i}" data-chk="${j}"${st.checks[j]?" checked":""}><label for="chk${s.k}${j}">${esc(d)}</label></li>`).join("")}
+      </ul>
+      <div class="level-row">
+        <span class="lv">Mức độ đạt của bước:</span>
+        <select data-step="${i}" data-k="level">
+          <option value=""${st.level===""?" selected":""}>—</option>
+          ${LEVELS.map(l=>`<option${st.level===l?" selected":""}>${l}</option>`).join("")}
+        </select>
+      </div>
+      <label>${esc(s.resultLabel)}</label>
+      <textarea data-step="${i}" data-k="result" placeholder="${esc(s.resultPh)}">${esc(st.result)}</textarea>
+      <label>Ghi chú &amp; quan sát của Coach <span class="opt">(tách lớp: Fact — trích nguyên văn; Interpretation / Assumption — gắn nhãn rõ; Recommendation — chỉ khi coachee đồng ý nghe)</span></label>
+      <textarea data-step="${i}" data-k="notes" placeholder="Ví dụ: Fact: coachee nói “dữ liệu nằm ở nhiều file”. Interpretation: nút thắt nằm ở điều kiện công cụ, không phải năng lực…">${esc(st.notes)}</textarea>
+    </section>`;
+  }).join("");
+  renderRows("commits");renderRows("reviews");
+}
+function txtCell(list,i,key,ph){return `<td><textarea data-l="${list}" data-i="${i}" data-k="${key}" placeholder="${esc(ph||"")}">${esc(state[list][i][key])}</textarea></td>`}
+function inCell(list,i,key,ph,type){return `<td><input type="${type||"text"}" data-l="${list}" data-i="${i}" data-k="${key}" placeholder="${esc(ph||"")}" value="${esc(state[list][i][key])}"></td>`}
+function delCell(list,i){return `<td>${state[list].length<=1?"":`<button class="rowbtn" data-del="${list}" data-i="${i}" title="Xóa dòng">✕</button>`}</td>`}
+function renderRows(list){
+  const body=document.querySelector((list==="commits"?"#tblCommits":"#tblReviews")+" tbody");
+  body.innerHTML=state[list].map((r,i)=>
+    list==="commits"
+      ?`<tr>${txtCell(list,i,"task","Việc coachee tự chốt")}${inCell(list,i,"deadline","","date")}${txtCell(list,i,"signal","Nhìn thấy gì thì coi là xong")}${txtCell(list,i,"supporter","Ai hỗ trợ")}${delCell(list,i)}</tr>`
+      :`<tr>${txtCell(list,i,"checkpoint","Sau 7 ngày…")}${inCell(list,i,"date","","date")}${txtCell(list,i,"content","Review nội dung gì")}${txtCell(list,i,"verifier","Người xác nhận")}${delCell(list,i)}</tr>`
+  ).join("");
+}
+function bindStatic(){
+  const map=[["f_topic","meta","topic"],["f_date","meta","date"],["f_coach","meta","coach"],
+    ["f_coachee","meta","coachee"],["f_mode","meta","mode"],["f_duration","meta","duration"],
+    ["f_sessionNo","meta","sessionNo"],["f_canvasName","meta","canvasName"],["f_canvasStage","meta","canvasStage"],
+    ["f_summary",null,"summary"],["f_message",null,"message"],
+    ["f_canvasUpdate",null,"canvasUpdate"],["f_nextFocus",null,"nextFocus"]];
+  map.forEach(([id,obj,key])=>{
+    const node=document.getElementById(id);
+    node.value=obj?state[obj][key]:state[key];
+    node.addEventListener("input",()=>{
+      if(obj)state[obj][key]=node.value;else state[key]=node.value;
+      save();
+    });
+  });
+  document.getElementById("addCommit").addEventListener("click",()=>{state.commits.push({task:"",deadline:"",signal:"",supporter:""});renderRows("commits");save()});
+  document.getElementById("addReview").addEventListener("click",()=>{state.reviews.push({checkpoint:"",date:"",content:"",verifier:""});renderRows("reviews");save()});
+}
+document.getElementById("steps").addEventListener("input",e=>{
+  const t=e.target;
+  if(t.dataset.chk!==undefined){state.steps[+t.dataset.step].checks[+t.dataset.chk]=t.checked;save();return}
+  if(t.dataset.step!==undefined&&t.dataset.k){state.steps[+t.dataset.step][t.dataset.k]=t.value;save()}
+});
+document.addEventListener("input",e=>{
+  const t=e.target,l=t.dataset.l;
+  if(!l)return;
+  state[l][+t.dataset.i][t.dataset.k]=t.value;save();
+});
+document.addEventListener("click",e=>{
+  const b=e.target.closest("[data-del]");
+  if(!b)return;
+  state[b.dataset.del].splice(+b.dataset.i,1);renderRows(b.dataset.del);save();
+});
+
+/* ===== Preview (gửi coachee — dùng cho PDF/PNG) ===== */
+function pv(v){return esc(String(v==null?"":v).trim()).replace(/\n/g,"<br>")}
+function levelBadge(l){
+  if(!l)return "";
+  const cls=l==="Đạt"?"dat":(l==="Một phần"?"mp":"cd");
+  return `<span class="badge ${cls}">${esc(l)}</span>`;
+}
+function pvTable(headers,rows){
+  if(!rows.length)return "<p><i>(chưa có dữ liệu)</i></p>";
+  return `<table><thead><tr>${headers.map(h=>`<th>${esc(h)}</th>`).join("")}</tr></thead><tbody>${
+    rows.map(r=>`<tr>${r.map(c=>`<td>${pv(c)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+}
+function metaLine(){
+  const m=state.meta,parts=[];
+  if(m.coach.trim())parts.push(`<b>Coach:</b> ${esc(m.coach)}`);
+  if(m.coachee.trim())parts.push(`<b>Coachee:</b> ${esc(m.coachee)}`);
+  if(m.date)parts.push(`<b>Ngày:</b> ${esc(m.date)}`);
+  if(m.mode)parts.push(`<b>Hình thức:</b> ${esc(m.mode)}`);
+  if(m.duration.trim())parts.push(`<b>Thời lượng:</b> ${esc(m.duration)}`);
+  if(m.sessionNo.trim())parts.push(`<b>Phiên số:</b> ${esc(m.sessionNo)}`);
+  if(m.canvasName.trim())parts.push(`<b>Canvas:</b> ${esc(m.canvasName)}${m.canvasStage?` (${esc(m.canvasStage)})`:""}`);
+  return parts.join(" · ");
+}
+function renderPreview(){
+  const host=document.getElementById("preview");
+  let h=`<div class="phead"><img src="${GWP_LOGO}" alt=""><div><div class="pbrand">GoWise Partners · Coaching Report — ORACLE</div><h1>${esc(state.meta.topic.trim()||"(chưa đặt chủ đề phiên)")}</h1></div></div>
+  <div class="pmeta">${metaLine()}</div>`;
+  if(state.summary.trim())h+=`<h2>Tóm tắt phiên</h2><p>${pv(state.summary)}</p>`;
+  ORACLE.forEach((s,i)=>{
+    const st=state.steps[i];
+    h+=`<h2>${s.k} — ${esc(s.en.toUpperCase())} | ${esc(s.vn.toUpperCase())}${levelBadge(st.level)}</h2>`;
+    h+=`<p style="color:var(--gp-ink-soft);font-size:12px"><i>${esc(s.goal)}</i> · Thành phần canvas: <b>${esc(s.canvas)}</b></p>`;
+    h+=`<ul class="pdlv">${s.dlv.map((d,j)=>`<li class="${st.checks[j]?"on":"off"}">${st.checks[j]?"✅":"⬜"} ${esc(d)}</li>`).join("")}</ul>`;
+    if(st.result.trim())h+=`<p><b>${esc(s.resultLabel)}:</b><br>${pv(st.result)}</p>`;
+    if(st.notes.trim())h+=`<div class="pnote"><b>Ghi chú của Coach:</b><br>${pv(st.notes)}</div>`;
+  });
+  h+=`<h2>Bảng cam kết của người được coach</h2>
+  <p style="font-size:11.5px;color:var(--gp-ink-soft)">Do coachee tự chốt trong phiên — thể hiện quyền sở hữu đối với kế hoạch hành động.</p>`;
+  h+=pvTable(["Việc","Thời hạn","Dấu hiệu thành công","Người hỗ trợ"],
+    state.commits.filter(c=>Object.values(c).some(v=>String(v).trim())).map(c=>[c.task,c.deadline,c.signal,c.supporter]));
+  h+=`<h2>Lịch review &amp; người xác nhận</h2>`;
+  h+=pvTable(["Mốc review","Ngày","Nội dung review","Người xác nhận"],
+    state.reviews.filter(r=>Object.values(r).some(v=>String(v).trim())).map(r=>[r.checkpoint,r.date,r.content,r.verifier]));
+  if(state.message.trim())h+=`<h2>Lời nhắn từ Coach</h2><div class="pmsg">${pv(state.message)}</div>`;
+  const tail=[];
+  if(state.canvasUpdate)tail.push(`<b>Cập nhật canvas (render v2):</b> ${esc(state.canvasUpdate)}.`);
+  if(state.nextFocus.trim())tail.push(`<b>Trọng tâm phiên tiếp theo:</b> ${esc(state.nextFocus)}.`);
+  if(tail.length)h+=`<p>${tail.join("<br>")}</p>`;
+  h+=`<div class="pfoot"><b>GoWise Partners</b> · Báo cáo lập theo phương pháp coaching ORACLE — GoWise Performance Theory · Chẩn đoán hệ thống, không quy lỗi cá nhân · Xuất ngày ${esc(new Date().toLocaleDateString("vi-VN"))}</div>`;
+  host.innerHTML=h;
+}
+
+/* ===== Markdown ===== */
+function mdCell(v){return String(v==null?"":v).trim().replace(/\|/g,"\\|").replace(/\s*\n\s*/g,"; ")||""}
+function mdTable(headers,rows){
+  const out=["| "+headers.join(" | ")+" |","|"+headers.map(()=>"---").join("|")+"|"];
+  rows.forEach(r=>out.push("| "+r.map(mdCell).join(" | ")+" |"));
+  return out.join("\n");
+}
+function buildMarkdown(){
+  const m=state.meta,L=[];
+  L.push(`# COACHING REPORT — ORACLE · ${m.topic.trim()||"(chưa đặt chủ đề phiên)"}`);
+  L.push("");
+  const parts=[];
+  if(m.coach.trim())parts.push(`**Coach:** ${m.coach.trim()}`);
+  if(m.coachee.trim())parts.push(`**Coachee:** ${m.coachee.trim()}`);
+  if(m.date)parts.push(`**Ngày:** ${m.date}`);
+  if(m.mode)parts.push(`**Hình thức:** ${m.mode}`);
+  if(m.duration.trim())parts.push(`**Thời lượng:** ${m.duration.trim()}`);
+  if(m.sessionNo.trim())parts.push(`**Phiên số:** ${m.sessionNo.trim()}`);
+  if(m.canvasName.trim())parts.push(`**Canvas:** ${m.canvasName.trim()}${m.canvasStage?` (${m.canvasStage})`:""}`);
+  L.push(parts.join(" · "));
+  if(state.summary.trim()){L.push("");L.push("## Tóm tắt phiên");L.push("");L.push(state.summary.trim())}
+  ORACLE.forEach((s,i)=>{
+    const st=state.steps[i];
+    L.push("");L.push(`## ${s.k} — ${s.en.toUpperCase()} | ${s.vn.toUpperCase()}${st.level?` — Mức độ đạt: ${st.level}`:""}`);
+    L.push("");L.push(`*${s.goal}* · Thành phần canvas: **${s.canvas}**`);L.push("");
+    s.dlv.forEach((d,j)=>L.push(`- ${st.checks[j]?"✅":"⬜"} ${d}`));
+    if(st.result.trim()){L.push("");L.push(`**${s.resultLabel}:** ${st.result.trim()}`)}
+    if(st.notes.trim()){L.push("");L.push(`**Ghi chú của Coach:** ${st.notes.trim()}`)}
+  });
+  L.push("");L.push("## Bảng cam kết của người được coach");L.push("");
+  L.push("_Do coachee tự chốt trong phiên._");L.push("");
+  L.push(mdTable(["Việc","Thời hạn","Dấu hiệu thành công","Người hỗ trợ"],
+    state.commits.filter(c=>Object.values(c).some(v=>String(v).trim())).map(c=>[c.task,c.deadline,c.signal,c.supporter])));
+  L.push("");L.push("## Lịch review & người xác nhận");L.push("");
+  L.push(mdTable(["Mốc review","Ngày","Nội dung review","Người xác nhận"],
+    state.reviews.filter(r=>Object.values(r).some(v=>String(v).trim())).map(r=>[r.checkpoint,r.date,r.content,r.verifier])));
+  if(state.message.trim()){L.push("");L.push("## Lời nhắn từ Coach");L.push("");L.push(`> ${state.message.trim().replace(/\n/g,"\n> ")}`)}
+  const tail=[];
+  if(state.canvasUpdate)tail.push(`**Cập nhật canvas (render v2):** ${state.canvasUpdate}.`);
+  if(state.nextFocus.trim())tail.push(`**Trọng tâm phiên tiếp theo:** ${state.nextFocus.trim()}.`);
+  if(tail.length){L.push("");L.push(tail.join("\n"))}
+  L.push("");L.push("---");
+  L.push("GoWise Partners · Báo cáo lập theo phương pháp coaching ORACLE — GoWise Performance Theory. Chẩn đoán hệ thống, không quy lỗi cá nhân.");
+  L.push("");
+  return L.join("\n");
+}
+
+/* ===== Xuất file ===== */
+function slug(){
+  const t=(state.meta.topic||"coaching-report").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"")
+    .replace(/đ/g,"d").replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"")||"coaching-report";
+  return "coaching-report-"+t+"-"+(state.meta.date||"").replace(/-/g,"");
+}
+function download(blob,filename){
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);a.download=filename;
+  document.body.appendChild(a);a.click();
+  setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},2000);
+}
+function showPreview(){
+  renderPreview();
+  document.getElementById("previewWrap").classList.add("show");
+  document.getElementById("previewWrap").scrollIntoView({behavior:"smooth"});
+}
+async function exportPng(){
+  renderPreview();
+  document.getElementById("previewWrap").classList.add("show");
+  const node=document.getElementById("preview");
+  const width=Math.max(node.scrollWidth,1000);
+  const height=node.scrollHeight+2;
+  const styleText=Array.from(document.querySelectorAll("style")).map(s=>s.textContent).join("\n");
+  const clone=node.cloneNode(true);
+  clone.style.width=width+"px";clone.style.border="none";
+  const xhtml=new XMLSerializer().serializeToString(clone);
+  const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
+<foreignObject width="100%" height="100%">
+<div xmlns="http://www.w3.org/1999/xhtml" style="background:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif">
+<style>${styleText.replace(/]]>/g,"")}</style>
+${xhtml}
+</div></foreignObject></svg>`;
+  const img=new Image();
+  await new Promise((res,rej)=>{img.onload=res;img.onerror=rej;img.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(svg)});
+  const canvas=document.createElement("canvas");
+  const scale=2;
+  canvas.width=width*scale;canvas.height=height*scale;
+  const ctx=canvas.getContext("2d");
+  ctx.fillStyle="#ffffff";ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.scale(scale,scale);ctx.drawImage(img,0,0);
+  canvas.toBlob(b=>{
+    if(b)download(b,slug()+".png");
+    else alert("Trình duyệt không hỗ trợ xuất PNG — hãy dùng In / Lưu PDF.");
+  },"image/png");
+}
+document.getElementById("btnPreview").addEventListener("click",showPreview);
+document.getElementById("btnClosePreview").addEventListener("click",()=>document.getElementById("previewWrap").classList.remove("show"));
+document.getElementById("btnMd").addEventListener("click",()=>download(new Blob([buildMarkdown()],{type:"text/markdown;charset=utf-8"}),slug()+".md"));
+document.getElementById("btnCopyMd").addEventListener("click",async()=>{
+  try{await navigator.clipboard.writeText(buildMarkdown());
+    const b=document.getElementById("btnCopyMd");const t=b.textContent;
+    b.textContent="✓ Đã sao chép";setTimeout(()=>b.textContent=t,2500);
+  }catch(e){alert("Không sao chép được — hãy dùng nút Tải Markdown.")}
+});
+document.getElementById("btnPng").addEventListener("click",()=>exportPng().catch(()=>alert("Xuất PNG thất bại trên trình duyệt này — hãy dùng In / Lưu PDF.")));
+document.getElementById("btnPdf").addEventListener("click",()=>{showPreview();setTimeout(()=>window.print(),300)});
+window.addEventListener("beforeprint",renderPreview);
+document.getElementById("btnClear").addEventListener("click",()=>{
+  if(confirm("Xóa toàn bộ dữ liệu đã điền? Hành động này không hoàn tác được.")){
+    state=blankState();localStorage.removeItem(STORE_KEY);renderSteps();bindValues();
+    document.getElementById("previewWrap").classList.remove("show");
+  }
+});
+function bindValues(){
+  [["f_topic","meta","topic"],["f_date","meta","date"],["f_coach","meta","coach"],
+   ["f_coachee","meta","coachee"],["f_mode","meta","mode"],["f_duration","meta","duration"],
+   ["f_sessionNo","meta","sessionNo"],["f_canvasName","meta","canvasName"],["f_canvasStage","meta","canvasStage"],
+   ["f_summary",null,"summary"],["f_message",null,"message"],
+   ["f_canvasUpdate",null,"canvasUpdate"],["f_nextFocus",null,"nextFocus"]]
+  .forEach(([id,obj,key])=>{document.getElementById(id).value=obj?state[obj][key]:state[key]});
+}
+
+/* ===== Ví dụ mẫu (phiên coach case Marketing — khớp gold example) ===== */
+document.getElementById("btnSample").addEventListener("click",()=>{
+  if(!confirm("Nạp ví dụ mẫu (phiên coach case Marketing)? Dữ liệu đang điền sẽ bị thay thế."))return;
+  state=blankState();
+  state.meta={topic:"Cải tiến canvas Marketing Q2/2026 sau kết quả chấm",coach:"Coach GoWise",
+    coachee:"Marketing Manager (đã ẩn danh)",date:"2026-04-03",mode:"Online",duration:"60 phút",
+    sessionNo:"1",canvasName:"Marketing Q2/2026",canvasStage:"DRAFT"};
+  state.summary="Phiên tập trung chuyển mong muốn “tăng lead” thành Key Result đo được và chốt một Action Experiment 7 ngày. Coachee tự chọn hướng nâng chất lượng ra quyết định dựa trên dữ liệu sau khi đối chiếu bằng chứng từ 6 Boxes. Điểm còn mở: nguồn dữ liệu cho dashboard cần được chuẩn hóa trước khi thử nghiệm bắt đầu.";
+  state.steps=[
+    {checks:[true,true,true],level:"Đạt",
+     result:"Goal: Nâng cao hiệu quả Marketing bằng cách tăng số lượng và chất lượng Qualified Leads. Key Result: Qualified Leads/tháng tăng từ 200 lên 260, hạn 30/06/2026.",
+     notes:"Fact: coachee mở đầu bằng “muốn đội chạy nhiều chiến dịch hơn”. Sau hai câu hỏi mở, coachee tự chuyển sang kết quả cuối: số lead đạt chuẩn qualified."},
+    {checks:[true,true,true,true],level:"Đạt",
+     result:"Hai Critical Outputs quyết định Key Result: Landing Page Conversion (8% → 12%) và Content Engagement (2,8% → 5%), đều đo bằng dashboard chung.",
+     notes:"Fact: coachee liệt kê 6 hoạt động, trong đó 4 là Activity. Interpretation: đội đang đo nỗ lực, chưa đo đầu ra — coachee xác nhận."},
+    {checks:[true,true,true],level:"Đạt",
+     result:"Solution Direction coachee tự chốt: Nâng cao chất lượng ra quyết định Marketing dựa trên dữ liệu nhằm tăng Qualified Leads từ 200 lên 260 mỗi tháng.",
+     notes:"Coachee nêu 3 hướng; sau khi xin phép, Coach gợi ý thêm 1 hướng về message-market fit. Coachee giữ hướng dữ liệu vì khớp với 3 khoảng cách mức Cao ở 6 Boxes."},
+    {checks:[true,true,false],level:"Một phần",
+     result:"3 Lever Behaviors: Weekly Dashboard Review (đòn bẩy chính), tối thiểu 2 A/B Test/tuần, quyết định có bằng chứng dữ liệu. Điều kiện ưu tiên: thống nhất 5 KPI, dashboard chung, rõ owner.",
+     notes:"Bản thiết kế hệ thống mới phủ 4/6 Boxes — hai ô Hệ quả & Ghi nhận, Động lực & Ưu tiên hẹn hoàn thiện ở phiên sau. Assumption: quỹ thời gian cho review có thể bị yêu cầu phát sinh lấn — cần kiểm chứng tuần đầu."},
+    {checks:[true,true,true,true],level:"Đạt",
+     result:"Action Experiment: hoàn thành Marketing Dashboard v1 trong 5 ngày làm việc (06/04–10/04). Owner: Data Analyst. Supporter: Marketing Manager. Tiêu chí: có dữ liệu 5 KPI trọng yếu.",
+     notes:"Fact: coachee tự đề xuất phạm vi 5 ngày. Rủi ro coachee nêu: dữ liệu phân tán — xử lý bằng việc chốt một nguồn duy nhất trước khi dựng."},
+    {checks:[true,true,true,false],level:"Một phần",
+     result:"Đo 3 tầng: BEHAVIOR (review + số A/B Test, mốc 14/04), OUTPUT (LP Conversion & Engagement, mốc 01/05), RESULT (Qualified Leads, mốc 30/06). Người xác nhận: Marketing Director.",
+     notes:"Cơ chế học hỏi sau thử nghiệm (đưa learning vào review) mới thống nhất ở mức nguyên tắc — sẽ cụ thể hóa sau vòng review đầu."}],
+  state.commits=[
+    {task:"Chốt một nguồn dữ liệu duy nhất cho 5 KPI",deadline:"2026-04-06",signal:"Data Analyst xác nhận đủ dữ liệu để dựng dashboard",supporter:"Data Analyst"},
+    {task:"Hoàn thành Marketing Dashboard v1",deadline:"2026-04-10",signal:"Dashboard hiển thị 5 KPI trọng yếu, cập nhật hàng ngày",supporter:"Marketing Manager"},
+    {task:"Block lịch Weekly Dashboard Review cố định",deadline:"2026-04-07",signal:"Lịch tuần xuất hiện trên calendar toàn đội, có owner",supporter:"Toàn đội"}];
+  state.reviews=[
+    {checkpoint:"Sau 7 ngày",date:"2026-04-14",content:"Dashboard v1 + Weekly Review đầu tiên + 2 A/B Test",verifier:"Marketing Director"},
+    {checkpoint:"Sau 2–4 tuần",date:"2026-05-01",content:"LP Conversion & Content Engagement so với ngưỡng giữa kỳ",verifier:"Marketing Director"}];
+  state.message="Bạn đã tự đi từ một mong muốn chung đến một Key Result đo được và một thử nghiệm 5 ngày rất gọn — đó chính là năng lực kiến trúc hiệu suất. Điều tôi đánh giá cao nhất: bạn chọn hướng dựa trên bằng chứng từ 6 Boxes thay vì cảm tính. Hẹn gặp ở mốc review 14/04.";
+  state.canvasUpdate="Coachee đồng ý cập nhật canvas v2";
+  state.nextFocus="Review kết quả Action Experiment sau 7 ngày (14/04) và hoàn thiện 2 ô 6 Boxes còn lại";
+  renderSteps();bindValues();save();
+  window.scrollTo({top:0,behavior:"smooth"});
+});
+
+/* ===== Khởi động ===== */
+renderSteps();
+bindStatic();
+</script>
+</body>
+</html>
