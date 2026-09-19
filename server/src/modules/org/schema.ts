@@ -55,3 +55,10 @@ export const updateCompanyBodySchema = z
   .object({ name: nameField.optional(), timezone: timezoneField.optional() })
   .strict();
 export type UpdateCompanyBody = z.infer<typeof updateCompanyBodySchema>;
+
+// Reporting line (task 1.2): managerId is a required key whose value is a
+// uuid OR explicit null — null unassigns the subject's manager.
+export const setManagerBodySchema = z
+  .object({ managerId: z.uuid().nullable() })
+  .strict();
+export type SetManagerBody = z.infer<typeof setManagerBodySchema>;

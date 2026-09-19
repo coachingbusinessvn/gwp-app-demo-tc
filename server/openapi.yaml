@@ -33,6 +33,10 @@ tags:
       Organization administration — single-company deployment, so there is
       NO company create/list endpoint: the company is a singleton profile.
       Mutations are owner/admin only; every authenticated member can read.
+  - name: users
+    description: >
+      User administration — reporting lines are owner-only (role and
+      lifecycle endpoints arrive later in Phase 1).
 
 paths:
   /health/live:
@@ -687,6 +691,72 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/users/{id}/manager:
+    put:
+      tags: [users]
+      summary: Set a user's reporting line
+      description: >
+        Owner only — the reporting tree is a privilege boundary, so admin
+        cannot graft itself into it (403). Sets or clears (`managerId:
+        null`) the user's manager. Both users must be active members of
+        the company; self-assignments and reporting cycles (the new
+        manager must not sit in the user's current subtree) are rejected.
+        Concurrent edits serialize on the company lock — the loser sees a
+        clean 409, never a 500. Access changes apply on the very next
+        authorization read; nothing is cached.
+      operationId: setUserManager
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ManagerUpdateRequest"
+      responses:
+        "200":
+          description: Reporting line updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserManager"
+        "400":
+          description: >
+            Body failed validation — missing/non-uuid managerId, a
+            self-assignment, or an unexpected key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller is not the owner.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: No such user (subject or manager) in this company.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: >
+            The assignment would close a reporting cycle, or the subject
+            or the new manager is not active.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
 components:
   parameters:
     XCsrfToken:
@@ -719,6 +789,14 @@ components:
       in: path
       required: true
       description: Org unit id inside the caller's company.
+      schema:
+        type: string
+        format: uuid
+    UserId:
+      name: id
+      in: path
+      required: true
+      description: User id inside the caller's company.
       schema:
         type: string
         format: uuid
@@ -972,3 +1050,27 @@ components:
         departmentId:
           type: string
           format: uuid
+    ManagerUpdateRequest:
+      type: object
+      required: [managerId]
+      additionalProperties: false
+      description: >
+        The managerId key is required; its value is a user uuid of the
+        same company, or explicit null to unassign the subject's manager.
+      properties:
+        managerId:
+          type: string
+          format: uuid
+          nullable: true
+    UserManager:
+      type: object
+      required: [id, managerId]
+      properties:
+        id:
+          type: string
+          format: uuid
+        managerId:
+          type: string
+          format: uuid
+          nullable: true
+          description: The subject's manager after the write.

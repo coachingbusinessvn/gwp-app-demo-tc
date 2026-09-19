@@ -9,11 +9,13 @@ import { requireAuth } from "../auth/middleware.js";
 import {
   createDepartmentBodySchema,
   createTeamBodySchema,
+  setManagerBodySchema,
   updateCompanyBodySchema,
   updateDepartmentBodySchema,
   updateTeamBodySchema,
 } from "./schema.js";
 import { createOrgService } from "./service.js";
+import { createReportingService } from "./reporting.service.js";
 
 /**
  * /api/v1 org surface (task 1.1, spec §3/§4):
@@ -28,6 +30,7 @@ import { createOrgService } from "./service.js";
  *   POST  /teams                    — create, owner/admin
  *   PATCH /teams/:id                — rename/move, owner/admin
  *   POST  /teams/:id/archive        — archive, owner/admin (409 in use)
+ *   PUT   /users/:id/manager        — reporting line, OWNER only (task 1.2)
  *
  * There is deliberately NO /api/v1/companies route: one deployment = one
  * company, so company create/list is an unknown route → 404 (spec §3).
@@ -80,6 +83,7 @@ export function orgRoutes(deps: {
   const { db, clock, config } = deps;
   const auth = createAuthService({ db, clock, config });
   const org = createOrgService({ db, clock });
+  const reporting = createReportingService({ db });
   const router = Router();
 
   router.get(
@@ -198,6 +202,19 @@ export function orgRoutes(deps: {
     async (req: Request, res: Response) => {
       const id = pathId(req.params.id);
       res.json(await org.archiveOrgUnit(actorOf(res), "team", id));
+    },
+  );
+
+  // Reporting tree (task 1.2): owner-only, serialized on the company lock.
+  // The strict body requires the managerId key — a uuid to assign, explicit
+  // null to unassign — so there is no way to smuggle other user fields.
+  router.put(
+    "/users/:id/manager",
+    requireAuth(auth),
+    async (req: Request, res: Response) => {
+      const id = pathId(req.params.id);
+      const body = parseBody(setManagerBodySchema, req.body);
+      res.json(await reporting.setManager(actorOf(res), id, body.managerId));
     },
   );
 
