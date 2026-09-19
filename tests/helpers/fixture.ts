@@ -3,7 +3,7 @@ import type { Express } from "express";
 import type { Knex } from "knex";
 import request, { type SuperTest, type Test } from "supertest";
 import { createApp } from "../../server/src/app.js";
-import { loadConfig } from "../../server/src/config.js";
+import { loadConfig, type DemoMode } from "../../server/src/config.js";
 import { createDb } from "../../server/src/db/connection.js";
 import { migrate } from "../../server/src/db/migrate.js";
 import type { ActorContext, Id } from "../../server/src/shared/contracts.js";
@@ -107,10 +107,16 @@ const AGENT_METHODS = [
  *
  * migrated:false creates the schema and runtime connection but skips
  * migrations/grants — for readiness/probe tests that need a pending state.
+ *
+ * mode overrides DEMO_MODE for this fixture only: config.mode (loadConfig)
+ * and the deployment_state row are both set, via a post-migration UPDATE on
+ * the maintenance connection (test schemas only — production mode is fixed
+ * at migration time and never flipped by the app).
  */
 export async function fixture(options?: {
   seeded?: boolean;
   migrated?: boolean;
+  mode?: DemoMode;
 }): Promise<Fixture> {
   for (const url of [
     TEST_DATABASE_URL,
@@ -124,7 +130,10 @@ export async function fixture(options?: {
     throw new Error("fixture: seeded requires a migrated schema");
 
   const schema = `test_${randomUUID().replaceAll("-", "")}`;
-  const config = loadConfig(testEnv);
+  const config = loadConfig({
+    ...testEnv,
+    DEMO_MODE: options?.mode ?? testEnv.DEMO_MODE,
+  });
   const runtimeRole = urlUser(TEST_DATABASE_URL);
   const migratorRole = urlUser(TEST_MIGRATOR_DATABASE_URL);
 
@@ -178,6 +187,17 @@ export async function fixture(options?: {
       await maintenanceDb.raw(
         `GRANT DELETE ON TABLE "${schema}".audit_event TO "gwp_maintenance"`,
       );
+
+      // Per-fixture deployment mode override (test schemas only). migrate()
+      // already seeds the singleton with config.mode; this UPDATE via the
+      // maintenance connection is the explicit override path so tests can
+      // pin the recorded mode independently of process env.
+      if (options?.mode) {
+        await maintenanceDb.raw(
+          `UPDATE "${schema}".deployment_state SET mode = ? WHERE singleton_id = 1`,
+          [options.mode],
+        );
+      }
     }
   } catch (err) {
     await maintenanceDb

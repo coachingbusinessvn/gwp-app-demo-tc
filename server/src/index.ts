@@ -1,9 +1,24 @@
 import { createApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { createDb } from "./db/connection.js";
+import { assertDeploymentMode } from "./db/deployment-state.js";
 
 const config = loadConfig(process.env);
 const db = createDb(config.databaseUrl);
+
+// Refuse to boot when the database was provisioned for a different mode —
+// DEMO_MODE is an immutable property of the DB, not a runtime toggle (§8).
+try {
+  await assertDeploymentMode(db, config);
+} catch (err) {
+  console.error(
+    "startup check failed:",
+    err instanceof Error ? err.message : err,
+  );
+  await db.destroy().catch(() => {});
+  process.exit(1);
+}
+
 const app = createApp({ db, clock: () => new Date(), config });
 
 const server = app.listen(config.port, "0.0.0.0", () => {
