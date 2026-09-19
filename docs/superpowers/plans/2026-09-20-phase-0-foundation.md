@@ -109,7 +109,7 @@ git commit -m "feat: bootstrap typed API and isolated PostgreSQL tests"
 - `migrate(db: Knex): Promise<void>`; `lockCompany(tx: Knex.Transaction, companyId: string): Promise<void>`.
 - `appendAudit(tx, event: {companyId, actorId?, action, targetId?, outcome, requestId, metadata}): Promise<void>`; metadata strict allowlist.
 
-- [ ] **Step 1: Viết test đỏ** trong `tests/integration/foundation-db.test.ts`. Migrations fresh/re-run, unique normalized email, no second company, pending vs active password, runtime role không UPDATE/DELETE audit.
+- [x] **Step 1: Viết test đỏ** trong `tests/integration/foundation-db.test.ts`. Migrations fresh/re-run, unique normalized email, no second company, pending vs active password, runtime role không UPDATE/DELETE audit.
 
 ```ts
 await expect(f.db("audit_event").update({ action: "tamper" }))
@@ -118,13 +118,13 @@ await expect(f.db("company").insert({ id: crypto.randomUUID(), name: "Second", s
   .rejects.toMatchObject({ code: "23505" });
 ```
 
-- [ ] **Step 2: Chạy test trước triển khai.**
+- [x] **Step 2: Chạy test trước triển khai.**
 
 Run: `npm test -- tests/integration/foundation-db.test.ts`.
 Expected: FAIL tại hành vi/assertion mới hoặc missing module; sửa lỗi setup/môi trường trước,
 không coi lỗi không kết nối DB là bằng chứng RED hợp lệ.
 
-- [ ] **Step 3: Triển khai phần lõi và nối interface.**
+- [x] **Step 3: Triển khai phần lõi và nối interface.**
 
 Tạo company/user/role/user_role/setting/deployment_state/auth_session/refresh_token/audit_event theo spec; department/team tới Phase 1. company.singleton unique CHECK true; outsider cùng company ngoài subtree, không bypass singleton trong tests. Trường email_normalized unique theo company. Tạo runtime/migrator/maintenance roles bằng script operator, grant audit INSERT/SELECT nhưng không UPDATE/DELETE; không test bằng superuser. company lock được mọi mutation quyền và protected write dùng chung.
 
@@ -142,12 +142,12 @@ ALTER TABLE app_user ADD CONSTRAINT active_password
   CHECK (status <> 'active' OR password_hash IS NOT NULL);
 ```
 
-- [ ] **Step 4: Chạy lại test và kiểm tra hồi quy.**
+- [x] **Step 4: Chạy lại test và kiểm tra hồi quy.**
 
 Run: `npm test -- tests/integration/foundation-db.test.ts`, rồi `npm run typecheck`.
 Expected: test mới PASS, typecheck exit 0. Chạy thêm toàn bộ integration tests của module vừa thay đổi.
 
-- [ ] **Step 5: Commit riêng task sau khi kiểm tra diff.**
+- [x] **Step 5: Commit riêng task sau khi kiểm tra diff.**
 
 ```sh
 git diff --check
