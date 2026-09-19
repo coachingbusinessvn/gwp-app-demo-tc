@@ -11,6 +11,10 @@ import type {
   Id,
 } from "../../server/src/shared/contracts.js";
 import {
+  assertConnectedToDisposableDb,
+  assertDisposableDbUrl,
+} from "./disposable-db.js";
+import {
   FIXTURE_PASSWORD,
   PERSONAS,
   generatePersonaIds,
@@ -77,21 +81,14 @@ function urlUser(url: string): string {
 }
 
 function assertTestDatabaseUrl(url: string): void {
-  const dbName = new URL(url).pathname.replace(/^\//, "");
-  if (dbName !== "gwp_test") {
-    throw new Error(
-      `fixture refuses to use database "${dbName}" — TEST_*_DATABASE_URL must point at gwp_test`,
-    );
-  }
+  assertDisposableDbUrl(url, {
+    envVar: "TEST_*_DATABASE_URL",
+    dbName: "gwp_test",
+  });
 }
 
 async function assertConnectedToTestDb(db: Knex): Promise<void> {
-  const { rows } = await db.raw("select current_database() as name");
-  if (rows[0].name !== "gwp_test") {
-    throw new Error(
-      `fixture refuses to run against database "${rows[0].name}" — expected gwp_test`,
-    );
-  }
+  await assertConnectedToDisposableDb(db, "gwp_test");
 }
 
 const AGENT_METHODS = [

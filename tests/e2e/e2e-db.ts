@@ -5,6 +5,10 @@ import { bootstrapDbRoles } from "../../scripts/ops/bootstrap-db-roles.js";
 import { createDb } from "../../server/src/db/connection.js";
 import { migrate } from "../../server/src/db/migrate.js";
 import {
+  assertConnectedToDisposableDb,
+  assertDisposableDbUrl,
+} from "../helpers/disposable-db.js";
+import {
   TEST_DATABASE_URL,
   TEST_MAINTENANCE_DATABASE_URL,
   TEST_MIGRATOR_DATABASE_URL,
@@ -51,6 +55,36 @@ function urlPassword(url: string): string | undefined {
   return password === "" ? undefined : decodeURIComponent(password);
 }
 
+const TEST_DB_NAME = "gwp_test";
+
+/**
+ * Same double verification the vitest fixture applies, strictened for the
+ * destructive part of this file (DROP DATABASE ... WITH (FORCE) + role
+ * bootstrap): every source URL must point at the disposable container
+ * (127.0.0.1/localhost:54329) and the gwp_test database, and each live
+ * connection re-proves it via SELECT current_database(). Env overrides that
+ * point elsewhere fail closed with the env var named — BEFORE any DDL runs.
+ */
+function assertE2eTargets(): void {
+  for (const [envVar, url] of [
+    ["TEST_DATABASE_URL", TEST_DATABASE_URL],
+    ["TEST_MIGRATOR_DATABASE_URL", TEST_MIGRATOR_DATABASE_URL],
+    ["TEST_MAINTENANCE_DATABASE_URL", TEST_MAINTENANCE_DATABASE_URL],
+  ] as const) {
+    assertDisposableDbUrl(url, {
+      envVar,
+      dbName: TEST_DB_NAME,
+      requireContainerHost: true,
+    });
+    // The derived e2e URL shares host/port — assert the db name swap too.
+    assertDisposableDbUrl(withDb(url, E2E_DB_NAME), {
+      envVar,
+      dbName: E2E_DB_NAME,
+      requireContainerHost: true,
+    });
+  }
+}
+
 async function recreateE2eDatabase(): Promise<void> {
   // The container superuser connects to its home DB (gwp_test) to run
   // CREATE/DROP DATABASE — you cannot drop the DB you are connected to.
@@ -62,6 +96,7 @@ async function recreateE2eDatabase(): Promise<void> {
   });
   try {
     await admin.raw("select 1");
+    await assertConnectedToDisposableDb(admin, TEST_DB_NAME);
     await admin.raw(`DROP DATABASE IF EXISTS "${E2E_DB_NAME}" WITH (FORCE)`);
     await admin.raw(`CREATE DATABASE "${E2E_DB_NAME}"`);
   } catch (err) {
@@ -76,6 +111,7 @@ async function recreateE2eDatabase(): Promise<void> {
 }
 
 export async function provisionE2eDatabase(): Promise<void> {
+  assertE2eTargets(); // URL-shape guard BEFORE any connection or DDL.
   await recreateE2eDatabase();
 
   // Least-privilege roles on the fresh DB — same bootstrap as vitest.
@@ -94,6 +130,7 @@ export async function provisionE2eDatabase(): Promise<void> {
   // Real migrations + persona seed on the migrator credential.
   const migratorDb = createDb(E2E_URLS.migrator);
   try {
+    await assertConnectedToDisposableDb(migratorDb, E2E_DB_NAME);
     await migrate(migratorDb, { mode: "demo" });
     await seedCompanyWithPersonas(migratorDb, "GWP E2E Company");
   } finally {
