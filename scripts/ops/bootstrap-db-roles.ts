@@ -5,9 +5,15 @@ import knex from "knex";
 /**
  * Operator script — creates the three least-privilege database roles the app
  * uses and grants schema/table privileges. Idempotent: safe to re-run, and
- * MUST be re-run after migrations that add tables so the new relations pick
+ * SHOULD be re-run after migrations that add tables so the new relations pick
  * up grants (default privileges cover tables gwp_migrator creates, but the
- * audit_event/schema_migration restrictions below are table-specific).
+ * audit_event/schema_migration restrictions below are table-specific). Note
+ * the ordering hazard this creates: run before db:migrate, the guarded
+ * revokes are skipped while default privileges auto-grant runtime write on
+ * audit_event/schema_migration at CREATE time — so migrate() itself re-issues
+ * those revokes as table owner (see enforceRuntimeRestrictions in
+ * server/src/db/migrate.ts). The revokes here are defense in depth for the
+ * opposite order.
  *
  *   gwp_migrator    — owns schema objects; runs migrations (DDL + full DML)
  *   gwp_runtime     — the API server's account; DML only, with audit_event

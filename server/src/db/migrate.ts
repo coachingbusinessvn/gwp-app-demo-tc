@@ -28,6 +28,8 @@ const TRACKING_TABLE = "schema_migration";
 // Arbitrary fixed key for the migration advisory lock (xact-scoped).
 const MIGRATION_LOCK_KEY = 7282031;
 
+const RUNTIME_ROLE = "gwp_runtime";
+
 async function ensureTrackingTable(db: Knex): Promise<void> {
   // IF NOT EXISTS keeps two racing migrators from failing on duplicate create.
   await db.raw(`
@@ -100,6 +102,39 @@ export async function migrate(
       .onConflict("singleton_id")
       .ignore();
   }
+
+  await enforceRuntimeRestrictions(db);
+}
+
+/**
+ * Deterministic, order-independent protection for append-only audit and
+ * read-only migration tracking. ALTER DEFAULT PRIVILEGES (bootstrap-db-roles)
+ * grants the runtime role full DML on every table the migrator creates — so
+ * when bootstrap ran before the tables existed, audit_event/schema_migration
+ * are born writable by gwp_runtime. This connection runs as gwp_migrator, the
+ * table owner, so these revokes always succeed regardless of provisioning
+ * order; the bootstrap script keeps its own guarded revokes as defense in
+ * depth for the opposite order. gwp_runtime may not exist yet when migrate
+ * runs before bootstrap — skip silently in that case.
+ */
+async function enforceRuntimeRestrictions(db: Knex): Promise<void> {
+  const role = await db.raw("SELECT 1 FROM pg_roles WHERE rolname = ?", [
+    RUNTIME_ROLE,
+  ]);
+  if (role.rows.length === 0) return;
+
+  const audit = await db.raw("SELECT to_regclass(?) AS c", ["audit_event"]);
+  if (audit.rows[0].c !== null) {
+    await db.raw(
+      `REVOKE UPDATE, DELETE ON TABLE "audit_event" FROM "${RUNTIME_ROLE}"`,
+    );
+  }
+  const tracking = await db.raw("SELECT to_regclass(?) AS c", [TRACKING_TABLE]);
+  if (tracking.rows[0].c !== null) {
+    await db.raw(
+      `REVOKE INSERT, UPDATE, DELETE ON TABLE "${TRACKING_TABLE}" FROM "${RUNTIME_ROLE}"`,
+    );
+  }
 }
 
 /**
@@ -117,6 +152,16 @@ export function resolveMigratorUrl(env: NodeJS.ProcessEnv): string {
   if (!url)
     throw new Error(
       "db:migrate requires MIGRATOR_DATABASE_URL or DATABASE_URL",
+    );
+  let scheme: string;
+  try {
+    scheme = new URL(url).protocol.replace(/:$/, "");
+  } catch {
+    throw new Error("db:migrate connection URL is not a valid URL");
+  }
+  if (scheme !== "postgres" && scheme !== "postgresql")
+    throw new Error(
+      `db:migrate connection URL must be a postgres:// URL, got scheme "${scheme}"`,
     );
   return url;
 }

@@ -90,6 +90,42 @@ describe("foundation schema (migration 0001)", () => {
       await f.close();
     }
   });
+
+  it("migrate() itself revokes runtime write on audit_event/schema_migration", async () => {
+    // migrated:false skips the fixture's own post-migration grants/revokes, so
+    // only migrate()'s enforcement (running as table owner) is under test.
+    // Default privileges still gave runtime SELECT+INSERT+UPDATE+DELETE at
+    // CREATE time — the revoke is what removes the write half.
+    const f = await fixture({ migrated: false });
+    try {
+      const schema = (
+        await f.db.raw("select current_schema() as s")
+      ).rows[0].s as string;
+      const migratorDb = createDb(TEST_MIGRATOR_DATABASE_URL, {
+        searchPath: schema,
+      });
+      try {
+        await migrate(migratorDb);
+      } finally {
+        await migratorDb.destroy();
+      }
+
+      expect(await f.db("audit_event").select("id")).toEqual([]);
+      await expect(
+        f.db("audit_event").update({ action: "tamper" }),
+      ).rejects.toMatchObject({ code: "42501" });
+      await expect(
+        f.db("schema_migration").update({ name: "tamper" }),
+      ).rejects.toMatchObject({ code: "42501" });
+      await expect(
+        f.db("schema_migration").insert({ name: "tamper" }),
+      ).rejects.toMatchObject({ code: "42501" });
+      // Runtime keeps SELECT on schema_migration — readiness probe needs it.
+      expect(await f.db("schema_migration").select("name")).toHaveLength(1);
+    } finally {
+      await f.close();
+    }
+  });
 });
 
 describe("company singleton", () => {
