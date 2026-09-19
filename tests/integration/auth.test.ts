@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import jwt, { type JwtPayload } from "jsonwebtoken";
 import request from "supertest";
 import { loadConfig } from "../../server/src/config.js";
+import { createAuthService } from "../../server/src/modules/auth/service.js";
 import {
   FIXTURE_PASSWORD,
   fixture,
@@ -576,6 +577,100 @@ describe("GET /api/v1/auth/me", () => {
           })) as unknown as TestResponse
         ).status,
       ).toBe(401);
+    } finally {
+      await f.close();
+    }
+  });
+});
+
+describe("revokeAllUserSessions (permanent revoke — spec §8)", () => {
+  it("kills every session durably: tokens stay 401 through a deactivate→reactivate cycle", async () => {
+    const f = await fixture({ seeded: true });
+    try {
+      const logged = await login(f, personaEmail("member"), FIXTURE_PASSWORD);
+      const rawRefresh = cookieValue(logged, config.refreshCookieName)!;
+      const csrf = cookieValue(logged, config.csrfCookieName)!;
+      const accessToken = logged.body.accessToken as string;
+
+      // Sanity: the session works before revocation.
+      expect(
+        (
+          await request(f.app)
+            .get("/api/v1/auth/me")
+            .auth(accessToken, { type: "bearer" })
+        ).status,
+      ).toBe(200);
+
+      const auth = createAuthService({
+        db: f.db,
+        clock: () => new Date(),
+        config,
+      });
+      // member holds 2 sessions: the fixture's persona login + this one.
+      const revoked = await auth.revokeAllUserSessions(
+        f.ids.member,
+        "test-revoke-request",
+        "deactivated",
+      );
+      expect(revoked).toBe(2);
+
+      // Revocation is written, not status-derived: the user stays active and
+      // a deactivate→reactivate cycle does not bring tokens back.
+      await f
+        .db("app_user")
+        .where({ id: f.ids.member })
+        .update({ status: "inactive" });
+      await f
+        .db("app_user")
+        .where({ id: f.ids.member })
+        .update({ status: "active" });
+      const user = await f
+        .db("app_user")
+        .where({ id: f.ids.member })
+        .first();
+      expect(user.status).toBe("active");
+
+      // This session's access token → 401.
+      expect(
+        (
+          await request(f.app)
+            .get("/api/v1/auth/me")
+            .auth(accessToken, { type: "bearer" })
+        ).status,
+      ).toBe(401);
+      // Its refresh token → 401 (session revoked, not just token consumed).
+      expect(
+        (
+          (await refreshReq(f, {
+            refresh: rawRefresh,
+            csrfCookie: csrf,
+            csrfHeader: csrf,
+          })) as unknown as TestResponse
+        ).status,
+      ).toBe(401);
+      // The OTHER member session (fixture login) is revoked too — bulk, not
+      // per-session.
+      expect(
+        ((await f
+          .api("member")
+          .get("/api/v1/auth/me")) as unknown as TestResponse).status,
+      ).toBe(401);
+
+      // One auth.session_revoked audit row per revoked session.
+      const session = await sessionOf(f, accessToken);
+      expect(session.revoked_at).not.toBeNull();
+      const audits = await f
+        .db("audit_event")
+        .where({ action: "auth.session_revoked" })
+        .select("target_id", "outcome", "safe_metadata");
+      expect(audits).toHaveLength(2);
+      for (const row of audits) {
+        expect(row.outcome).toBe("success");
+        expect(row.safe_metadata).toMatchObject({ reason: "deactivated" });
+      }
+      expect(
+        audits.map((a: { target_id: string }) => a.target_id),
+      ).toContain(session.id);
     } finally {
       await f.close();
     }

@@ -130,6 +130,28 @@ export async function markSessionRevoked(
   await db("auth_session").where({ id: sessionId }).update({ revoked_at: at });
 }
 
+/** Every live (non-revoked) session of a user, locked FOR UPDATE. */
+export async function findActiveSessionsByUser(
+  tx: Knex.Transaction,
+  userId: string,
+): Promise<SessionRow[]> {
+  return (await tx("auth_session")
+    .where({ user_id: userId })
+    .whereNull("revoked_at")
+    .forUpdate()
+    .select()) as SessionRow[];
+}
+
+export async function markSessionsRevoked(
+  tx: Knex.Transaction,
+  sessionIds: string[],
+  at: Date,
+): Promise<void> {
+  await tx("auth_session")
+    .whereIn("id", sessionIds)
+    .update({ revoked_at: at });
+}
+
 /** Fresh per-request role read — roles never ride in the JWT (spec §4/§8). */
 export async function loadRoleKeys(
   db: Qb,

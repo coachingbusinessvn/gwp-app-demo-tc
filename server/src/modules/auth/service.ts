@@ -11,6 +11,7 @@ import { AppError } from "../../shared/errors.js";
 import { appendAudit } from "../audit/service.js";
 import { hashPassword, verifyPassword } from "./password.js";
 import {
+  findActiveSessionsByUser,
   findSessionById,
   findTokenByHash,
   findTokenByHashForUpdate,
@@ -20,6 +21,7 @@ import {
   insertSession,
   loadRoleKeys,
   markSessionRevoked,
+  markSessionsRevoked,
   markTokenConsumed,
   type RefreshTokenRow,
   type SessionRow,
@@ -313,6 +315,48 @@ export function createAuthService({ db, clock, config }: AuthDeps) {
   }
 
   /**
+   * Permanently revoke EVERY live session of a user — writes revoked_at on
+   * each row, so reactivating the account can never resurrect old sessions
+   * (spec §8: "deactivate … revoke mọi session user"). The per-request
+   * status='active' check is only a fast deny; this is the durable kill.
+   *
+   * Phase-1 callers: deactivate/reactivate, password change and recovery
+   * flows MUST call this inside their own transaction boundary (or accept
+   * this one) — do not rely on the user-status check alone.
+   *
+   * Returns the number of sessions revoked; one auth.session_revoked audit
+   * row is written per session.
+   */
+  async function revokeAllUserSessions(
+    userId: Id,
+    requestId: string = randomUUID(),
+    reason?: string,
+  ): Promise<number> {
+    return db.transaction(async (tx) => {
+      const sessions = await findActiveSessionsByUser(tx, userId);
+      if (sessions.length === 0) return 0;
+      await markSessionsRevoked(
+        tx,
+        sessions.map((s) => s.id),
+        clock(),
+      );
+      for (const session of sessions) {
+        await appendAudit(tx, {
+          companyId: session.company_id,
+          actorId: session.user_id,
+          action: "auth.session_revoked",
+          targetType: "auth_session",
+          targetId: session.id,
+          outcome: "success",
+          requestId,
+          metadata: reason ? { reason } : {},
+        });
+      }
+      return sessions.length;
+    });
+  }
+
+  /**
    * Bearer → ActorContext. Every check hits the DB — no cached roles, no
    * trusted claims beyond identity: signature+iss+aud+exp, then session
    * revoked/expired, then user still active (spec §4/§8).
@@ -383,6 +427,7 @@ export function createAuthService({ db, clock, config }: AuthDeps) {
     rotate,
     revokeSession,
     revokeByRefreshToken,
+    revokeAllUserSessions,
     authenticate,
     loadProfile,
   };
