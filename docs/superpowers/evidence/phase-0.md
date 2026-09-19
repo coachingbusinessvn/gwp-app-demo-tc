@@ -24,10 +24,13 @@ Chi tiết đầy đủ (command + output verbatim):
 
 ## Test suite
 
-- `npm test`: 72/72 xanh (6 file integration trên PostgreSQL thật,
-  compose.test.yaml @127.0.0.1:54329). LƯU Ý: đã thấy flake ngẫu nhiên
-  (timeout 30s/socket hang up ở các test argon2-nặng khi chạy song song) —
-  mỗi lần fail là một test khác nhau và đều pass khi chạy lại; cần theo dõi.
+- `npm test`: 73/73 xanh (6 file integration trên PostgreSQL thật,
+  compose.test.yaml @127.0.0.1:54329). LƯU Ý: hai loại flake đã thấy —
+  (1) timeout 30s/socket hang up ở các test argon2-nặng khi chạy song song
+  (mỗi lần một test khác nhau, pass khi chạy lại — theo dõi Phase 1);
+  (2) race `pg_dump` toàn-DB trên `gwp_test` với fixture schema bị drop
+  song song — ĐÃ SỬA trong commit `c61b336` bằng DB nguồn riêng
+  `gwp_backup_src` mà chỉ test đó chạm vào (phát hiện bởi review Codex).
 - `npm run typecheck`: exit 0. `npm run build`: dist + public-build 16 file.
 - `npm run test:e2e`: Playwright login flow thật trên `gwp_e2e`.
 

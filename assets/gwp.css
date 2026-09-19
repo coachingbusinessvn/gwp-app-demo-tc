@@ -214,7 +214,6 @@ body.login{background:radial-gradient(120% 90% at 78% 22%,var(--gp-navy-700) 0%,
 .loginbox input:focus,.loginbox select:focus{outline:none;border-color:var(--gp-gold-400);box-shadow:0 0 0 3px rgba(201,166,104,.18)}
 .loginbox option{color:#111}
 .loginbox .btn{width:100%;justify-content:center;margin-top:20px}
-.loginbox .demo{margin-top:16px;font-size:11.5px;color:var(--gp-slate-deep);line-height:1.6;border-top:1px solid rgba(201,166,104,.16);padding-top:13px}
 
 footer.app{background:var(--gp-navy-950);color:var(--gp-slate-deep);border-top:1px solid var(--gp-line-gold);
   padding:18px;font-size:11.5px;text-align:center}

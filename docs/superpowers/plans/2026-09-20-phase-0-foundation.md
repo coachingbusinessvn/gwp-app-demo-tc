@@ -386,11 +386,11 @@ git commit -m "feat: ship foundation compose bundle and recovery smoke test"
 
 ## Exit gate và bằng chứng bàn giao
 
-- [ ] `npm test`, `npm run typecheck`, `npm run build`, `npm run test:e2e` PASS trên PostgreSQL thật.
-- [ ] `docker compose config --quiet`, bootstrap race, refresh reuse và static boundary có evidence.
-- [ ] Restore smoke thành công, restart giữ owner; demo/prod không chung volume/secrets.
-- [ ] Ghi `docs/superpowers/evidence/phase-0.md`; chỉ chuyển Phase 1 sau review.
-- [ ] Không báo canvas hoạt động: account shell là phạm vi phase này.
+- [x] `npm test`, `npm run typecheck`, `npm run build`, `npm run test:e2e` PASS trên PostgreSQL thật.
+- [x] `docker compose config --quiet`, bootstrap race, refresh reuse và static boundary có evidence.
+- [x] Restore smoke thành công, restart giữ owner; demo/prod không chung volume/secrets.
+- [x] Ghi `docs/superpowers/evidence/phase-0.md`; chỉ chuyển Phase 1 sau review.
+- [x] Không báo canvas hoạt động: account shell là phạm vi phase này.
 
 ## Self-review coverage
 
