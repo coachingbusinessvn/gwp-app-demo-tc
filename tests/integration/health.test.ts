@@ -49,14 +49,14 @@ describe("fixture-isolated readiness & body limit", () => {
     }
   });
 
-  it("GET /health/ready returns 503 with a code when the DB is down", async () => {
+  it("GET /health/ready returns 503 DB_UNAVAILABLE when the DB is down", async () => {
     const deadDb = createDb(TEST_DATABASE_URL);
     const app = createApp({ db: deadDb, clock, config });
     await deadDb.destroy();
     const res = await request(app).get("/health/ready");
     expect(res.status).toBe(503);
     expect(res.body).toMatchObject({
-      code: expect.any(String),
+      code: "DB_UNAVAILABLE",
       request_id: expect.any(String),
     });
   });

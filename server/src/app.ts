@@ -53,16 +53,19 @@ export function createApp({ db, clock, config }: AppDeps): Express {
   });
 
   // Readiness: DB connectivity + migration status. OK while zero migration
-  // files exist (task 0.2 ships the first real ones via MIGRATIONS).
+  // files exist (task 0.2 ships the first real ones via MIGRATIONS). Any
+  // failure of either check — connectivity or the migration probe itself —
+  // surfaces as a 503, never a 500.
   app.get("/health/ready", async (_req, res, next) => {
+    let status;
     try {
       await db.raw("select 1");
+      status = await migrationStatus(db);
     } catch {
       return next(
         new AppError(503, "DB_UNAVAILABLE", "Cơ sở dữ liệu không sẵn sàng"),
       );
     }
-    const status = await migrationStatus(db);
     if (status.pending.length > 0) {
       return next(
         new AppError(503, "MIGRATIONS_PENDING", "Chưa chạy đủ migrations", {
