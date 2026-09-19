@@ -49,7 +49,7 @@
 - `createDepartment(actor,{name}): Promise<{id,name}>`; `createTeam(actor,{departmentId,name})`.
 - `updateCompany(actor,{name,timezone})`; `archiveOrgUnit(actor,kind,id)`; list theo company có cursor/limit.
 
-- [ ] **Step 1: Viết test đỏ** trong `tests/integration/org.test.ts`. Owner/admin CRUD; member 403; department mismatch; archive referenced 409; tạo company thứ hai không endpoint.
+- [x] **Step 1: Viết test đỏ** trong `tests/integration/org.test.ts`. Owner/admin CRUD; member 403; department mismatch; archive referenced 409; tạo company thứ hai không endpoint.
 
 ```ts
 const dep = await f.api("admin").post("/api/v1/departments").send({name:"Vận hành"});
@@ -58,13 +58,13 @@ expect((await f.api("member").post("/api/v1/departments").send({name:"Sai"})).st
 expect((await f.api("owner").post("/api/v1/companies").send({name:"Second"})).status).toBe(404);
 ```
 
-- [ ] **Step 2: Chạy test trước triển khai.**
+- [x] **Step 2: Chạy test trước triển khai.**
 
 Run: `npm test -- tests/integration/org.test.ts`.
 Expected: FAIL tại hành vi/assertion mới hoặc missing module; sửa lỗi setup/môi trường trước,
 không coi lỗi không kết nối DB là bằng chứng RED hợp lệ.
 
-- [ ] **Step 3: Triển khai phần lõi và nối interface.**
+- [x] **Step 3: Triển khai phần lõi và nối interface.**
 
 Composite unique(company_id,id) và composite FK cho org/user, reject assigning team không khớp department. Tạo profile.company PATCH chỉ owner/admin, timezone IANA hợp lệ. Archive referenced yêu cầu transfer trước, không cascade. Strict input reject role/managerId trên generic profile API; pagination default25/max100.
 
@@ -77,12 +77,12 @@ SELECT id FROM app_user WHERE company_id=$1 AND department_id=$2 LIMIT 1;
 -- Có reference: 409 ORG_UNIT_IN_USE; không DELETE CASCADE.
 ```
 
-- [ ] **Step 4: Chạy lại test và kiểm tra hồi quy.**
+- [x] **Step 4: Chạy lại test và kiểm tra hồi quy.**
 
 Run: `npm test -- tests/integration/org.test.ts`, rồi `npm run typecheck`.
 Expected: test mới PASS, typecheck exit 0. Chạy thêm toàn bộ integration tests của module vừa thay đổi.
 
-- [ ] **Step 5: Commit riêng task sau khi kiểm tra diff.**
+- [x] **Step 5: Commit riêng task sau khi kiểm tra diff.**
 
 ```sh
 git diff --check
