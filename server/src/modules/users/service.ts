@@ -41,7 +41,8 @@ import {
  *   LAST_OWNER, and concurrent attempts serialize so exactly one wins.
  * - Deactivation asymmetry (spec §4): admin may deactivate plain members
  *   only — never owner/admin accounts, and never a user who still has
- *   active reports (that would reshape the tree — owner territory). The
+ *   direct reports of ANY status (that would reshape the tree — owner
+ *   territory, and §3's manager_id rules are not status-qualified). The
  *   owner must decide the reports' new line in the SAME transaction:
  *   replacementManagerId transfers them, explicit null unassigns.
  * - Every deactivation is followed by revokeAllUserSessions — durable
@@ -327,11 +328,13 @@ export function createUsersService({ db, revokeAllUserSessions }: UsersDeps) {
 
   /**
    * PATCH /users/:id — non-privileged fields only (name, title,
-   * department/team). Self-edit is always allowed; otherwise the actor must
-   * be owner or admin, and a non-owner admin may never touch an
-   * owner/admin profile (spec §4 no-self-escalation boundary). Role,
-   * manager, email and credentials never pass through this route — the
-   * strict schema rejects those keys with 400 upstream.
+   * department/team). Self-edit covers name/title only — org placement is
+   * org config (spec §4), so departmentId/teamId require owner/admin even
+   * on the caller's own row, and a non-owner admin may never touch an
+   * owner/admin profile — including its own org fields (spec §4
+   * no-self-escalation boundary). Role, manager, email and credentials
+   * never pass through this route — the strict schema rejects those keys
+   * with 400 upstream.
    */
   async function updateProfile(
     actor: ActorContext,
@@ -349,7 +352,14 @@ export function createUsersService({ db, revokeAllUserSessions }: UsersDeps) {
       const target = await findUserById(tx, actor.companyId, userId);
       if (!target) throw notFound();
 
-      if (actor.userId !== userId) {
+      // Self-edit covers name/title only — org placement is org config
+      // (spec §4: members hold zero org-config rights), so a patch carrying
+      // departmentId/teamId takes the owner/admin path even on the
+      // caller's own row. An admin editing SELF stays a privileged target
+      // here, so its own org fields remain owner-only.
+      const touchesOrgPlacement =
+        patch.departmentId !== undefined || patch.teamId !== undefined;
+      if (actor.userId !== userId || touchesOrgPlacement) {
         const { isOwner } = await requireOwnerOrAdmin(tx, actor);
         if (!isOwner) {
           const targetRoles = await loadUserRoleKeys(
@@ -493,14 +503,20 @@ export function createUsersService({ db, revokeAllUserSessions }: UsersDeps) {
   /**
    * POST /users/:id/deactivate — owner/admin (spec §4 asymmetry):
    * - admin may deactivate plain members only — never an owner/admin
-   *   account, and never a user who still has ACTIVE reports (moving a
-   *   reporting line is owner territory; admin must not reshape the tree
-   *   indirectly, spec §3);
+   *   account (that gate precedes the idempotent no-op: re-deactivating an
+   *   already-inactive privileged user is still 403), and never a user
+   *   who still has direct reports AT ALL (moving a reporting line is
+   *   owner territory; admin must not reshape the tree indirectly,
+   *   spec §3);
    * - owner may deactivate anyone except the last ACTIVE owner;
-   * - a target with active reports requires the owner's explicit decision:
-   *   replacementManagerId uuid transfers every direct report, explicit
-   *   null unassigns them — inside the SAME transaction as the status
-   *   flip; a missing key → 403 REPORTS_UNASSIGNED.
+   * - a target with ANY direct reports — active or dormant — requires the
+   *   owner's explicit decision: replacementManagerId uuid transfers every
+   *   direct report, explicit null unassigns them — inside the SAME
+   *   transaction as the status flip; a missing key → 403
+   *   REPORTS_UNASSIGNED. A dormant edge may not be stranded on the
+   *   inactive manager (§3's manager_id rules are not status-qualified),
+   *   and the replacement is fully validated either way (same company,
+   *   active, never the target itself, never inside its subtree).
    * The commit is followed by revokeAllUserSessions (durable kill; the
    * status check alone only denies, it does not write). Re-deactivating an
    * already-inactive user is an idempotent no-op — we still run the
@@ -524,11 +540,10 @@ export function createUsersService({ db, revokeAllUserSessions }: UsersDeps) {
         userId,
       );
 
-      // Idempotent no-op: already inactive stays inactive (200 as-is).
-      if (target.status === "inactive") {
-        return { user: target, roles: targetRoles, reportsMoved: 0 };
-      }
-
+      // Privileged targets first — admin may never deactivate an
+      // owner/admin account, and that gate must precede the idempotent
+      // early-return so re-deactivating an already-inactive privileged
+      // user still 403s instead of reading as a no-op.
       if (
         !isOwner &&
         (targetRoles.includes("owner") || targetRoles.includes("admin"))
@@ -540,98 +555,83 @@ export function createUsersService({ db, revokeAllUserSessions }: UsersDeps) {
         );
       }
 
+      // Idempotent no-op: already inactive stays inactive (200 as-is).
+      if (target.status === "inactive") {
+        return { user: target, roles: targetRoles, reportsMoved: 0 };
+      }
+
       const reports = await listDirectReports(tx, actor.companyId, userId);
-      const hasActiveReports = reports.some((r) => r.status === "active");
       let reportsMoved = 0;
       if (reports.length > 0) {
-        if (hasActiveReports) {
-          if (!isOwner) {
-            throw new AppError(
-              403,
-              "FORBIDDEN",
-              "Admin không được deactivate tài khoản còn cấp dưới",
-            );
-          }
-          if (input.replacementManagerId === undefined) {
-            // Brief's literal status: manager inactive cần chuyển cấp
-            // dưới → trả 403 (not 409).
-            throw new AppError(
-              403,
-              "REPORTS_UNASSIGNED",
-              "Người dùng còn cấp dưới — cần replacementManagerId hoặc null",
-            );
-          }
-          if (input.replacementManagerId !== null) {
-            const replacementId = input.replacementManagerId;
-            if (replacementId === userId) {
-              throw new AppError(
-                400,
-                "INVALID_INPUT",
-                "Cấp trên thay thế không thể là chính người bị deactivate",
-                { fields: ["replacementManagerId"] },
-              );
-            }
-            const replacement = await findUserById(
-              tx,
-              actor.companyId,
-              replacementId,
-            );
-            if (!replacement) throw notFound();
-            if (replacement.status !== "active") {
-              throw new AppError(
-                409,
-                "USER_NOT_ACTIVE",
-                "Cấp trên thay thế không ở trạng thái hoạt động",
-              );
-            }
-            // A replacement inside the target's subtree would close a
-            // reporting cycle through the moved edges.
-            const descendants = await listSubtreeUserIds(
-              tx,
-              actor.companyId,
-              userId,
-            );
-            if (descendants.includes(replacementId)) {
-              throw new AppError(
-                409,
-                "REPORTING_CYCLE",
-                "Không thể tạo vòng trong tuyến báo cáo",
-              );
-            }
-          }
-          // Transfer EVERY direct report (active or not) so no edge is
-          // left pointing at an inactive account.
-          reportsMoved = await transferDirectReports(
-            tx,
-            actor.companyId,
-            userId,
-            input.replacementManagerId,
-          );
-        } else if (input.replacementManagerId !== undefined) {
-          // No active reports — the decision is not required, but a
-          // supplied one is honoured for the dormant edges too.
-          if (input.replacementManagerId !== null) {
-            const replacement = await findUserById(
-              tx,
-              actor.companyId,
-              input.replacementManagerId,
-            );
-            if (!replacement) throw notFound();
-            if (replacement.status !== "active") {
-              throw new AppError(
-                409,
-                "USER_NOT_ACTIVE",
-                "Cấp trên thay thế không ở trạng thái hoạt động",
-              );
-            }
-          }
-          reportsMoved = await transferDirectReports(
-            tx,
-            actor.companyId,
-            userId,
-            input.replacementManagerId,
+        // ANY direct report — active or dormant — makes this a tree
+        // reshape (spec §3 "có cấp dưới" and "manager_id không trỏ tài
+        // khoản inactive" are not status-qualified): admin may not move
+        // manager_id edges even indirectly, and a dormant edge may not be
+        // stranded pointing at the deactivated manager.
+        if (!isOwner) {
+          throw new AppError(
+            403,
+            "FORBIDDEN",
+            "Admin không được deactivate tài khoản còn cấp dưới",
           );
         }
+        if (input.replacementManagerId === undefined) {
+          // Brief's literal status: manager inactive cần chuyển cấp
+          // dưới → trả 403 (not 409).
+          throw new AppError(
+            403,
+            "REPORTS_UNASSIGNED",
+            "Người dùng còn cấp dưới — cần replacementManagerId hoặc null",
+          );
+        }
+        if (input.replacementManagerId !== null) {
+          const replacementId = input.replacementManagerId;
+          if (replacementId === userId) {
+            throw new AppError(
+              400,
+              "INVALID_INPUT",
+              "Cấp trên thay thế không thể là chính người bị deactivate",
+              { fields: ["replacementManagerId"] },
+            );
+          }
+          const replacement = await findUserById(
+            tx,
+            actor.companyId,
+            replacementId,
+          );
+          if (!replacement) throw notFound();
+          if (replacement.status !== "active") {
+            throw new AppError(
+              409,
+              "USER_NOT_ACTIVE",
+              "Cấp trên thay thế không ở trạng thái hoạt động",
+            );
+          }
+          // A replacement inside the target's subtree would close a
+          // reporting cycle through the moved edges — the subtree walk
+          // is status-agnostic, so a descendant hidden under a dormant
+          // edge still counts.
+          const descendants = await listSubtreeUserIds(
+            tx,
+            actor.companyId,
+            userId,
+          );
+          if (descendants.includes(replacementId)) {
+            throw new AppError(
+              409,
+              "REPORTING_CYCLE",
+              "Không thể tạo vòng trong tuyến báo cáo",
+            );
+          }
+        }
+        // Transfer EVERY direct report (active or not) so no edge is
+        // left pointing at an inactive account.
+        reportsMoved = await transferDirectReports(
+          tx,
+          actor.companyId,
+          userId,
+          input.replacementManagerId,
+        );
       }
 
       // Last-owner protection: deactivating an ACTIVE owner must leave at

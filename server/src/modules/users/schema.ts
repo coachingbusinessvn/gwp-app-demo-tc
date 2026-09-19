@@ -61,8 +61,9 @@ export type UpdateUserBody = z.infer<typeof updateUserBodySchema>;
 
 /**
  * POST /users/:id/deactivate — owner/admin. `replacementManagerId` is the
- * reports decision: absent → 403 when the target still has active reports;
- * explicit null → reports become unassigned; uuid → reports transfer to that
+ * reports decision: absent → 403 when the target still has ANY direct
+ * reports (active or dormant — §3 is not status-qualified); explicit null
+ * → reports become unassigned; uuid → reports transfer to that
  * (active, same-company, non-subtree) user.
  */
 export const deactivateUserBodySchema = z

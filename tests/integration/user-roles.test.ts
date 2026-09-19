@@ -529,6 +529,85 @@ describe("PATCH /api/v1/users/:id", () => {
     }
   });
 
+  it("self-edit covers name/title only — org placement needs owner/admin even on your own row (§4)", async () => {
+    const f = await fixture({ seeded: true });
+    try {
+      const dep = await f
+        .api("admin")
+        .post("/api/v1/departments")
+        .send({ name: "Phòng" });
+      const team = await f
+        .api("admin")
+        .post("/api/v1/teams")
+        .send({ departmentId: dep.body.id, name: "Tổ" });
+
+      // name/title self-edit stays allowed for a plain member.
+      const self = await patchUser(f, "member", f.ids.member, {
+        name: "Own Name",
+        title: "IC",
+      });
+      expect(self.status).toBe(200);
+      expect(self.body).toMatchObject({ name: "Own Name", title: "IC" });
+
+      // Members hold zero org-config rights: a member may not place
+      // themself — set or clear, alone or bundled with a name (the whole
+      // patch fails closed).
+      for (const orgPatch of [
+        { departmentId: dep.body.id },
+        { teamId: team.body.id },
+        { departmentId: null },
+        { name: "Bundle", departmentId: dep.body.id },
+      ]) {
+        const res = await patchUser(f, "member", f.ids.member, orgPatch);
+        expect(res.status, JSON.stringify(orgPatch)).toBe(403);
+      }
+
+      // Admin editing SELF keeps the self rule too — an admin is a
+      // privileged target, so its own org fields stay owner-only.
+      expect(
+        (
+          await patchUser(f, "admin", f.ids.admin, {
+            departmentId: dep.body.id,
+          })
+        ).status,
+      ).toBe(403);
+
+      // The existing asymmetry is untouched: admin places a plain member,
+      // owner places anyone — itself and an admin target included.
+      expect(
+        (
+          await patchUser(f, "admin", f.ids.member, {
+            departmentId: dep.body.id,
+          })
+        ).status,
+      ).toBe(200);
+      expect(
+        (
+          await patchUser(f, "owner", f.ids.owner, {
+            departmentId: dep.body.id,
+          })
+        ).status,
+      ).toBe(200);
+      expect(
+        (
+          await patchUser(f, "owner", f.ids.admin, {
+            departmentId: dep.body.id,
+          })
+        ).status,
+      ).toBe(200);
+
+      // Member never moved.
+      const row = await f
+        .db("app_user")
+        .where({ id: f.ids.member })
+        .first();
+      expect(row.department_id).toBe(dep.body.id); // set by admin above
+      expect(row.team_id).toBeNull();
+    } finally {
+      await f.close();
+    }
+  });
+
   it("validates org assignment on patch — archived unit 409, unknown 404, team/department mismatch 400", async () => {
     const f = await fixture({ seeded: true });
     try {
@@ -753,6 +832,143 @@ describe("POST /api/v1/users/:id/deactivate", () => {
         .where({ id: f.ids.member })
         .first();
       expect(member.manager_id).toBeNull();
+    } finally {
+      await f.close();
+    }
+  });
+
+  it("dormant reports still need the owner's decision — admin may not rewrite the edges (§3)", async () => {
+    const f = await fixture({ seeded: true });
+    try {
+      // Leave manager with only a DORMANT report: member is deactivated
+      // first (a leaf — admin may do that).
+      expect((await deactivate(f, "admin", f.ids.member)).status).toBe(200);
+
+      // "có cấp dưới" is not status-qualified: a missing decision key →
+      // 403 REPORTS_UNASSIGNED exactly like the active branch — a dormant
+      // edge may not be stranded on an inactive manager.
+      const missing = await deactivate(f, "owner", f.ids.manager);
+      expect(missing.status).toBe(403);
+      expect(missing.body.code).toBe("REPORTS_UNASSIGNED");
+
+      // Admin may not reshape the tree even indirectly — blocked bare,
+      // and blocked from supplying the manager_id rewrite itself.
+      expect((await deactivate(f, "admin", f.ids.manager)).status).toBe(
+        403,
+      );
+      expect(
+        (
+          await deactivate(f, "admin", f.ids.manager, {
+            replacementManagerId: f.ids.outsider,
+          })
+        ).status,
+      ).toBe(403);
+
+      // Every denial was atomic — member still reports to manager.
+      const before = await f
+        .db("app_user")
+        .where({ id: f.ids.member })
+        .first();
+      expect(before.manager_id).toBe(f.ids.manager);
+
+      // Explicit null unassigns the dormant edge in the same transaction.
+      const res = await deactivate(f, "owner", f.ids.manager, {
+        replacementManagerId: null,
+      });
+      expect(res.status).toBe(200);
+      const member = await f
+        .db("app_user")
+        .where({ id: f.ids.member })
+        .first();
+      expect(member.manager_id).toBeNull();
+    } finally {
+      await f.close();
+    }
+  });
+
+  it("validates a dormant-edge replacement fully — self 400, inactive 409, subtree descendant 409", async () => {
+    const f = await fixture({ seeded: true });
+    try {
+      // Same setup — member becomes manager's dormant report.
+      expect((await deactivate(f, "admin", f.ids.member)).status).toBe(200);
+
+      // Self is rejected even though the target is still "active" at
+      // decision time; unknown → 404; the dormant report itself is an
+      // inactive replacement → 409 USER_NOT_ACTIVE.
+      expect(
+        (
+          await deactivate(f, "owner", f.ids.manager, {
+            replacementManagerId: f.ids.manager,
+          })
+        ).status,
+      ).toBe(400);
+      expect(
+        (
+          await deactivate(f, "owner", f.ids.manager, {
+            replacementManagerId: randomUUID(),
+          })
+        ).status,
+      ).toBe(404);
+      const inactive = await deactivate(f, "owner", f.ids.manager, {
+        replacementManagerId: f.ids.member,
+      });
+      expect(inactive.status).toBe(409);
+      expect(inactive.body.code).toBe("USER_NOT_ACTIVE");
+
+      // An ACTIVE descendant hiding under the dormant edge would close a
+      // real cycle — graft outsider under member (direct write: the API
+      // never creates an edge to an inactive manager, so only dirty state
+      // like this exercises the check on a dormant-only report set).
+      await f
+        .db("app_user")
+        .where({ id: f.ids.outsider })
+        .update({ manager_id: f.ids.member });
+      const cycle = await deactivate(f, "owner", f.ids.manager, {
+        replacementManagerId: f.ids.outsider,
+      });
+      expect(cycle.status).toBe(409);
+      expect(cycle.body.code).toBe("REPORTING_CYCLE");
+
+      // A legal replacement takes the dormant edge too — no manager_id is
+      // left pointing at the deactivated account.
+      const moved = await deactivate(f, "owner", f.ids.manager, {
+        replacementManagerId: f.ids.admin,
+      });
+      expect(moved.status).toBe(200);
+      const member = await f
+        .db("app_user")
+        .where({ id: f.ids.member })
+        .first();
+      expect(member.manager_id).toBe(f.ids.admin);
+    } finally {
+      await f.close();
+    }
+  });
+
+  it("admin still gets 403 re-deactivating an already-inactive privileged target", async () => {
+    const f = await fixture({ seeded: true });
+    try {
+      // Inactive ADMIN: member promoted, then deactivated by owner.
+      await grantRoles(f, f.ids.member, ["member", "admin"]);
+      expect((await deactivate(f, "owner", f.ids.member)).status).toBe(200);
+      // Inactive OWNER: outsider promoted, then deactivated by owner.
+      await grantRoles(f, f.ids.outsider, ["member", "owner"]);
+      expect((await deactivate(f, "owner", f.ids.outsider)).status).toBe(
+        200,
+      );
+
+      // The privileged-target check precedes the idempotent no-op: admin
+      // gets 403, not the already-inactive 200.
+      expect((await deactivate(f, "admin", f.ids.member)).status).toBe(403);
+      expect((await deactivate(f, "admin", f.ids.outsider)).status).toBe(
+        403,
+      );
+
+      // Owner re-deactivating the same targets stays the idempotent 200.
+      expect((await deactivate(f, "owner", f.ids.member)).status).toBe(200);
+      expect((await deactivate(f, "owner", f.ids.outsider)).status).toBe(
+        200,
+      );
     } finally {
       await f.close();
     }

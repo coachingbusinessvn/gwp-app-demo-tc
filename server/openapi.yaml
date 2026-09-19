@@ -892,9 +892,12 @@ paths:
       tags: [users]
       summary: Update non-privileged profile fields
       description: >
-        Allowed for the user themself, or for owner/admin editing another
-        account — with one asymmetry: a non-owner admin may never edit an
-        owner/admin profile (403). Only name, title, departmentId and
+        Self-edit covers name/title only — org placement is org config
+        (spec §4), so a patch carrying departmentId/teamId requires
+        owner/admin even on the caller's own row. For edits of another
+        account the actor must be owner/admin, with one asymmetry: a
+        non-owner admin may never edit an owner/admin profile (403) — its
+        own org fields included. Only name, title, departmentId and
         teamId are writable here; explicit null clears title/department/
         team. Role, manager, email, status and credential keys are rejected
         (strict body → 400). Org targets must be live units of this
@@ -935,7 +938,8 @@ paths:
                 $ref: "#/components/schemas/Error"
         "403":
           description: >
-            Caller may not edit this user — not self, not owner/admin, or
+            Caller may not edit this user — not self and not owner/admin,
+            an org-placement field on a self-edit without owner/admin, or
             an admin touching an owner/admin profile.
           content:
             application/json:
@@ -1023,11 +1027,13 @@ paths:
       summary: Deactivate a user (soft, sessions revoked)
       description: >
         Owner/admin only, with the spec §4 asymmetry: admin may deactivate
-        plain members only — never an owner/admin account and never a user
-        who still has active reports (moving a reporting line is owner
-        territory). The owner may deactivate anyone except the last ACTIVE
-        owner (409 LAST_OWNER). When the target has active reports the
-        owner must decide their line in the SAME transaction: omit
+        plain members only — never an owner/admin account (re-deactivating
+        an already-inactive one is still 403, not a no-op) and never a
+        user who still has direct reports of any status (moving a
+        reporting line is owner territory). The owner may deactivate
+        anyone except the last ACTIVE owner (409 LAST_OWNER). When the
+        target has ANY direct reports — active or dormant — the owner must
+        decide their line in the SAME transaction: omit
         replacementManagerId → 403 REPORTS_UNASSIGNED; explicit null →
         reports become unassigned; a uuid → reports transfer to that
         active, same-company user outside the target's subtree (409

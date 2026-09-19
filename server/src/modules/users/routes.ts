@@ -20,8 +20,9 @@ import { createUsersService } from "./service.js";
  *   GET  /users?limit&cursor       — directory list, any active member
  *   POST /users                    — create a PENDING member, owner/admin
  *   GET  /users/:id                — directory read, any active member
- *   PATCH /users/:id               — non-privileged profile fields; self or
- *                                    owner/admin (admin never on privileged)
+ *   PATCH /users/:id               — name/title for self; org placement is
+ *                                    owner/admin only, admin never on
+ *                                    privileged profiles
  *   PUT  /users/:id/roles          — role set replace, OWNER only
  *   POST /users/:id/deactivate     — owner/admin; session kill after commit
  *
