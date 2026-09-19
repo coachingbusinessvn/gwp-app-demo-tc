@@ -1,0 +1,385 @@
+# GWP public API contract — Phase 0 surface (spec §2, §8).
+# Hand-maintained; served verbatim (parsed to JSON) at GET /api/v1/openapi.json.
+#
+# Rules that must always hold for this file:
+#   - NEVER put secrets, real credentials or example passwords here — the
+#     deployment test asserts the document contains none.
+#   - Every error response uses the shared envelope
+#     {code, message, details?, request_id} (components/schemas/Error).
+#   - Only document endpoints that actually exist.
+openapi: 3.0.3
+info:
+  title: GWP API
+  version: 0.1.0
+  description: >
+    GWP — Canvas Online as a self-hosted app. Phase 0 ships the foundation
+    surface only: first-run setup, session auth and health probes. Business
+    endpoints (canvas, coaching, AI) arrive in later phases.
+  contact:
+    name: GWP operators
+servers:
+  - url: /
+    description: Same origin as the served web app.
+tags:
+  - name: health
+    description: Container/orchestration probes.
+  - name: setup
+    description: One-shot first-run bootstrap.
+  - name: auth
+    description: Session authentication (JWT access + rotating refresh).
+
+paths:
+  /health/live:
+    get:
+      tags: [health]
+      summary: Liveness probe
+      description: >
+        Always 200 when the process is up — never touches the database or any
+        external service. Safe for container HEALTHCHECK.
+      operationId: healthLive
+      responses:
+        "200":
+          description: Process is alive.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, now]
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+                  now:
+                    type: string
+                    format: date-time
+
+  /health/ready:
+    get:
+      tags: [health]
+      summary: Readiness probe
+      description: >
+        200 only when the database is reachable AND all migrations are
+        applied. Returns 503 (never 500) while the DB is down or migrations
+        are pending — the app may serve degraded until the one-shot
+        migrator finishes.
+      operationId: healthReady
+      responses:
+        "200":
+          description: Database reachable, migrations current.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+        "503":
+          description: DB unreachable or migrations pending.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/setup:
+    post:
+      tags: [setup]
+      summary: First-run owner bootstrap
+      description: >
+        Creates the company + owner account exactly once, guarded by the
+        operator bootstrap token (BOOTSTRAP_TOKEN env). Permanently closes
+        after the first success — later calls return 409. Never issues
+        session tokens; log in afterwards.
+      operationId: setupBootstrap
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetupRequest"
+      responses:
+        "201":
+          description: Company and owner created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SetupResponse"
+        "400":
+          description: Body failed validation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Bootstrap token missing or wrong (generic).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Setup already completed, or DEMO_MODE mismatch.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/v1/auth/login:
+    post:
+      tags: [auth]
+      summary: Password login
+      description: >
+        Verifies email + password, opens a session and returns a short-lived
+        access JWT. The rotating refresh token is set ONLY as an HttpOnly
+        `gwp_refresh` cookie (Secure, SameSite=Strict, Path=/api/v1/auth);
+        the JS-readable `gwp_csrf` double-submit cookie is set alongside it.
+        Rate-limited per account+IP and per IP.
+      operationId: authLogin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Login succeeded.
+          headers:
+            Set-Cookie:
+              description: gwp_refresh (HttpOnly) + gwp_csrf session cookies.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "400":
+          description: Body failed validation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Invalid credentials (generic — no user enumeration).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/v1/auth/refresh:
+    post:
+      tags: [auth]
+      summary: Rotate the refresh token
+      description: >
+        Requires the `gwp_refresh` cookie, an `Origin` header equal to the
+        configured APP_ORIGIN, and `X-CSRF-Token` matching the `gwp_csrf`
+        cookie. Rotation is atomic: a reused (already-consumed) refresh
+        token revokes the whole session. No request body.
+      operationId: authRefresh
+      parameters:
+        - $ref: "#/components/parameters/XCsrfToken"
+      responses:
+        "200":
+          description: New access token; cookies rotated.
+          headers:
+            Set-Cookie:
+              description: Rotated gwp_refresh + gwp_csrf cookies.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RefreshResponse"
+        "401":
+          description: Missing/invalid/reused/expired refresh token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Origin or CSRF check failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/v1/auth/logout:
+    post:
+      tags: [auth]
+      summary: Logout — revoke the session
+      description: >
+        Same Origin + CSRF gates as refresh. Revokes the session behind the
+        presented refresh token and clears both cookies; idempotent — 204
+        even without a cookie.
+      operationId: authLogout
+      parameters:
+        - $ref: "#/components/parameters/XCsrfToken"
+      responses:
+        "204":
+          description: Session revoked (or none existed).
+        "403":
+          description: Origin or CSRF check failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/v1/auth/me:
+    get:
+      tags: [auth]
+      summary: Current profile + roles
+      description: >
+        Bearer access JWT required. Profile and roles are re-read from the
+        database on every call — no role claims are trusted from the token.
+      operationId: authMe
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Profile and role keys.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeResponse"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+components:
+  parameters:
+    XCsrfToken:
+      name: X-CSRF-Token
+      in: header
+      required: true
+      description: Must equal the `gwp_csrf` cookie (double-submit).
+      schema:
+        type: string
+  responses:
+    RateLimited:
+      description: Rate limit exceeded — see Retry-After header.
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Error:
+      type: object
+      required: [code, message, request_id]
+      properties:
+        code:
+          type: string
+          description: Stable machine code (e.g. INVALID_SESSION).
+        message:
+          type: string
+          description: Human-readable, Vietnamese UI copy.
+        details:
+          description: Optional structured detail (field names, pending list).
+        request_id:
+          type: string
+          format: uuid
+          description: Echo of the X-Request-Id response header.
+    PublicUser:
+      type: object
+      required: [id, name, email]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        title:
+          type: string
+          nullable: true
+    SetupRequest:
+      type: object
+      required: [companyName, email, password, bootstrapToken]
+      properties:
+        companyName:
+          type: string
+          minLength: 1
+          maxLength: 200
+        email:
+          type: string
+          format: email
+          maxLength: 320
+        password:
+          type: string
+          format: password
+          minLength: 12
+          maxLength: 256
+          description: Owner password — 12+ chars, Argon2id-hashed at rest.
+        bootstrapToken:
+          type: string
+          description: Operator-provided BOOTSTRAP_TOKEN value.
+    SetupResponse:
+      type: object
+      required: [userId, companyId]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        companyId:
+          type: string
+          format: uuid
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+        password:
+          type: string
+          format: password
+          minLength: 1
+          maxLength: 256
+    LoginResponse:
+      type: object
+      required: [accessToken, user]
+      properties:
+        accessToken:
+          type: string
+          description: HS256 JWT — iss=gwp, aud=gwp-web, ~10 min TTL.
+        user:
+          $ref: "#/components/schemas/PublicUser"
+    RefreshResponse:
+      type: object
+      required: [accessToken]
+      properties:
+        accessToken:
+          type: string
+    MeResponse:
+      type: object
+      required: [user, roles]
+      properties:
+        user:
+          $ref: "#/components/schemas/PublicUser"
+        roles:
+          type: array
+          items:
+            type: string
+            enum: [owner, admin, manager, member]

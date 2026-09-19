@@ -173,14 +173,21 @@ if (invokedDirectly) {
         "set BOOTSTRAP_ADMIN_URL (or DATABASE_URL) to an account that can CREATE ROLE and grant on the target schema",
       );
     const production = process.env.NODE_ENV === "production";
-    if (production)
+    // Explicit opt-in escapes the production refusal: the self-hosted
+    // compose bundle treats .env as its secret store, so the one-shot
+    // db-bootstrap service sets GWP_SET_ROLE_PASSWORDS=true to apply the
+    // GWP_*_PASSWORD values. Outside that bundle, production still never
+    // touches role passwords here.
+    const setPasswords =
+      process.env.GWP_SET_ROLE_PASSWORDS === "true" || !production;
+    if (production && !setPasswords)
       console.log(
         "NODE_ENV=production — roles are created without passwords; set them via operator secrets",
       );
     await bootstrapDbRoles({
       adminUrl,
       schema: process.env.BOOTSTRAP_SCHEMA ?? "public",
-      allowPasswords: !production,
+      allowPasswords: setPasswords,
       passwords: {
         gwp_migrator: process.env.GWP_MIGRATOR_PASSWORD,
         gwp_runtime: process.env.GWP_RUNTIME_PASSWORD,

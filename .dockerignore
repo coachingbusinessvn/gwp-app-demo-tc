@@ -1,0 +1,33 @@
+# Keep the build context (and therefore the image) lean and secret-free.
+# The Dockerfile COPYs explicit paths; these exclusions are belt-and-braces
+# so a stray file can never leak into the image even if COPY patterns widen.
+
+.git
+.gitignore
+.superpowers
+.1devtool
+
+# Secrets — never in the image, .env.example is the only allowed dot-env.
+.env
+.env.*
+!.env.example
+
+# Build outputs are rebuilt inside the image.
+node_modules
+dist
+public-build
+
+# Dev-only content: tests, docs, specs, reports.
+tests
+docs
+test-results
+playwright-report
+blob-report
+*.log
+
+# Demo-era sources that are not part of the shipped bundle.
+canvas-online
+coaching-report
+
+.DS_Store
+**/.DS_Store

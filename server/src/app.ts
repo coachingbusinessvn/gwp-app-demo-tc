@@ -10,6 +10,7 @@ import cookieParser from "cookie-parser";
 import type { Knex } from "knex";
 import type { Config } from "./config.js";
 import { migrationStatus } from "./db/migrate.js";
+import { loadOpenApiSpec } from "./openapi.js";
 import { authRoutes } from "./modules/auth/routes.js";
 import { setupRoutes } from "./modules/auth/setup.routes.js";
 import { AppError } from "./shared/errors.js";
@@ -76,6 +77,14 @@ export function createApp({ db, clock, config }: AppDeps): Express {
       );
     }
     res.json({ status: "ok" });
+  });
+
+  // OpenAPI contract (task 0.6, spec §2): parsed once at startup from
+  // <repo>/server/openapi.yaml — a missing/invalid document fails the boot.
+  // Public surface only; the deployment test asserts it carries no secrets.
+  const openApiSpec = loadOpenApiSpec();
+  app.get("/api/v1/openapi.json", (_req, res) => {
+    res.json(openApiSpec);
   });
 
   // Module routers mount here, BEFORE the catch-all:

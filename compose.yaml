@@ -1,0 +1,99 @@
+# GWP deployment bundle (task 0.6, spec §9) — production-shaped and also the
+# supported local-run path.
+#
+#   docker compose up -d --build
+#
+# Secrets/config come from a gitignored `.env` (see .env.example and
+# docs/operations/foundation.md). The database is reachable ONLY on the
+# compose-internal network — it intentionally has no published port.
+#
+# Boot order: db (healthy) → db-bootstrap (least-privilege roles) →
+# migrate (one-shot `npm run db:migrate` equivalent) → app.
+
+name: gwp
+
+services:
+  db:
+    image: postgres:18-alpine
+    env_file:
+      - path: .env
+        required: false
+    # POSTGRES_DB / POSTGRES_USER / POSTGRES_PASSWORD come from .env.
+    volumes:
+      # Mount the parent dir: postgres:18 stores data under a
+      # versioned PGDATA subdirectory.
+      - db-data:/var/lib/postgresql
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U \"$${POSTGRES_USER:-gwp}\" -d \"$${POSTGRES_DB:-gwp}\"",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+    # Deliberately NO `ports:` — the database must never be reachable from
+    # outside the compose network (spec §9). Verified by the deployment test.
+
+  db-bootstrap:
+    image: gwp-app:local
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - path: .env
+        required: false
+    # One-shot: creates gwp_migrator / gwp_runtime / gwp_maintenance and the
+    # least-privilege grants. The image's baked-in NODE_ENV=production makes
+    # the script refuse to set role passwords — GWP_SET_ROLE_PASSWORDS is the
+    # explicit opt-in that applies the GWP_*_PASSWORD values from .env (the
+    # bundle's secret store). Needs BOOTSTRAP_ADMIN_URL (superuser conn).
+    environment:
+      GWP_SET_ROLE_PASSWORDS: "true"
+    command: ["node", "dist/scripts/ops/bootstrap-db-roles.js"]
+    restart: "no"
+
+  migrate:
+    image: gwp-app:local
+    depends_on:
+      db:
+        condition: service_healthy
+      db-bootstrap:
+        condition: service_completed_successfully
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      NODE_ENV: production
+    # One-shot migrator — the compiled equivalent of `npm run db:migrate`
+    # (the npm script uses tsx, a devDependency not shipped in the image).
+    # NODE_ENV=production makes MIGRATOR_DATABASE_URL mandatory, so the app
+    # credential can never accidentally gain DDL rights.
+    command: ["node", "dist/server/src/db/migrate.js"]
+    restart: "no"
+
+  app:
+    build:
+      context: .
+    image: gwp-app:local
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      NODE_ENV: production
+      PORT: "8080"
+    # Published on ALL interfaces — LAN access is an explicit requirement.
+    # Terminate TLS at a reverse proxy in front for any real deployment
+    # (docs/operations/foundation.md). Override the host side with APP_PORT.
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    restart: unless-stopped
+
+volumes:
+  db-data:

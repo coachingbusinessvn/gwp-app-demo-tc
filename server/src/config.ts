@@ -45,7 +45,7 @@ const MIN_SECRET_LENGTH = 32;
  * (dist/server/src/config.js walks past dist/ to the same root) so
  * publicDir always lands at <repo>/public-build regardless of entrypoint.
  */
-function resolveRepoRoot(): string {
+export function resolveRepoRoot(): string {
   let dir = path.dirname(fileURLToPath(import.meta.url));
   for (;;) {
     if (existsSync(path.join(dir, "package.json"))) return dir;
