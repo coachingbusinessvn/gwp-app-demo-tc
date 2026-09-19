@@ -19,3 +19,7 @@ blob-report/
 # Logs
 *.log
 npm-debug.log*
+
+# Agent/workflow state (not project artifacts)
+.superpowers/
+.1devtool/

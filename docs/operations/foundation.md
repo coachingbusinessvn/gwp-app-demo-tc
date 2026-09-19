@@ -108,8 +108,18 @@ Mất `BOOTSTRAP_TOKEN` → tạo lại trong `.env` rồi `docker compose up -d
 - `DEMO_MODE` là thuộc tính bất biến của DB, ghi bởi migrator vào
   `deployment_state`. Boot app sẽ **từ chối chạy** nếu env khác mode đã ghi
   — không có cách "lật" mode mà không tạo DB mới.
-- `demo` cho phép seed nhân danh minh hoạ (script `seed-demo`); `production`
-  không seed gì — chỉ có owner bootstrap tạo.
+- `demo` cho phép seed nhân danh minh hoạ; `production` không seed gì — chỉ
+  có owner bootstrap tạo. Sau khi owner hoàn tất setup, chạy seed bằng:
+  - Trên host có toolchain: `DEMO_MODE=demo DATABASE_URL=postgres://… npm run db:seed-demo`
+  - Trong stack compose: `docker compose exec app node dist/server/src/db/seed-demo.js`
+    (container app đã có `DATABASE_URL` + `DEMO_MODE=demo` trong env).
+  Seed idempotent (`deployment_state.seed_version`) và từ chối deployment
+  `production` ở cả env lẫn `deployment_state.mode`.
+- Tài khoản demo công khai theo thiết kế (spec §8): owner `l1@gwp.demo`;
+  manager `p7@gwp.demo`, `thn@gwp.demo`, `td@gwp.demo`, `hr@gwp.demo`;
+  member `s1`–`s5@gwp.demo` — mật khẩu chung `demo-password-2026`
+  (định nghĩa chuẩn: `server/src/db/demo-identities.ts`). Trang đăng nhập
+  không hiển thị tài khoản — danh sách này là nơi công bố.
 - Không dùng chung volume/secrets giữa demo và production.
 
 ## 6. TLS / reverse proxy

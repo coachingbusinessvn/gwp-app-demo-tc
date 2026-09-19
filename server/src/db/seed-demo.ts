@@ -1,9 +1,12 @@
 import { randomUUID } from "node:crypto";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import type { Knex } from "knex";
 import type { DemoMode } from "../config.js";
 import { appendAudit } from "../modules/audit/service.js";
 import { hashPassword } from "../modules/auth/password.js";
 import { AppError } from "../shared/errors.js";
+import { createDb } from "./connection.js";
 import {
   DEMO_IDENTITIES,
   DEMO_PASSWORD,
@@ -115,4 +118,41 @@ export async function seedDemo(
       .where({ singleton_id: 1 })
       .update({ seed_version: DEMO_SEED_VERSION });
   });
+}
+
+// `npm run db:seed-demo` entrypoint — runtime credential (DML only), refuses
+// non-demo deployments twice: DEMO_MODE env and deployment_state.mode.
+const invokedDirectly =
+  process.argv[1] !== undefined &&
+  import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
+if (invokedDirectly) {
+  try {
+    const url = process.env.DATABASE_URL;
+    if (!url) throw new Error("db:seed-demo requires DATABASE_URL");
+    const scheme = new URL(url).protocol.replace(/:$/, "");
+    if (scheme !== "postgres" && scheme !== "postgresql")
+      throw new Error(
+        `db:seed-demo connection URL must be a postgres:// URL, got scheme "${scheme}"`,
+      );
+    const mode = process.env.DEMO_MODE ?? "production";
+    if (mode !== "demo" && mode !== "production")
+      throw new Error(`DEMO_MODE must be "demo" or "production", got "${mode}"`);
+    const db = createDb(url);
+    try {
+      await seedDemo(db, mode);
+      console.log("db:seed-demo complete — demo identities seeded");
+    } finally {
+      await db.destroy().catch(() => {});
+    }
+  } catch (err) {
+    console.error(
+      "db:seed-demo failed:",
+      err instanceof AppError
+        ? `${err.code}: ${err.message}`
+        : err instanceof Error
+          ? err.message
+          : err,
+    );
+    process.exit(1);
+  }
 }
