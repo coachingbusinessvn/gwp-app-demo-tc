@@ -1,2 +1,21 @@
 .DS_Store
 **/.DS_Store
+
+# Dependencies & build output
+node_modules/
+dist/
+public-build/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# Test artifacts
+test-results/
+playwright-report/
+blob-report/
+
+# Logs
+*.log
+npm-debug.log*

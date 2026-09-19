@@ -1,0 +1,46 @@
+{
+  "name": "gwp-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "GWP — Canvas Online as a real self-hosted app (PostgreSQL, Express, TypeScript)",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "build": "tsx scripts/build-public.ts && tsc -p tsconfig.build.json",
+    "dev": "tsx watch server/src/index.ts",
+    "start": "node dist/server/src/index.js",
+    "db:migrate": "tsx server/src/db/migrate.ts",
+    "db:test:up": "docker compose -f compose.test.yaml up -d --wait",
+    "db:test:down": "docker compose -f compose.test.yaml down -v",
+    "test:e2e": "playwright test",
+    "ops:backup": "tsx scripts/ops/backup.ts",
+    "ops:restore-test": "tsx scripts/ops/restore-test.ts"
+  },
+  "dependencies": {
+    "argon2": "0.45.1",
+    "cookie-parser": "1.4.7",
+    "express": "5.2.1",
+    "helmet": "8.3.0",
+    "jsonwebtoken": "9.0.3",
+    "knex": "3.3.0",
+    "pg": "8.23.0",
+    "zod": "4.6.2"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/cookie-parser": "1.4.10",
+    "@types/express": "5.0.6",
+    "@types/jsonwebtoken": "9.0.10",
+    "@types/node": "26.5.1",
+    "@types/supertest": "7.2.1",
+    "esbuild": "0.28.2",
+    "supertest": "7.2.2",
+    "tsx": "4.23.13",
+    "typescript": "7.0.2",
+    "vitest": "4.1.11"
+  }
+}
