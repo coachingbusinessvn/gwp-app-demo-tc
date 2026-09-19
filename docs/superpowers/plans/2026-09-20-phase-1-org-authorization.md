@@ -103,7 +103,7 @@ git commit -m "feat: add scoped organization CRUD and archive"
 - `assertSubjectAccess(actor,subjectUserId,tx?): Promise<void>` → 404.
 - `scopeSubjectIds(actor,tx?): Promise<string[]>`; `setManager(actor,userId,managerId|null)` → owner only.
 
-- [ ] **Step 1: Viết test đỏ** trong `tests/integration/policy.test.ts`. Ma trận 5 personas, current subtree, đổi manager revoke ngay, admin không tự nối cây, self/cycle/cross-company; hai update đồng thời tạo cycle chỉ một thành công.
+- [x] **Step 1: Viết test đỏ** trong `tests/integration/policy.test.ts`. Ma trận 5 personas, current subtree, đổi manager revoke ngay, admin không tự nối cây, self/cycle/cross-company; hai update đồng thời tạo cycle chỉ một thành công.
 
 ```ts
 await expect(policy.assertSubjectAccess(f.actor("admin"),f.ids.member))
@@ -114,13 +114,13 @@ expect(r.status).toBe(403);
 expect(await policy.canAccessSubject(f.actor("member"),f.ids.member)).toBe(true);
 ```
 
-- [ ] **Step 2: Chạy test trước triển khai.**
+- [x] **Step 2: Chạy test trước triển khai.**
 
 Run: `npm test -- tests/integration/policy.test.ts`.
 Expected: FAIL tại hành vi/assertion mới hoặc missing module; sửa lỗi setup/môi trường trước,
 không coi lỗi không kết nối DB là bằng chứng RED hợp lệ.
 
-- [ ] **Step 3: Triển khai phần lõi và nối interface.**
+- [x] **Step 3: Triển khai phần lõi và nối interface.**
 
 Policy factory createPolicy(db) export 3 methods. CTE recursive có visited path để an toàn dữ liệu bẩn. Owner checks current roles không token. setManager khóa company trước kiểm tra descendants và update; cùng company/active. Tất cả subject access require active actor; admin read org metadata không gọi content policy như bypass.
 
@@ -136,12 +136,12 @@ SELECT id FROM descendants;
 -- Chỉ dùng subtree nếu actor có role manager; self được kiểm riêng.
 ```
 
-- [ ] **Step 4: Chạy lại test và kiểm tra hồi quy.**
+- [x] **Step 4: Chạy lại test và kiểm tra hồi quy.**
 
 Run: `npm test -- tests/integration/policy.test.ts`, rồi `npm run typecheck`.
 Expected: test mới PASS, typecheck exit 0. Chạy thêm toàn bộ integration tests của module vừa thay đổi.
 
-- [ ] **Step 5: Commit riêng task sau khi kiểm tra diff.**
+- [x] **Step 5: Commit riêng task sau khi kiểm tra diff.**
 
 ```sh
 git diff --check
