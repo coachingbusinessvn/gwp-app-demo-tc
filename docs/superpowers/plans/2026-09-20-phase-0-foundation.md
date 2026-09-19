@@ -225,7 +225,7 @@ git commit -m "feat: add guarded owner bootstrap and isolated demo seed"
 - `login(email,password): Promise<{accessToken, refreshToken, user}>`; `rotate(raw): Promise<{accessToken,refreshToken}>`; `revokeSession(sessionId): Promise<void>`.
 - POST auth/login, auth/refresh, auth/logout; GET auth/me; refresh token chỉ Set-Cookie, không JSON.
 
-- [ ] **Step 1: Viết test đỏ** trong `tests/integration/auth.test.ts`. Login sai user/password cùng 401; access 10 phút/refresh 7 ngày; reused token revoke family; concurrent rotation một thắng; deactivate SQL fixture khiến access cũ 401; Origin sai bị 403.
+- [x] **Step 1: Viết test đỏ** trong `tests/integration/auth.test.ts`. Login sai user/password cùng 401; access 10 phút/refresh 7 ngày; reused token revoke family; concurrent rotation một thắng; deactivate SQL fixture khiến access cũ 401; Origin sai bị 403.
 
 ```ts
 const logged = await request(f.app).post("/api/v1/auth/login")
@@ -237,13 +237,13 @@ expect((await request(f.app).get("/api/v1/auth/me")
   .auth(logged.body.accessToken,{type:"bearer"})).status).toBe(401);
 ```
 
-- [ ] **Step 2: Chạy test trước triển khai.**
+- [x] **Step 2: Chạy test trước triển khai.**
 
 Run: `npm test -- tests/integration/auth.test.ts`.
 Expected: FAIL tại hành vi/assertion mới hoặc missing module; sửa lỗi setup/môi trường trước,
 không coi lỗi không kết nối DB là bằng chứng RED hợp lệ.
 
-- [ ] **Step 3: Triển khai phần lõi và nối interface.**
+- [x] **Step 3: Triển khai phần lõi và nối interface.**
 
 Random 256-bit refresh token, chỉ SHA-256 hash; giữ consumed token để detect reuse. Lock token/session, consume và insert replacement nguyên tử. Reuse branch commit revoke trước khi ném 401 ở ngoài transaction (không rollback revocation). Cookie Secure/HttpOnly/SameSite=Strict, path /api/v1/auth. Check Origin và CSRF token cho refresh/logout. JWT issuer/audience/sessionId, không dùng cached role. Rate limit account+IP với trusted proxy cấu hình rõ.
 
@@ -261,12 +261,12 @@ const outcome = await db.transaction(async tx => {
 if (outcome.kind !== "ok") throw new AppError(401,"INVALID_SESSION","Phiên không hợp lệ");
 ```
 
-- [ ] **Step 4: Chạy lại test và kiểm tra hồi quy.**
+- [x] **Step 4: Chạy lại test và kiểm tra hồi quy.**
 
 Run: `npm test -- tests/integration/auth.test.ts`, rồi `npm run typecheck`.
 Expected: test mới PASS, typecheck exit 0. Helper rotateValidToken/hash nằm trong repository/service task này, có unit tests không log token.
 
-- [ ] **Step 5: Commit riêng task sau khi kiểm tra diff.**
+- [x] **Step 5: Commit riêng task sau khi kiểm tra diff.**
 
 ```sh
 git diff --check
