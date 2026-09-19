@@ -168,7 +168,7 @@ git commit -m "feat: add foundation schema and append-only audit"
 - `setup({bootstrapToken, companyName, email, password}): Promise<{userId, companyId}>`.
 - `seedDemo(db, expectedMode: 'demo'): Promise<void>`; no seed production.
 
-- [ ] **Step 1: Viết test đỏ** trong `tests/integration/setup.test.ts`. Dùng fixture({seeded:false}); 2 setup request song song, sai token, setup lần hai, restart mode mismatch và seed 2 lần.
+- [x] **Step 1: Viết test đỏ** trong `tests/integration/setup.test.ts`. Dùng fixture({seeded:false}); 2 setup request song song, sai token, setup lần hai, restart mode mismatch và seed 2 lần.
 
 ```ts
 const input = { bootstrapToken: "test-bootstrap", companyName: "GWP",
@@ -178,13 +178,13 @@ expect(results.map(r => r.status).sort()).toEqual([201,409]);
 expect(await f.db("company").count("* as n").first()).toMatchObject({ n: "1" });
 ```
 
-- [ ] **Step 2: Chạy test trước triển khai.**
+- [x] **Step 2: Chạy test trước triển khai.**
 
 Run: `npm test -- tests/integration/setup.test.ts`.
 Expected: FAIL tại hành vi/assertion mới hoặc missing module; sửa lỗi setup/môi trường trước,
 không coi lỗi không kết nối DB là bằng chứng RED hợp lệ.
 
-- [ ] **Step 3: Triển khai phần lõi và nối interface.**
+- [x] **Step 3: Triển khai phần lõi và nối interface.**
 
 Argon2id benchmark và ghi thông số, setup token constant-time compare. INSERT deployment singleton bằng migration, lock row trước kiểm tra setup_completed_at. Hash trước transaction, tạo company/user/owner role/audit trong transaction, khóa setup sau success. Rate limit setup. Demo chỉ identities tại phase này, UUID mapping l1/p7; canvas seed Phase 2. Fixture mở rộng signed personas khi Task 4 xong, setup test dùng anonymous.
 
@@ -198,12 +198,12 @@ await db.transaction(async tx => {
 });
 ```
 
-- [ ] **Step 4: Chạy lại test và kiểm tra hồi quy.**
+- [x] **Step 4: Chạy lại test và kiểm tra hồi quy.**
 
 Run: `npm test -- tests/integration/setup.test.ts`, rồi `npm run typecheck`.
 Expected: test mới PASS, typecheck exit 0. Chạy thêm toàn bộ integration tests của module vừa thay đổi.
 
-- [ ] **Step 5: Commit riêng task sau khi kiểm tra diff.**
+- [x] **Step 5: Commit riêng task sau khi kiểm tra diff.**
 
 ```sh
 git diff --check
