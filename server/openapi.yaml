@@ -35,8 +35,9 @@ tags:
       Mutations are owner/admin only; every authenticated member can read.
   - name: users
     description: >
-      User administration — reporting lines are owner-only (role and
-      lifecycle endpoints arrive later in Phase 1).
+      User administration and directory — the reporting line and role set
+      are owner-only; profile edits are self or owner/admin; lifecycle
+      (pending → active → inactive) follows spec §8.
 
 paths:
   /health/live:
@@ -757,6 +758,340 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/users:
+    get:
+      tags: [users]
+      summary: List users (company directory, keyset page)
+      description: >
+        Company-scoped directory read, ordered by id, including pending and
+        inactive accounts. Any authenticated member may read — the payload
+        carries directory-safe fields only (never credential material).
+        limit defaults to 25, max 100; cursor is the id of the last item of
+        the previous page.
+      operationId: listUsers
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/LimitParam"
+        - $ref: "#/components/parameters/CursorParam"
+      responses:
+        "200":
+          description: One page of users.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserPage"
+        "400":
+          description: Invalid limit or cursor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      tags: [users]
+      summary: Create a pending member
+      description: >
+        Owner/admin only. Always creates a PENDING account with the member
+        role and no password — activation happens via the one-time token
+        flow, and elevated roles are assigned later by the owner through
+        PUT /users/{id}/roles. Email must be unique per company after
+        normalization (lower + trim). departmentId/teamId optionally place
+        the user; teamId pins the department to the team's own, and
+        archived units are rejected. Strict body — privilege, credential,
+        manager and status keys are rejected.
+      operationId: createUser
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserCreateRequest"
+      responses:
+        "201":
+          description: Pending member created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          description: >
+            Body failed validation — bad email, an unexpected key, or a
+            departmentId/teamId pair that contradicts the team's
+            department.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller is neither owner nor admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: No such department or team in this company.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: >
+            Email already in use in this company, or the target org unit
+            is archived.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/users/{id}:
+    get:
+      tags: [users]
+      summary: Read one directory entry
+      description: >
+        Any authenticated member may read a colleague's directory metadata.
+        Unknown, foreign or malformed ids return the consistent 404.
+      operationId: getUser
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "200":
+          description: The user's directory entry.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: No such user in this company.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    patch:
+      tags: [users]
+      summary: Update non-privileged profile fields
+      description: >
+        Allowed for the user themself, or for owner/admin editing another
+        account — with one asymmetry: a non-owner admin may never edit an
+        owner/admin profile (403). Only name, title, departmentId and
+        teamId are writable here; explicit null clears title/department/
+        team. Role, manager, email, status and credential keys are rejected
+        (strict body → 400). Org targets must be live units of this
+        company — an archived department/team returns 409
+        ORG_UNIT_ARCHIVED.
+      operationId: updateUser
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserUpdateRequest"
+      responses:
+        "200":
+          description: Profile updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          description: >
+            Body failed validation — empty patch, an unexpected
+            (privilege/identity) key, or a departmentId/teamId pair that
+            contradicts the team's department.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: >
+            Caller may not edit this user — not self, not owner/admin, or
+            an admin touching an owner/admin profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: No such user/department/team in this company.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Target department or team is archived.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/users/{id}/roles:
+    put:
+      tags: [users]
+      summary: Replace a user's role set
+      description: >
+        Owner only — roles are a privilege boundary, so admin gets 403 even
+        on itself. `roles` is the FULL replacement set over the allowlist
+        {owner, admin, manager, member}; unknown keys fail validation.
+        Removing the owner role from the last ACTIVE owner returns 409
+        LAST_OWNER; concurrent attempts serialize on the company lock so
+        exactly one wins. The new set takes effect on the very next
+        authorization read — roles are never cached in the JWT.
+      operationId: setUserRoles
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RolesUpdateRequest"
+      responses:
+        "200":
+          description: Role set replaced.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          description: >
+            Body failed validation — missing roles, an unknown role key,
+            or an unexpected field.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller is not the owner.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: No such user in this company.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: The change would remove the last active owner.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/users/{id}/deactivate:
+    post:
+      tags: [users]
+      summary: Deactivate a user (soft, sessions revoked)
+      description: >
+        Owner/admin only, with the spec §4 asymmetry: admin may deactivate
+        plain members only — never an owner/admin account and never a user
+        who still has active reports (moving a reporting line is owner
+        territory). The owner may deactivate anyone except the last ACTIVE
+        owner (409 LAST_OWNER). When the target has active reports the
+        owner must decide their line in the SAME transaction: omit
+        replacementManagerId → 403 REPORTS_UNASSIGNED; explicit null →
+        reports become unassigned; a uuid → reports transfer to that
+        active, same-company user outside the target's subtree (409
+        REPORTING_CYCLE otherwise). Every live session of the target is
+        revoked durably right after commit — the account's old tokens 401
+        on the next request. Deactivating an already-inactive user is an
+        idempotent no-op; the row and all historical FKs are kept.
+      operationId: deactivateUser
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserDeactivateRequest"
+      responses:
+        "200":
+          description: User deactivated (or already inactive).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          description: >
+            Body failed validation, or the replacement is the target
+            itself.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: >
+            Caller lacks the required privilege for this target — not
+            owner/admin, an admin touching a privileged account or a user
+            with active reports, or an owner who omitted the reports
+            decision (REPORTS_UNASSIGNED).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: No such user (target or replacement) in this company.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: >
+            Target is the last active owner, the replacement is inactive,
+            or the transfer would close a reporting cycle.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
 components:
   parameters:
     XCsrfToken:
@@ -1074,3 +1409,149 @@ components:
           format: uuid
           nullable: true
           description: The subject's manager after the write.
+    User:
+      type: object
+      description: >
+        Directory entry — safe for any authenticated member. Credential
+        material (password_hash, tokens) is never present.
+      required:
+        [
+          id,
+          email,
+          name,
+          title,
+          departmentId,
+          teamId,
+          managerId,
+          status,
+          roles,
+          createdAt,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        title:
+          type: string
+          nullable: true
+        departmentId:
+          type: string
+          format: uuid
+          nullable: true
+        teamId:
+          type: string
+          format: uuid
+          nullable: true
+        managerId:
+          type: string
+          format: uuid
+          nullable: true
+        status:
+          type: string
+          enum: [pending, active, inactive]
+        roles:
+          type: array
+          items:
+            type: string
+            enum: [owner, admin, manager, member]
+          description: The user's current full role set, sorted.
+        createdAt:
+          type: string
+          format: date-time
+    UserPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/User"
+        nextCursor:
+          type: string
+          nullable: true
+          description: Pass as ?cursor= for the next page; null at the end.
+    UserCreateRequest:
+      type: object
+      required: [email, name]
+      additionalProperties: false
+      description: >
+        Creates a pending member only — no password, roles, manager or
+        status keys are accepted. teamId pins the department to the team's
+        own; departmentId alone is allowed.
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+          description: Unique per company after lower/trim normalization.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        departmentId:
+          type: string
+          format: uuid
+        teamId:
+          type: string
+          format: uuid
+    UserUpdateRequest:
+      type: object
+      additionalProperties: false
+      description: >
+        At least one field required. Strict — privilege and identity keys
+        (role/roles, managerId, email, password, status) are rejected.
+        Explicit null clears title, departmentId or teamId; setting a
+        teamId pins departmentId to the team's department.
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+          nullable: true
+        departmentId:
+          type: string
+          format: uuid
+          nullable: true
+        teamId:
+          type: string
+          format: uuid
+          nullable: true
+    RolesUpdateRequest:
+      type: object
+      required: [roles]
+      additionalProperties: false
+      description: >
+        The full replacement role set — union semantics over the
+        allowlist; an empty array removes every role.
+      properties:
+        roles:
+          type: array
+          maxItems: 4
+          items:
+            type: string
+            enum: [owner, admin, manager, member]
+    UserDeactivateRequest:
+      type: object
+      additionalProperties: false
+      description: >
+        Empty body is legal. When the target still has active reports the
+        key is required: a uuid transfers the reports, explicit null
+        unassigns them, absent → 403 REPORTS_UNASSIGNED.
+      properties:
+        replacementManagerId:
+          type: string
+          format: uuid
+          nullable: true
