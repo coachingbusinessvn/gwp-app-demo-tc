@@ -23,9 +23,20 @@ export interface Fixture {
 /**
  * Test-only environment for loadConfig. Never reads process.env.DATABASE_URL —
  * tests may only ever reach the disposable gwp_test database.
+ *
+ * Credential split (task 0.2): f.db is the RUNTIME role (least privilege — no
+ * DDL, audit append-only), migrations run on a separate gwp_migrator
+ * connection that is destroyed afterwards, and maintenanceDb is the superuser
+ * used only for create/drop schema and grants.
  */
 export const TEST_DATABASE_URL =
   process.env.TEST_DATABASE_URL ??
+  "postgres://gwp_runtime:gwp_runtime@127.0.0.1:54329/gwp_test";
+export const TEST_MIGRATOR_DATABASE_URL =
+  process.env.TEST_MIGRATOR_DATABASE_URL ??
+  "postgres://gwp_migrator:gwp_migrator@127.0.0.1:54329/gwp_test";
+export const TEST_MAINTENANCE_DATABASE_URL =
+  process.env.TEST_MAINTENANCE_DATABASE_URL ??
   "postgres://gwp_test:gwp_test@127.0.0.1:54329/gwp_test";
 
 export const testEnv: NodeJS.ProcessEnv = {
@@ -48,11 +59,20 @@ const PERSONAS: readonly Persona[] = [
   "outsider",
 ];
 
+const ROLE_NAME = /^[a-z_][a-z0-9_]{0,62}$/i;
+
+function urlUser(url: string): string {
+  const user = decodeURIComponent(new URL(url).username);
+  if (!ROLE_NAME.test(user))
+    throw new Error(`fixture: unsafe DB role name "${user}" in ${url}`);
+  return user;
+}
+
 function assertTestDatabaseUrl(url: string): void {
   const dbName = new URL(url).pathname.replace(/^\//, "");
   if (dbName !== "gwp_test") {
     throw new Error(
-      `fixture refuses to use database "${dbName}" — TEST_DATABASE_URL must point at gwp_test`,
+      `fixture refuses to use database "${dbName}" — TEST_*_DATABASE_URL must point at gwp_test`,
     );
   }
 }
@@ -78,31 +98,88 @@ const AGENT_METHODS = [
 
 /**
  * Real-Postgres test fixture: unique schema per fixture() call (one per test
- * file/test), search_path isolation, real migrate() runner. Persona seeds and
- * signed sessions arrive in tasks 0.3–0.4; until then ids are freshly minted
- * UUIDs and api(persona) attaches a placeholder Bearer header.
+ * file/test), search_path isolation, real migrate() runner on the migrator
+ * credential. Persona seeds and signed sessions arrive in tasks 0.3–0.4;
+ * until then persona ids are freshly minted UUIDs and api(persona) attaches a
+ * placeholder Bearer header. seeded:true inserts the single company row via
+ * test-only SQL so ids.company is a real UUID; otherCompany stays a
+ * nonexistent UUID for forged-input tests.
+ *
+ * migrated:false creates the schema and runtime connection but skips
+ * migrations/grants — for readiness/probe tests that need a pending state.
  */
-export async function fixture(options?: { seeded?: boolean }): Promise<Fixture> {
-  assertTestDatabaseUrl(TEST_DATABASE_URL);
+export async function fixture(options?: {
+  seeded?: boolean;
+  migrated?: boolean;
+}): Promise<Fixture> {
+  for (const url of [
+    TEST_DATABASE_URL,
+    TEST_MIGRATOR_DATABASE_URL,
+    TEST_MAINTENANCE_DATABASE_URL,
+  ]) {
+    assertTestDatabaseUrl(url);
+  }
+  const migrated = options?.migrated ?? true;
+  if (options?.seeded && !migrated)
+    throw new Error("fixture: seeded requires a migrated schema");
+
   const schema = `test_${randomUUID().replaceAll("-", "")}`;
   const config = loadConfig(testEnv);
+  const runtimeRole = urlUser(TEST_DATABASE_URL);
+  const migratorRole = urlUser(TEST_MIGRATOR_DATABASE_URL);
 
-  // maintenanceDb: same superuser creds as the runtime connection for now;
-  // task 0.2 splits migrator/runtime/maintenance credentials. It stays on the
-  // default search_path (public) and is used only for create/drop schema.
-  const maintenanceDb = createDb(TEST_DATABASE_URL);
+  const maintenanceDb = createDb(TEST_MAINTENANCE_DATABASE_URL);
   await assertConnectedToTestDb(maintenanceDb);
   await maintenanceDb.raw(`CREATE SCHEMA "${schema}"`);
 
-  const db = createDb(TEST_DATABASE_URL, { searchPath: schema });
+  let companyId: Id | undefined;
   try {
-    await migrate(db);
-    if (options?.seeded) {
-      // Company/persona seeding lands in tasks 0.3–0.4 via SQL test-only
-      // fixtures; nothing exists to seed yet (zero migrations).
+    // Schema-level grants before the migrator connects.
+    await maintenanceDb.raw(
+      `GRANT USAGE, CREATE ON SCHEMA "${schema}" TO "${migratorRole}"`,
+    );
+    await maintenanceDb.raw(
+      `GRANT USAGE ON SCHEMA "${schema}" TO "${runtimeRole}", "gwp_maintenance"`,
+    );
+
+    if (migrated) {
+      // migrate() never runs on the runtime connection — a dedicated migrator
+      // credential applies pending migrations, then is destroyed.
+      const migratorDb = createDb(TEST_MIGRATOR_DATABASE_URL, {
+        searchPath: schema,
+      });
+      try {
+        await migrate(migratorDb, { mode: config.mode });
+        if (options?.seeded) {
+          const inserted = await migratorDb("company")
+            .insert({ name: "GWP Test Company" })
+            .returning("id");
+          companyId = (inserted[0] as { id: string }).id;
+        }
+      } finally {
+        await migratorDb.destroy().catch(() => {});
+      }
+
+      // Table-level grants to runtime after migrations created the tables.
+      // audit_event stays append-only (INSERT/SELECT); schema_migration is
+      // read-only for the readiness probe.
+      await maintenanceDb.raw(
+        `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA "${schema}" TO "${runtimeRole}"`,
+      );
+      await maintenanceDb.raw(
+        `REVOKE UPDATE, DELETE ON TABLE "${schema}".audit_event FROM "${runtimeRole}"`,
+      );
+      await maintenanceDb.raw(
+        `REVOKE INSERT, UPDATE, DELETE ON TABLE "${schema}".schema_migration FROM "${runtimeRole}"`,
+      );
+      await maintenanceDb.raw(
+        `GRANT SELECT ON ALL TABLES IN SCHEMA "${schema}" TO "gwp_maintenance"`,
+      );
+      await maintenanceDb.raw(
+        `GRANT DELETE ON TABLE "${schema}".audit_event TO "gwp_maintenance"`,
+      );
     }
   } catch (err) {
-    await db.destroy().catch(() => {});
     await maintenanceDb
       .raw(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`)
       .catch(() => {});
@@ -110,10 +187,11 @@ export async function fixture(options?: { seeded?: boolean }): Promise<Fixture> 
     throw err;
   }
 
+  const db = createDb(TEST_DATABASE_URL, { searchPath: schema });
   const app = createApp({ db, clock: () => new Date(), config });
 
   const ids = {
-    company: randomUUID(),
+    company: companyId ?? randomUUID(),
     otherCompany: randomUUID(),
     ...Object.fromEntries(PERSONAS.map((p) => [p, randomUUID()])),
   } as Fixture["ids"];

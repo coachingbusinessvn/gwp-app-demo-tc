@@ -2,6 +2,14 @@ export type DemoMode = "demo" | "production";
 
 export interface Config {
   databaseUrl: string;
+  /**
+   * Separate DDL credential used only by `npm run db:migrate`
+   * (MIGRATOR_DATABASE_URL). Optional here because the API server must not
+   * hold migrator rights — production migrate runs are required to supply it
+   * (enforced by resolveMigratorUrl in db/migrate.ts); dev may fall back to
+   * DATABASE_URL.
+   */
+  migratorDatabaseUrl?: string;
   jwtSecret: string;
   appKey: string;
   bootstrapToken: string;
@@ -58,14 +66,20 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     fail(`missing required env: ${missing.join(", ")}`);
 
   const databaseUrl = requireEnv(env, "DATABASE_URL");
-  let dbScheme: string;
-  try {
-    dbScheme = new URL(databaseUrl).protocol.replace(/:$/, "");
-  } catch {
-    fail("DATABASE_URL is not a valid URL");
-  }
-  if (dbScheme !== "postgres" && dbScheme !== "postgresql")
-    fail(`DATABASE_URL must be a postgres:// URL, got scheme "${dbScheme}"`);
+  const assertPostgresUrl = (key: string, value: string): void => {
+    let scheme: string;
+    try {
+      scheme = new URL(value).protocol.replace(/:$/, "");
+    } catch {
+      fail(`${key} is not a valid URL`);
+    }
+    if (scheme !== "postgres" && scheme !== "postgresql")
+      fail(`${key} must be a postgres:// URL, got scheme "${scheme}"`);
+  };
+  assertPostgresUrl("DATABASE_URL", databaseUrl);
+  const migratorDatabaseUrl = env.MIGRATOR_DATABASE_URL;
+  if (migratorDatabaseUrl)
+    assertPostgresUrl("MIGRATOR_DATABASE_URL", migratorDatabaseUrl);
 
   const appOrigin = requireEnv(env, "APP_ORIGIN");
   let origin: URL;
@@ -103,6 +117,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
 
   return {
     databaseUrl,
+    migratorDatabaseUrl: migratorDatabaseUrl || undefined,
     jwtSecret,
     appKey,
     bootstrapToken,

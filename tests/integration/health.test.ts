@@ -7,6 +7,7 @@ import {
   fixture,
   testEnv,
   TEST_DATABASE_URL,
+  TEST_MIGRATOR_DATABASE_URL,
   type Fixture,
 } from "../helpers/fixture.js";
 
@@ -39,7 +40,7 @@ describe("health endpoints", () => {
 });
 
 describe("fixture-isolated readiness & body limit", () => {
-  it("GET /health/ready is 200 with zero migrations applied", async () => {
+  it("GET /health/ready is 200 when migrations are applied", async () => {
     const f: Fixture = await fixture();
     try {
       const res = await f.api().get("/health/ready");
@@ -91,10 +92,19 @@ describe("fixture-isolated readiness & body limit", () => {
       expect(schemaA).not.toBe(schemaB);
       expect(schemaA).toMatch(/^test_[0-9a-f]{32}$/);
 
-      await a.db.schema.createTable("probe", (t) => {
-        t.increments("id");
+      // f.db is the runtime role — it has no DDL. The probe table goes through
+      // the migrator credential into fixture a's schema only.
+      const migratorDb = createDb(TEST_MIGRATOR_DATABASE_URL, {
+        searchPath: schemaA,
       });
-      expect(await a.db.schema.hasTable("probe")).toBe(true);
+      try {
+        await migratorDb.schema.createTable("probe", (t) => {
+          t.increments("id");
+        });
+        expect(await migratorDb.schema.hasTable("probe")).toBe(true);
+      } finally {
+        await migratorDb.destroy();
+      }
       expect(await b.db.schema.hasTable("probe")).toBe(false);
     } finally {
       await a.close();

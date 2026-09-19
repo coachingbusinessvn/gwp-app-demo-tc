@@ -1,33 +1,41 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Knex } from "knex";
+import type { DemoMode } from "../config.js";
+import { createDb } from "./connection.js";
+import { foundationMigration } from "./migrations/0001-foundation.js";
 
 /**
- * Migration seam for task 0.2: every migration is a named `up(db)` applied in
+ * Migration runner: every migration is a named `up(db)` applied in
  * registration order inside its own transaction and recorded in the
- * `schema_migration` tracking table. The list is intentionally empty in
- * task 0.1 — readiness reports OK while zero migration files exist.
+ * `schema_migration` tracking table.
  *
  * `migrate()` runs against whichever schema the connection's search_path
  * points at, so the test fixture gets the same runner as production.
+ * Concurrent migrators serialize on a per-migration advisory lock
+ * (pg_advisory_xact_lock) with an in-transaction re-check, so a second runner
+ * that was waiting sees the migration already applied and skips it.
  */
 export interface Migration {
   name: string;
   up(db: Knex): Promise<void>;
 }
 
-// Task 0.2 imports ./migrations/0001-foundation.ts here.
-export const MIGRATIONS: readonly Migration[] = [];
+export const MIGRATIONS: readonly Migration[] = [foundationMigration];
 
 const TRACKING_TABLE = "schema_migration";
 
+// Arbitrary fixed key for the migration advisory lock (xact-scoped).
+const MIGRATION_LOCK_KEY = 7282031;
+
 async function ensureTrackingTable(db: Knex): Promise<void> {
-  if (!(await db.schema.hasTable(TRACKING_TABLE))) {
-    await db.schema.createTable(TRACKING_TABLE, (t) => {
-      t.string("name").primary();
-      t.timestamp("applied_at", { useTz: true }).notNullable().defaultTo(db.fn.now());
-    });
-  }
+  // IF NOT EXISTS keeps two racing migrators from failing on duplicate create.
+  await db.raw(`
+    CREATE TABLE IF NOT EXISTS ${TRACKING_TABLE} (
+      name text PRIMARY KEY,
+      applied_at timestamptz NOT NULL DEFAULT now()
+    )
+  `);
 }
 
 export interface MigrationStatus {
@@ -46,26 +54,95 @@ export async function migrationStatus(db: Knex): Promise<MigrationStatus> {
   return { applied, pending: known.filter((n) => !applied.includes(n)) };
 }
 
-export async function migrate(db: Knex): Promise<void> {
+function resolveDemoMode(raw: string | undefined): DemoMode {
+  if (raw === undefined || raw === "") return "production";
+  if (raw === "demo" || raw === "production") return raw;
+  throw new Error(`DEMO_MODE must be "demo" or "production", got "${raw}"`);
+}
+
+export interface MigrateOptions {
+  /**
+   * Mode written into deployment_state when its singleton row is seeded.
+   * Defaults to process.env.DEMO_MODE (default "production"). The fixture
+   * passes its test config so each schema's deployment mode is test-settable;
+   * later tasks may UPDATE the row directly for per-test overrides.
+   */
+  mode?: DemoMode;
+}
+
+export async function migrate(
+  db: Knex,
+  options?: MigrateOptions,
+): Promise<void> {
   const { pending } = await migrationStatus(db);
-  if (pending.length === 0) return;
-  await ensureTrackingTable(db);
-  for (const name of pending) {
-    const migration = MIGRATIONS.find((m) => m.name === name);
-    if (!migration) continue;
-    await db.transaction(async (tx) => {
-      await migration.up(tx);
-      await tx(TRACKING_TABLE).insert({ name });
-    });
+  if (pending.length > 0) {
+    await ensureTrackingTable(db);
+    for (const name of pending) {
+      const migration = MIGRATIONS.find((m) => m.name === name);
+      if (!migration) continue;
+      await db.transaction(async (tx) => {
+        await tx.raw("SELECT pg_advisory_xact_lock(?)", [MIGRATION_LOCK_KEY]);
+        const already = await tx(TRACKING_TABLE).where({ name }).first();
+        if (already) return;
+        await migration.up(tx);
+        await tx(TRACKING_TABLE).insert({ name });
+      });
+    }
+  }
+
+  // The deployment_state singleton is seeded by the runner (not inside the
+  // migration) so mode comes from config/env; INSERT ... ON CONFLICT keeps a
+  // re-run or a parallel migrator idempotent.
+  if (await db.schema.hasTable("deployment_state")) {
+    const mode = options?.mode ?? resolveDemoMode(process.env.DEMO_MODE);
+    await db("deployment_state")
+      .insert({ singleton_id: 1, mode })
+      .onConflict("singleton_id")
+      .ignore();
   }
 }
 
-// `npm run db:migrate` entrypoint. The operator-facing runner (env loading,
-// advisory lock, CLI flags) is task 0.2 scope — fail honestly until then.
+/**
+ * Connection URL for `npm run db:migrate`: the dedicated migrator credential.
+ * Production must supply MIGRATOR_DATABASE_URL — the API's runtime credential
+ * has no DDL rights and must never gain them; dev/test may fall back to
+ * DATABASE_URL.
+ */
+export function resolveMigratorUrl(env: NodeJS.ProcessEnv): string {
+  if (env.NODE_ENV === "production" && !env.MIGRATOR_DATABASE_URL)
+    throw new Error(
+      "NODE_ENV=production requires MIGRATOR_DATABASE_URL — migrations run under a separate credential with DDL rights",
+    );
+  const url = env.MIGRATOR_DATABASE_URL ?? env.DATABASE_URL;
+  if (!url)
+    throw new Error(
+      "db:migrate requires MIGRATOR_DATABASE_URL or DATABASE_URL",
+    );
+  return url;
+}
+
+// `npm run db:migrate` entrypoint.
 const invokedDirectly =
   process.argv[1] !== undefined &&
   import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
 if (invokedDirectly) {
-  console.error("db:migrate CLI runner is not implemented until task 0.2");
-  process.exit(1);
+  try {
+    const url = resolveMigratorUrl(process.env);
+    const db = createDb(url);
+    try {
+      await migrate(db);
+      const status = await migrationStatus(db);
+      console.log(
+        `db:migrate complete — applied: ${status.applied.join(", ") || "(none)"}; pending: ${status.pending.length}`,
+      );
+    } finally {
+      await db.destroy().catch(() => {});
+    }
+  } catch (err) {
+    console.error(
+      "db:migrate failed:",
+      err instanceof Error ? err.message : err,
+    );
+    process.exit(1);
+  }
 }
