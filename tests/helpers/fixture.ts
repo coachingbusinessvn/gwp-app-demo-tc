@@ -181,6 +181,15 @@ export async function fixture(options?: {
       await maintenanceDb.raw(
         `REVOKE INSERT, UPDATE, DELETE ON TABLE "${schema}".schema_migration FROM "${runtimeRole}"`,
       );
+      // deployment_state: runtime may advance setup_completed_at /
+      // seed_version (setup service, demo seed) but never mode — DEMO_MODE
+      // is an immutable property of the DB (spec §8).
+      await maintenanceDb.raw(
+        `REVOKE UPDATE ON TABLE "${schema}".deployment_state FROM "${runtimeRole}"`,
+      );
+      await maintenanceDb.raw(
+        `GRANT UPDATE (setup_completed_at, seed_version) ON TABLE "${schema}".deployment_state TO "${runtimeRole}"`,
+      );
       await maintenanceDb.raw(
         `GRANT SELECT ON ALL TABLES IN SCHEMA "${schema}" TO "gwp_maintenance"`,
       );

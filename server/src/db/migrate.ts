@@ -116,6 +116,11 @@ export async function migrate(
  * order; the bootstrap script keeps its own guarded revokes as defense in
  * depth for the opposite order. gwp_runtime may not exist yet when migrate
  * runs before bootstrap — skip silently in that case.
+ *
+ * deployment_state gets column-level UPDATE instead of a blanket revoke:
+ * setup and the demo seed legitimately advance setup_completed_at /
+ * seed_version through the runtime credential, but `mode` is an immutable
+ * property of the database (spec §8) and must never be runtime-writable.
  */
 async function enforceRuntimeRestrictions(db: Knex): Promise<void> {
   const role = await db.raw("SELECT 1 FROM pg_roles WHERE rolname = ?", [
@@ -133,6 +138,17 @@ async function enforceRuntimeRestrictions(db: Knex): Promise<void> {
   if (tracking.rows[0].c !== null) {
     await db.raw(
       `REVOKE INSERT, UPDATE, DELETE ON TABLE "${TRACKING_TABLE}" FROM "${RUNTIME_ROLE}"`,
+    );
+  }
+  const deployment = await db.raw("SELECT to_regclass(?) AS c", [
+    "deployment_state",
+  ]);
+  if (deployment.rows[0].c !== null) {
+    await db.raw(
+      `REVOKE UPDATE ON TABLE "deployment_state" FROM "${RUNTIME_ROLE}"`,
+    );
+    await db.raw(
+      `GRANT UPDATE (setup_completed_at, seed_version) ON TABLE "deployment_state" TO "${RUNTIME_ROLE}"`,
     );
   }
 }

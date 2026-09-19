@@ -17,8 +17,11 @@ import knex from "knex";
  *
  *   gwp_migrator    — owns schema objects; runs migrations (DDL + full DML)
  *   gwp_runtime     — the API server's account; DML only, with audit_event
- *                     restricted to INSERT/SELECT (append-only audit) and
- *                     schema_migration restricted to SELECT
+ *                     restricted to INSERT/SELECT (append-only audit),
+ *                     schema_migration restricted to SELECT, and
+ *                     deployment_state UPDATE limited to the
+ *                     setup_completed_at/seed_version columns (mode is
+ *                     immutable per DB — spec §8)
  *   gwp_maintenance — backup/retention jobs; SELECT everywhere + DELETE on
  *                     audit_event for retention cleanup
  *
@@ -127,6 +130,20 @@ export async function bootstrapDbRoles(
     if (tracking.rows[0].c !== null) {
       await db.raw(
         `REVOKE INSERT, UPDATE, DELETE ON TABLE "${schema}".schema_migration FROM "gwp_runtime"`,
+      );
+    }
+    // deployment_state: runtime may advance setup_completed_at /
+    // seed_version (setup service, demo seed) but never mode — DEMO_MODE is
+    // an immutable property of the database (spec §8).
+    const deployment = await db.raw("SELECT to_regclass(?) AS c", [
+      `${schema}.deployment_state`,
+    ]);
+    if (deployment.rows[0].c !== null) {
+      await db.raw(
+        `REVOKE UPDATE ON TABLE "${schema}".deployment_state FROM "gwp_runtime"`,
+      );
+      await db.raw(
+        `GRANT UPDATE (setup_completed_at, seed_version) ON TABLE "${schema}".deployment_state TO "gwp_runtime"`,
       );
     }
 

@@ -155,11 +155,14 @@ describe("POST /api/v1/setup", () => {
   it("refuses setup when deployment_state.mode does not match config.mode (409 MODE_MISMATCH)", async () => {
     const f = await fixture({ seeded: false, mode: "demo" });
     try {
-      // Flip only the DB row — simulates a DB provisioned for a different mode.
-      await f
-        .db("deployment_state")
-        .where({ singleton_id: 1 })
-        .update({ mode: "production" });
+      // Flip only the DB row via the maintenance credential — simulates a DB
+      // provisioned for a different mode. (Runtime cannot write mode at all.)
+      const schema = (
+        await f.db.raw("select current_schema() as s")
+      ).rows[0].s as string;
+      await f.maintenanceDb.raw(
+        `UPDATE "${schema}".deployment_state SET mode = 'production' WHERE singleton_id = 1`,
+      );
       const res = await f.api().post("/api/v1/setup").send(input);
       expect(res.status).toBe(409);
       expect(res.body.code).toBe("MODE_MISMATCH");
@@ -205,6 +208,41 @@ describe("deployment mode guard", () => {
       await expect(
         assertDeploymentMode(f.db, loadConfig(testEnv)),
       ).resolves.toBeUndefined();
+    } finally {
+      await f.close();
+    }
+  });
+
+  it("runtime cannot UPDATE deployment_state.mode (42501), but setup/seed still write the granted columns", async () => {
+    const f = await fixture({ seeded: false });
+    try {
+      // mode is immutable per DB — the runtime credential holds UPDATE only
+      // on (setup_completed_at, seed_version), enforced by grants not
+      // convention.
+      await expect(
+        f.db("deployment_state")
+          .where({ singleton_id: 1 })
+          .update({ mode: "production" }),
+      ).rejects.toMatchObject({ code: "42501" });
+      const state = await f
+        .db("deployment_state")
+        .where({ singleton_id: 1 })
+        .first();
+      expect(state.mode).toBe("demo");
+
+      // The column grant is enough for the real write paths: the setup
+      // endpoint flips setup_completed_at, and seedDemo bumps seed_version —
+      // both through the same runtime credential.
+      const res = await f.api().post("/api/v1/setup").send(input);
+      expect(res.status).toBe(201);
+      await seedDemo(f.db, "demo");
+      const after = await f
+        .db("deployment_state")
+        .where({ singleton_id: 1 })
+        .first();
+      expect(after.setup_completed_at).not.toBeNull();
+      expect(after.seed_version).toBe(DEMO_SEED_VERSION);
+      expect(after.mode).toBe("demo");
     } finally {
       await f.close();
     }

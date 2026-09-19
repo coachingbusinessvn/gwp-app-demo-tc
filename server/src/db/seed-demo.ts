@@ -8,7 +8,7 @@ import {
   DEMO_IDENTITIES,
   DEMO_PASSWORD,
   type DemoId,
-} from "../../../tests/fixtures/identities.js";
+} from "./demo-identities.js";
 
 /**
  * Demo seed — IDENTITIES ONLY at Phase 0 (canvas seed is Phase 2).
