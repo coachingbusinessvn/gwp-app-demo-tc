@@ -70,44 +70,108 @@ function run(
 }
 
 describe("compose bundle (spec §9)", () => {
+  // `.env` is the operator's customization point — this repo's own .env
+  // re-points APP_PORT (8085), so a `docker compose config` spawned with
+  // the inherited env renders operator values, not test values. A shell
+  // env beats `.env` interpolation: pin APP_PORT in the child env so the
+  // rendered assertions below stay hermetic on any machine.
+  const COMPOSE_ENV = { ...process.env, APP_PORT: "18080" };
+
+  function composeConfigJson(): {
+    services: Record<
+      string,
+      {
+        ports?: { target: number; published?: string | number }[];
+        environment?: Record<string, string | null>;
+      }
+    >;
+  } {
+    const res = run(
+      [
+        "docker",
+        "compose",
+        "-f",
+        "compose.yaml",
+        "config",
+        "--format",
+        "json",
+      ],
+      COMPOSE_ENV,
+    );
+    expect(res.status, res.stderr).toBe(0);
+    return JSON.parse(res.stdout);
+  }
+
   it("`docker compose config --quiet` validates compose.yaml", () => {
-    const res = run([
-      "docker",
-      "compose",
-      "-f",
-      "compose.yaml",
-      "config",
-      "--quiet",
-    ]);
+    const res = run(
+      ["docker", "compose", "-f", "compose.yaml", "config", "--quiet"],
+      COMPOSE_ENV,
+    );
     expect(res.status, res.stderr).toBe(0);
   });
 
   it("publishes only the app port — db stays on the internal network", () => {
-    const res = run([
-      "docker",
-      "compose",
-      "-f",
-      "compose.yaml",
-      "config",
-      "--format",
-      "json",
-    ]);
-    expect(res.status, res.stderr).toBe(0);
-    const rendered = JSON.parse(res.stdout) as {
-      services: Record<
-        string,
-        { ports?: { target: number; published?: string | number }[] }
-      >;
-    };
+    const rendered = composeConfigJson();
     expect(rendered.services.db).toBeDefined();
     expect(rendered.services.db.ports ?? []).toHaveLength(0);
 
     const appPorts = rendered.services.app?.ports ?? [];
     expect(
       appPorts.some(
-        (p) => p.target === 8080 && String(p.published) === "8080",
+        (p) => p.target === 8080 && String(p.published) === "18080",
       ),
     ).toBe(true);
+  });
+
+  it("scopes container env per service — app never sees superuser/DDL creds", () => {
+    // Assert on KEYS only (never values) so a failure diff cannot leak
+    // .env secrets into test logs.
+    const rendered = composeConfigJson();
+    const envKeys = (service: string): string[] =>
+      Object.keys(
+        rendered.services[service]?.environment ?? {},
+      ).sort();
+
+    // The long-running attack surface carries ONLY its runtime allowlist
+    // (config.ts's invariant: the app never holds the migrator credential)
+    // — no POSTGRES_* superuser, MIGRATOR_/BACKUP_DATABASE_URL,
+    // BOOTSTRAP_ADMIN_URL or GWP_*_PASSWORD may appear here.
+    expect(envKeys("app")).toEqual(
+      [
+        "NODE_ENV",
+        "PORT",
+        "DATABASE_URL",
+        "JWT_SECRET",
+        "APP_KEY",
+        "BOOTSTRAP_TOKEN",
+        "DEMO_MODE",
+        "APP_ORIGIN",
+        "TRUST_PROXY",
+        "ACCESS_TOKEN_TTL_SECONDS",
+        "REFRESH_TOKEN_TTL_SECONDS",
+      ].sort(),
+    );
+
+    // Postgres itself needs only its init vars — no app secrets.
+    expect(envKeys("db")).toEqual(
+      ["POSTGRES_DB", "POSTGRES_PASSWORD", "POSTGRES_USER"].sort(),
+    );
+
+    // One-shot ops containers get their own subsets — the superuser URL
+    // exists only in db-bootstrap; the DDL credential only in migrate.
+    expect(envKeys("db-bootstrap")).toEqual(
+      [
+        "BOOTSTRAP_ADMIN_URL",
+        "BOOTSTRAP_SCHEMA",
+        "GWP_MIGRATOR_PASSWORD",
+        "GWP_RUNTIME_PASSWORD",
+        "GWP_MAINTENANCE_PASSWORD",
+        "GWP_SET_ROLE_PASSWORDS",
+      ].sort(),
+    );
+    expect(envKeys("migrate")).toEqual(
+      ["DEMO_MODE", "MIGRATOR_DATABASE_URL", "NODE_ENV"].sort(),
+    );
   });
 });
 

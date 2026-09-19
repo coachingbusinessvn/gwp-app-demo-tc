@@ -43,8 +43,6 @@ const USAGE = `usage: npm run ops:restore-test -- --backup <file.dump> [options]
                          host the throwaway database. Defaults to
                          RESTORE_TEST_DATABASE_URL, then the disposable
                          test container (127.0.0.1:54329/gwp_test).
-  --admin-user <name>    DB superuser for drop/create/restore in compose
-                         mode (default: the --target URL's username)
   --i-understand         Required when --target is not a disposable-local
                          host — confirms you know which server you're on.
   --compose-file <file>  Compose file for the fallback runner
@@ -60,7 +58,6 @@ restore path.
 interface RestoreArgs {
   backup: string;
   target: string;
-  adminUser?: string;
   iUnderstand: boolean;
   composeFile?: string;
   dbService?: string;
@@ -81,9 +78,6 @@ function parseArgs(argv: string[]): RestoreArgs {
         break;
       case "--target":
         out.target = next();
-        break;
-      case "--admin-user":
-        out.adminUser = next();
         break;
       case "--i-understand":
         out.iUnderstand = true;
@@ -211,8 +205,9 @@ function runCompose(
   target: PgTarget,
   backup: string,
 ): void {
-  const adminUser = target.user;
-  const base = ["--host", "127.0.0.1", "--username", adminUser];
+  // The --target URL's user is the identity for drop/create/restore —
+  // its password travels via PGPASSWORD through envWithPassword(target).
+  const base = ["--host", "127.0.0.1", "--username", target.user];
 
   // Second proof inside the container: the db we land on must be the one
   // the --target URL names.

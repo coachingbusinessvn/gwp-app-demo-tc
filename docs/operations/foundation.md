@@ -45,8 +45,20 @@ docker compose ps                # app phải "healthy"
 curl http://localhost:8080/health/ready
 ```
 
-Không cần `.env` để `docker compose config` pass (`env_file` là
-`required: false`), nhưng stack chỉ boot được khi `.env` có đủ secrets.
+Không cần `.env` để `docker compose config` pass (biến thiếu chỉ render
+chuỗi rỗng kèm cảnh báo), nhưng stack chỉ boot được khi `.env` có đủ
+secrets — mỗi consumer fail-fast rõ ràng: `loadConfig` báo "missing
+required env", postgres entrypoint đòi `POSTGRES_PASSWORD`, migrator đòi
+`MIGRATOR_DATABASE_URL` khi `NODE_ENV=production`.
+
+Mô hình least-privilege: `compose.yaml` **không** dùng `env_file` — mỗi
+service chỉ nhận đúng allowlist `environment:` của nó. `app` (process
+sống lâu, mặt tấn công chính) không bao giờ mang `POSTGRES_*`,
+`MIGRATOR_DATABASE_URL`, `BACKUP_DATABASE_URL`, `BOOTSTRAP_ADMIN_URL` hay
+`GWP_*_PASSWORD` — một RCE ở app không thành chiếm DB trọn vẹn. Chỉ
+one-shot `db-bootstrap` giữ superuser URL; chỉ `migrate` giữ credential
+DDL; `db` chỉ giữ `POSTGRES_DB/USER/PASSWORD`. Deployment test assert
+chính xác các key-set này.
 
 ## 3. Bảng biến môi trường
 

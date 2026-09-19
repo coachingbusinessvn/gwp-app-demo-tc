@@ -4,8 +4,22 @@
 #   docker compose up -d --build
 #
 # Secrets/config come from a gitignored `.env` (see .env.example and
-# docs/operations/foundation.md). The database is reachable ONLY on the
-# compose-internal network — it intentionally has no published port.
+# docs/operations/foundation.md). Compose interpolates `.env` values into the
+# per-service `environment:` allowlists below — there is deliberately NO
+# `env_file`, so each container sees only the credentials it needs. The
+# long-running `app` in particular never carries the Postgres superuser,
+# migrator, or maintenance credentials (the config.ts invariant).
+#
+# `${VAR}` without a default renders as an empty string when unset (compose
+# prints a warning); every consumer then fails fast with a clear error —
+# loadConfig ("missing required env"), the postgres entrypoint
+# (POSTGRES_PASSWORD required), or the migrator (NODE_ENV=production requires
+# MIGRATOR_DATABASE_URL). Optional vars carry explicit defaults (`:-value`)
+# or pass through silently (`:-` — empty falls back to the code default), so
+# compose warnings are reserved for vars that genuinely must be set.
+#
+# The database is reachable ONLY on the compose-internal network — it
+# intentionally has no published port.
 #
 # Boot order: db (healthy) → db-bootstrap (least-privilege roles) →
 # migrate (one-shot `npm run db:migrate` equivalent) → app.
@@ -15,10 +29,11 @@ name: gwp
 services:
   db:
     image: postgres:18-alpine
-    env_file:
-      - path: .env
-        required: false
-    # POSTGRES_DB / POSTGRES_USER / POSTGRES_PASSWORD come from .env.
+    # Postgres init vars only — the DB container never sees app secrets.
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-gwp}
+      POSTGRES_USER: ${POSTGRES_USER:-gwp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       # Mount the parent dir: postgres:18 stores data under a
       # versioned PGDATA subdirectory.
@@ -41,15 +56,18 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    env_file:
-      - path: .env
-        required: false
     # One-shot: creates gwp_migrator / gwp_runtime / gwp_maintenance and the
-    # least-privilege grants. The image's baked-in NODE_ENV=production makes
-    # the script refuse to set role passwords — GWP_SET_ROLE_PASSWORDS is the
-    # explicit opt-in that applies the GWP_*_PASSWORD values from .env (the
-    # bundle's secret store). Needs BOOTSTRAP_ADMIN_URL (superuser conn).
+    # least-privilege grants. The ONLY service that may hold the superuser
+    # connection (BOOTSTRAP_ADMIN_URL) plus the per-role passwords it sets.
+    # The image's baked-in NODE_ENV=production makes the script refuse to set
+    # role passwords — GWP_SET_ROLE_PASSWORDS is the explicit opt-in that
+    # applies the GWP_*_PASSWORD values (.env is this bundle's secret store).
     environment:
+      BOOTSTRAP_ADMIN_URL: ${BOOTSTRAP_ADMIN_URL}
+      BOOTSTRAP_SCHEMA: ${BOOTSTRAP_SCHEMA:-public}
+      GWP_MIGRATOR_PASSWORD: ${GWP_MIGRATOR_PASSWORD}
+      GWP_RUNTIME_PASSWORD: ${GWP_RUNTIME_PASSWORD}
+      GWP_MAINTENANCE_PASSWORD: ${GWP_MAINTENANCE_PASSWORD}
       GWP_SET_ROLE_PASSWORDS: "true"
     command: ["node", "dist/scripts/ops/bootstrap-db-roles.js"]
     restart: "no"
@@ -61,15 +79,15 @@ services:
         condition: service_healthy
       db-bootstrap:
         condition: service_completed_successfully
-    env_file:
-      - path: .env
-        required: false
-    environment:
-      NODE_ENV: production
     # One-shot migrator — the compiled equivalent of `npm run db:migrate`
     # (the npm script uses tsx, a devDependency not shipped in the image).
     # NODE_ENV=production makes MIGRATOR_DATABASE_URL mandatory, so the app
-    # credential can never accidentally gain DDL rights.
+    # credential can never accidentally gain DDL rights. DEMO_MODE is passed
+    # through because the migrator stamps it into deployment_state.
+    environment:
+      NODE_ENV: production
+      MIGRATOR_DATABASE_URL: ${MIGRATOR_DATABASE_URL}
+      DEMO_MODE: ${DEMO_MODE:-production}
     command: ["node", "dist/server/src/db/migrate.js"]
     restart: "no"
 
@@ -82,12 +100,22 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
-    env_file:
-      - path: .env
-        required: false
+    # Runtime allowlist ONLY — exactly what server/src/config.ts reads. The
+    # app must never see the superuser URL, the DDL migrator credential, the
+    # maintenance/backup credential, or the role passwords: an app-level RCE
+    # must not become a full database takeover.
     environment:
       NODE_ENV: production
       PORT: "8080"
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      APP_KEY: ${APP_KEY}
+      BOOTSTRAP_TOKEN: ${BOOTSTRAP_TOKEN}
+      DEMO_MODE: ${DEMO_MODE:-production}
+      APP_ORIGIN: ${APP_ORIGIN}
+      TRUST_PROXY: ${TRUST_PROXY:-false}
+      ACCESS_TOKEN_TTL_SECONDS: ${ACCESS_TOKEN_TTL_SECONDS:-}
+      REFRESH_TOKEN_TTL_SECONDS: ${REFRESH_TOKEN_TTL_SECONDS:-}
     # Published on ALL interfaces — LAN access is an explicit requirement.
     # Terminate TLS at a reverse proxy in front for any real deployment
     # (docs/operations/foundation.md). Override the host side with APP_PORT.
