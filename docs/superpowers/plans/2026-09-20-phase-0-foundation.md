@@ -52,7 +52,7 @@
 - `loadConfig(env): Config` từ env đã validate; `AppError(status, code, message, details?)`.
 - `fixture()` theo roadmap; health liveness không dùng DB, readiness thử DB và migration version.
 
-- [ ] **Step 1: Viết test đỏ** trong `tests/integration/health.test.ts`. Trước tiên dùng createApp trực tiếp; sau khi thêm fixture chạy isolation/readiness 503 và limit body 413.
+- [x] **Step 1: Viết test đỏ** trong `tests/integration/health.test.ts`. Trước tiên dùng createApp trực tiếp; sau khi thêm fixture chạy isolation/readiness 503 và limit body 413.
 
 ```ts
 const app = createApp({ db, clock: () => new Date("2026-09-20T00:00:00Z"), config });
@@ -62,13 +62,13 @@ expect((await request(app).get("/api/v1/missing")).body).toMatchObject({
 });
 ```
 
-- [ ] **Step 2: Chạy test trước triển khai.**
+- [x] **Step 2: Chạy test trước triển khai.**
 
 Run: `npm test -- tests/integration/health.test.ts`.
 Expected: FAIL tại hành vi/assertion mới hoặc missing module; sửa lỗi setup/môi trường trước,
 không coi lỗi không kết nối DB là bằng chứng RED hợp lệ.
 
-- [ ] **Step 3: Triển khai phần lõi và nối interface.**
+- [x] **Step 3: Triển khai phần lõi và nối interface.**
 
 Cài exact dependencies express/knex/pg/zod/argon2/jsonwebtoken/cookie-parser/helmet và dev TypeScript/Vitest/Supertest/Playwright/tsx/esbuild/types. Tạo scripts roadmap. TypeScript strict + NodeNext, ESM imports có hậu tố .js; rootDir là repo để server/shared cùng compile vào dist. Config bắt buộc DB/secrets/origin; reject weak production secrets. JSON parser 2 MiB; request ID, errors redacted; readiness trả 503 nếu DB/migration chưa đúng. Test fixture xác minh database gwp_test, schema random riêng.
 
@@ -83,12 +83,12 @@ export function pageLimit(value: unknown): number {
 // Đăng ký error handler cuối cùng, sau JSON parser và các routes.
 ```
 
-- [ ] **Step 4: Chạy lại test và kiểm tra hồi quy.**
+- [x] **Step 4: Chạy lại test và kiểm tra hồi quy.**
 
 Run: `npm test -- tests/integration/health.test.ts`, rồi `npm run typecheck`.
 Expected: test mới PASS, typecheck exit 0. Chạy thêm toàn bộ integration tests của module vừa thay đổi.
 
-- [ ] **Step 5: Commit riêng task sau khi kiểm tra diff.**
+- [x] **Step 5: Commit riêng task sau khi kiểm tra diff.**
 
 ```sh
 git diff --check
