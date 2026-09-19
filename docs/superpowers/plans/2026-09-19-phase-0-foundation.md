@@ -7,6 +7,8 @@
 > Giữ nội dung để tham khảo lịch sử; phải lập plan Phase 0 thay thế và duyệt trước khi
 > thực thi bất kỳ task/code block nào bên dưới.
 > Nguồn chuẩn: [spec revision 2](../specs/2026-09-19-gwp-app-real-design.md).
+> Plan thay thế: [Phase 0 — 2026-09-20](2026-09-20-phase-0-foundation.md).
+> Toàn bộ 5 phase: [implementation roadmap](2026-09-20-implementation-roadmap.md).
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
