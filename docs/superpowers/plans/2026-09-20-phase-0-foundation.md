@@ -342,7 +342,7 @@ git commit -m "feat: integrate real web login and allowlisted static assets"
 - `/health/live`, `/health/ready`, `/api/v1/openapi.json` (spec không secrets).
 - `ops:backup -- --output <operator-path>` tạo custom-format dump; `ops:restore-test -- --backup <file>` chỉ restore DB test xác nhận tên.
 
-- [ ] **Step 1: Viết test đỏ** trong `tests/integration/deployment.test.ts`. Compose config hợp lệ, DB không publish host port, public artifact không secret, readiness DB down 503 nhưng live 200; migration rerun; restore health bằng test DB.
+- [x] **Step 1: Viết test đỏ** trong `tests/integration/deployment.test.ts`. Compose config hợp lệ, DB không publish host port, public artifact không secret, readiness DB down 503 nhưng live 200; migration rerun; restore health bằng test DB.
 
 ```ts
 expect((await f.api().get("/health/live")).status).toBe(200);
@@ -351,13 +351,13 @@ expect(spec.paths["/api/v1/auth/login"].post).toBeDefined();
 expect(JSON.stringify(spec)).not.toContain("fixture-password");
 ```
 
-- [ ] **Step 2: Chạy test trước triển khai.**
+- [x] **Step 2: Chạy test trước triển khai.**
 
 Run: `npm test -- tests/integration/deployment.test.ts`.
 Expected: FAIL tại hành vi/assertion mới hoặc missing module; sửa lỗi setup/môi trường trước,
 không coi lỗi không kết nối DB là bằng chứng RED hợp lệ.
 
-- [ ] **Step 3: Triển khai phần lõi và nối interface.**
+- [x] **Step 3: Triển khai phần lõi và nối interface.**
 
 Multi-stage build non-root, app/postgres volumes tách, DB healthcheck và one-shot migrator trước app. Pin runtime/image tại execution, commit digest/lock. graceful SIGTERM stop new requests/drain server/disconnect DB. backup dùng spawn với argv, pg_dump -Fc, không log DATABASE_URL; restore dùng pg_restore --exit-on-error vào gwp_restore_test mới tạo, không production. Foundation runbook TLS/bootstrap/env/demo và evidence smoke.
 
@@ -371,12 +371,12 @@ docker compose restart app
 # Không chạy down -v trên DB khách; test persistence qua account đã tạo.
 ```
 
-- [ ] **Step 4: Chạy lại test và kiểm tra hồi quy.**
+- [x] **Step 4: Chạy lại test và kiểm tra hồi quy.**
 
 Run: `npm test -- tests/integration/deployment.test.ts`, rồi `npm run typecheck`.
 Expected: test mới PASS, typecheck exit 0. Chạy thêm toàn bộ integration tests của module vừa thay đổi.
 
-- [ ] **Step 5: Commit riêng task sau khi kiểm tra diff.**
+- [x] **Step 5: Commit riêng task sau khi kiểm tra diff.**
 
 ```sh
 git diff --check
