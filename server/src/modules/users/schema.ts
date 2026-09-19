@@ -71,4 +71,16 @@ export const deactivateUserBodySchema = z
   .strict();
 export type DeactivateUserBody = z.infer<typeof deactivateUserBodySchema>;
 
+/**
+ * POST /users/:id/credential-token — owner only (task 1.4). `purpose`
+ * binds the token's lifecycle: "activate" is issuable only for pending
+ * users, "reset" only for active ones; the wrong pairing is a 409.
+ */
+export const issueCredentialTokenBodySchema = z
+  .object({ purpose: z.enum(["activate", "reset"]) })
+  .strict();
+export type IssueCredentialTokenBody = z.infer<
+  typeof issueCredentialTokenBodySchema
+>;
+
 export type { Role };

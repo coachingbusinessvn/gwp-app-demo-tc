@@ -11,3 +11,28 @@ export const loginBodySchema = z.object({
 });
 
 export type LoginBody = z.infer<typeof loginBodySchema>;
+
+/**
+ * POST /auth/activate + /auth/reset (task 1.4): the one-time token plus the
+ * new password (min 12 — the same strength rule as setup). Token format is
+ * opaque here; unknown/expired/used all collapse to INVALID_TOKEN.
+ */
+export const consumeCredentialBodySchema = z
+  .object({
+    token: z.string().min(1).max(1024),
+    password: z.string().min(12).max(256),
+  })
+  .strict();
+export type ConsumeCredentialBody = z.infer<typeof consumeCredentialBodySchema>;
+
+/**
+ * POST /auth/password — self-service change. currentPassword is only
+ * verified (non-empty); newPassword carries the min-12 strength rule.
+ */
+export const changePasswordBodySchema = z
+  .object({
+    currentPassword: z.string().min(1).max(256),
+    newPassword: z.string().min(12).max(256),
+  })
+  .strict();
+export type ChangePasswordBody = z.infer<typeof changePasswordBodySchema>;

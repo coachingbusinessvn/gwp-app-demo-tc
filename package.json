@@ -19,7 +19,8 @@
     "db:test:down": "docker compose -f compose.test.yaml down -v",
     "test:e2e": "playwright test",
     "ops:backup": "tsx scripts/ops/backup.ts",
-    "ops:restore-test": "tsx scripts/ops/restore-test.ts"
+    "ops:restore-test": "tsx scripts/ops/restore-test.ts",
+    "owner:recover": "tsx server/src/cli/recover-owner.ts"
   },
   "dependencies": {
     "argon2": "0.45.1",

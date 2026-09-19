@@ -4,8 +4,13 @@ import type { Config } from "../../config.js";
 import type { ActorContext, Clock } from "../../shared/contracts.js";
 import { AppError } from "../../shared/errors.js";
 import { rateLimit } from "../../shared/rate-limit.js";
+import { createCredentialsService } from "../users/credentials.service.js";
 import { requireAuth, requireCsrf, requireOrigin } from "./middleware.js";
-import { loginBodySchema } from "./schema.js";
+import {
+  changePasswordBodySchema,
+  consumeCredentialBodySchema,
+  loginBodySchema,
+} from "./schema.js";
 import { createAuthService } from "./service.js";
 
 /**
@@ -20,6 +25,25 @@ import { createAuthService } from "./service.js";
  *   X-CSRF-Token ↔ gwp_csrf cookie pair.
  * - The CSRF cookie rotates on login and on every refresh.
  */
+function parseCredentialBody<T>(
+  schema: {
+    safeParse: (v: unknown) => {
+      success: boolean;
+      data?: T;
+      error?: { issues: { path: PropertyKey[] }[] };
+    };
+  },
+  body: unknown,
+): T {
+  const parsed = schema.safeParse(body);
+  if (!parsed.success) {
+    throw new AppError(400, "INVALID_INPUT", "Dữ liệu không hợp lệ", {
+      fields: parsed.error!.issues.map((i) => i.path.join(".")),
+    });
+  }
+  return parsed.data as T;
+}
+
 export function authRoutes(deps: {
   db: Knex;
   clock: Clock;
@@ -27,6 +51,10 @@ export function authRoutes(deps: {
 }): Router {
   const { config } = deps;
   const auth = createAuthService(deps);
+  const credentials = createCredentialsService({
+    db: deps.db,
+    clock: deps.clock,
+  });
   const router = Router();
 
   const COOKIE_PATH = "/api/v1/auth";
@@ -86,6 +114,13 @@ export function authRoutes(deps: {
     },
   });
   const sessionLimiter = rateLimit({ windowMs: 60_000, max: 30 });
+  // Token consume + password change: per-IP fixed window like refresh,
+  // one bucket per endpoint so flows can't starve each other — the
+  // 256-bit token space makes online guessing futile anyway, and the
+  // ~250 ms Argon2id verify/hash self-throttles password attempts.
+  const activateLimiter = rateLimit({ windowMs: 60_000, max: 30 });
+  const resetLimiter = rateLimit({ windowMs: 60_000, max: 30 });
+  const passwordLimiter = rateLimit({ windowMs: 60_000, max: 10 });
 
   router.post(
     "/login",
@@ -103,6 +138,9 @@ export function authRoutes(deps: {
         parsed.data.password,
         res.locals.requestId as string,
       );
+      // Token-bearing responses are never cacheable (deferred-minor
+      // carry-forward: Cache-Control on credential responses).
+      res.setHeader("Cache-Control", "no-store");
       setSessionCookies(res, result);
       res.json({ accessToken: result.accessToken, user: result.user });
     },
@@ -119,6 +157,7 @@ export function authRoutes(deps: {
         throw new AppError(401, "INVALID_SESSION", "Phiên không hợp lệ");
       }
       const result = await auth.rotate(raw, res.locals.requestId as string);
+      res.setHeader("Cache-Control", "no-store");
       setSessionCookies(res, result);
       res.json({ accessToken: result.accessToken });
     },
@@ -145,6 +184,51 @@ export function authRoutes(deps: {
     async (_req: Request, res: Response) => {
       const actor = res.locals.actor as ActorContext;
       res.json(await auth.loadProfile(actor));
+    },
+  );
+
+  // Public one-time-token consume endpoints (task 1.4): unauthenticated
+  // like /login — no session exists yet to protect — and the token itself
+  // is the credential. Constant INVALID_TOKEN 400 covers every failure.
+  // Consume never issues a session (no cookies are set).
+  for (const [path, purpose, limiter] of [
+    ["/activate", "activate", activateLimiter],
+    ["/reset", "reset", resetLimiter],
+  ] as const) {
+    router.post(
+      path,
+      limiter,
+      async (req: Request, res: Response) => {
+        const body = parseCredentialBody(consumeCredentialBodySchema, req.body);
+        await credentials.consumeCredentialToken(
+          body.token,
+          body.password,
+          purpose,
+          res.locals.requestId as string,
+        );
+        res.setHeader("Cache-Control", "no-store");
+        res.status(204).end();
+      },
+    );
+  }
+
+  // Self-service password change (task 1.4): Bearer-auth like the user
+  // routes — no Origin/CSRF gate (no cookie is presented). Success revokes
+  // EVERY session of the caller, including this one (spec §8).
+  router.post(
+    "/password",
+    passwordLimiter,
+    requireAuth(auth),
+    async (req: Request, res: Response) => {
+      const body = parseCredentialBody(changePasswordBodySchema, req.body);
+      const actor = res.locals.actor as ActorContext;
+      await credentials.changeOwnPassword(
+        actor,
+        body.currentPassword,
+        body.newPassword,
+      );
+      res.setHeader("Cache-Control", "no-store");
+      res.status(204).end();
     },
   );
 

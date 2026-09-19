@@ -46,7 +46,11 @@ describe("foundation schema (migration 0001)", () => {
       expect(state).toMatchObject({ mode: "demo", seed_version: 0 });
 
       const status = await migrationStatus(f.db);
-      expect(status.applied).toEqual(["0001-foundation", "0002-organization"]);
+      expect(status.applied).toEqual([
+        "0001-foundation",
+        "0002-organization",
+        "0003-one-time-token",
+      ]);
       expect(status.pending).toEqual([]);
     } finally {
       await f.close();
@@ -66,13 +70,17 @@ describe("foundation schema (migration 0001)", () => {
         await migrate(migratorDb);
         const status = await migrationStatus(migratorDb);
         expect(status).toEqual({
-          applied: ["0001-foundation", "0002-organization"],
+          applied: [
+            "0001-foundation",
+            "0002-organization",
+            "0003-one-time-token",
+          ],
           pending: [],
         });
         const count = await migratorDb("schema_migration")
           .count("* as n")
           .first();
-        expect(count).toMatchObject({ n: "2" });
+        expect(count).toMatchObject({ n: "3" });
       } finally {
         await migratorDb.destroy();
       }
@@ -124,7 +132,7 @@ describe("foundation schema (migration 0001)", () => {
         f.db("schema_migration").insert({ name: "tamper" }),
       ).rejects.toMatchObject({ code: "42501" });
       // Runtime keeps SELECT on schema_migration — readiness probe needs it.
-      expect(await f.db("schema_migration").select("name")).toHaveLength(2);
+      expect(await f.db("schema_migration").select("name")).toHaveLength(3);
     } finally {
       await f.close();
     }
@@ -400,7 +408,13 @@ describe("readiness with real migrations", () => {
       expect(res.body).toMatchObject({
         code: "MIGRATIONS_PENDING",
         request_id: expect.any(String),
-        details: { pending: ["0001-foundation", "0002-organization"] },
+        details: {
+          pending: [
+            "0001-foundation",
+            "0002-organization",
+            "0003-one-time-token",
+          ],
+        },
       });
     } finally {
       await f.close();

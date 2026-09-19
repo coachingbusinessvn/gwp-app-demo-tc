@@ -324,6 +324,12 @@ export function createAuthService({ db, clock, config }: AuthDeps) {
    * flows MUST call this inside their own transaction boundary (or accept
    * this one) — do not rely on the user-status check alone.
    *
+   * `tx` (task 1.4): when supplied, the revoke joins the caller's
+   * transaction — credential consume/password-change/CLI recovery need the
+   * session kill to commit or roll back with the password write. Omitted,
+   * it keeps the Phase-0 behaviour of opening a standalone transaction
+   * (deactivation calls it that way, right after its own commit).
+   *
    * Returns the number of sessions revoked; one auth.session_revoked audit
    * row is written per session.
    */
@@ -331,29 +337,14 @@ export function createAuthService({ db, clock, config }: AuthDeps) {
     userId: Id,
     requestId: string = randomUUID(),
     reason?: string,
+    tx?: Knex.Transaction,
   ): Promise<number> {
-    return db.transaction(async (tx) => {
-      const sessions = await findActiveSessionsByUser(tx, userId);
-      if (sessions.length === 0) return 0;
-      await markSessionsRevoked(
-        tx,
-        sessions.map((s) => s.id),
-        clock(),
-      );
-      for (const session of sessions) {
-        await appendAudit(tx, {
-          companyId: session.company_id,
-          actorId: session.user_id,
-          action: "auth.session_revoked",
-          targetType: "auth_session",
-          targetId: session.id,
-          outcome: "success",
-          requestId,
-          metadata: reason ? { reason } : {},
-        });
-      }
-      return sessions.length;
-    });
+    if (tx) {
+      return revokeAllUserSessionsInTx(tx, clock, userId, requestId, reason);
+    }
+    return db.transaction((inner) =>
+      revokeAllUserSessionsInTx(inner, clock, userId, requestId, reason),
+    );
   }
 
   /**
@@ -434,3 +425,41 @@ export function createAuthService({ db, clock, config }: AuthDeps) {
 }
 
 export type AuthService = ReturnType<typeof createAuthService>;
+
+/**
+ * The body of revokeAllUserSessions running inside the CALLER's
+ * transaction (task 1.4): credential consume, password change and the
+ * owner-recovery CLI revoke sessions in the same commit as the credential
+ * write — a crash mid-flow can never leave a live session on a rotated
+ * credential. auth.service's revokeAllUserSessions(userId, requestId,
+ * reason, tx?) delegates here when `tx` is supplied; standalone callers
+ * keep getting their own transaction.
+ */
+export async function revokeAllUserSessionsInTx(
+  tx: Knex.Transaction,
+  clock: Clock,
+  userId: Id,
+  requestId: string,
+  reason?: string,
+): Promise<number> {
+  const sessions = await findActiveSessionsByUser(tx, userId);
+  if (sessions.length === 0) return 0;
+  await markSessionsRevoked(
+    tx,
+    sessions.map((s) => s.id),
+    clock(),
+  );
+  for (const session of sessions) {
+    await appendAudit(tx, {
+      companyId: session.company_id,
+      actorId: session.user_id,
+      action: "auth.session_revoked",
+      targetType: "auth_session",
+      targetId: session.id,
+      outcome: "success",
+      requestId,
+      metadata: reason ? { reason } : {},
+    });
+  }
+  return sessions.length;
+}

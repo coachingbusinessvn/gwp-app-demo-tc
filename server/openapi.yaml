@@ -267,6 +267,109 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/auth/activate:
+    post:
+      tags: [auth]
+      summary: Consume an activation token
+      description: >
+        Public one-time-token consume (pending → active). The token itself
+        is the credential — the owner hands it over an internal channel and
+        it is shown exactly once at issuance. Sets the account's first
+        password, flips status to active and revokes any sessions the
+        account may hold. Identical 400 INVALID_TOKEN for unknown,
+        expired, already-used or wrong-purpose tokens — the response never
+        reveals which check failed. Does NOT log the user in: no cookies,
+        no tokens — the client logs in afterwards.
+      operationId: authActivate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CredentialConsumeRequest"
+      responses:
+        "204":
+          description: Token consumed; account activated.
+        "400":
+          description: >
+            INVALID_TOKEN (unknown/expired/used/wrong purpose) or
+            INVALID_INPUT (malformed body, weak password).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/v1/auth/reset:
+    post:
+      tags: [auth]
+      summary: Consume a password-reset token
+      description: >
+        Same contract as /auth/activate for purpose=reset tokens issued on
+        ACTIVE accounts. Sets the new password and revokes every live
+        session of the account — durable kill, not just a status check.
+        Does NOT log the user in.
+      operationId: authReset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CredentialConsumeRequest"
+      responses:
+        "204":
+          description: Token consumed; password replaced.
+        "400":
+          description: >
+            INVALID_TOKEN (unknown/expired/used/wrong purpose) or
+            INVALID_INPUT (malformed body, weak password).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/v1/auth/password:
+    post:
+      tags: [auth]
+      summary: Change the caller's own password
+      description: >
+        Bearer-auth self-service change. Verifies the current password
+        (one generic INVALID_CREDENTIALS on any mismatch — no detail
+        leak), requires the new password to be 12+ chars, then revokes
+        EVERY session of the caller including the one carrying this
+        request — re-login is mandatory (spec §8).
+      operationId: authChangePassword
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordChangeRequest"
+      responses:
+        "204":
+          description: Password changed; all sessions revoked.
+        "400":
+          description: >
+            INVALID_CREDENTIALS (wrong current password) or INVALID_INPUT
+            (malformed body, weak new password).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
   /api/v1/company:
     get:
       tags: [org]
@@ -1098,6 +1201,74 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/users/{id}/credential-token:
+    post:
+      tags: [users]
+      summary: Issue a one-time activation/reset token
+      description: >
+        OWNER only — admin gets 403 even for a member target, and an
+        owner cannot issue for itself (403; self-service is POST
+        /auth/password). `purpose` binds the token: "activate" is issuable
+        only for pending users, "reset" only for active ones — the wrong
+        pairing is 409. The raw 256-bit token is returned ONCE in this
+        response; the database stores only its SHA-256 hash, so it can
+        never be read back. Issuing again supersedes the previous unused
+        token of the same user+purpose. Tokens expire after 24 hours and
+        are consumed via POST /auth/activate or /auth/reset.
+      operationId: issueCredentialToken
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CredentialTokenIssueRequest"
+      responses:
+        "201":
+          description: Token issued — shown to the issuer exactly once.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CredentialTokenIssueResponse"
+        "400":
+          description: Body failed validation — missing/unknown purpose.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: >
+            Caller is not an owner, or the owner tried to issue a token
+            for itself.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: No such user in this company.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: >
+            Purpose/status mismatch — activate needs a pending target
+            (USER_NOT_PENDING), reset needs an active one
+            (USER_NOT_ACTIVE).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
 components:
   parameters:
     XCsrfToken:
@@ -1561,3 +1732,56 @@ components:
           type: string
           format: uuid
           nullable: true
+    CredentialTokenIssueRequest:
+      type: object
+      required: [purpose]
+      additionalProperties: false
+      description: >
+        "activate" is issuable only for pending users, "reset" only for
+        active ones — the wrong pairing is a 409.
+      properties:
+        purpose:
+          type: string
+          enum: [activate, reset]
+    CredentialTokenIssueResponse:
+      type: object
+      required: [token, expiresAt]
+      description: >
+        The raw token appears ONLY here, once — the DB stores its SHA-256
+        hash and no read-back endpoint exists.
+      properties:
+        token:
+          type: string
+          description: 256-bit opaque token, base64url — hand to the user over an internal channel.
+        expiresAt:
+          type: string
+          format: date-time
+          description: Issuance + 24h.
+    CredentialConsumeRequest:
+      type: object
+      required: [token, password]
+      additionalProperties: false
+      properties:
+        token:
+          type: string
+          description: The one-time token as issued.
+        password:
+          type: string
+          format: password
+          minLength: 12
+          maxLength: 256
+    PasswordChangeRequest:
+      type: object
+      required: [currentPassword, newPassword]
+      additionalProperties: false
+      properties:
+        currentPassword:
+          type: string
+          format: password
+          minLength: 1
+          maxLength: 256
+        newPassword:
+          type: string
+          format: password
+          minLength: 12
+          maxLength: 256

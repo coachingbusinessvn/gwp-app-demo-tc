@@ -5,6 +5,7 @@ import type { DemoMode } from "../config.js";
 import { createDb } from "./connection.js";
 import { foundationMigration } from "./migrations/0001-foundation.js";
 import { organizationMigration } from "./migrations/0002-organization.js";
+import { oneTimeTokenMigration } from "./migrations/0003-one-time-token.js";
 
 /**
  * Migration runner: every migration is a named `up(db)` applied in
@@ -25,6 +26,7 @@ export interface Migration {
 export const MIGRATIONS: readonly Migration[] = [
   foundationMigration,
   organizationMigration,
+  oneTimeTokenMigration,
 ];
 
 const TRACKING_TABLE = "schema_migration";

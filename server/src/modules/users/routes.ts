@@ -9,9 +9,11 @@ import { requireAuth } from "../auth/middleware.js";
 import {
   createUserBodySchema,
   deactivateUserBodySchema,
+  issueCredentialTokenBodySchema,
   setRolesBodySchema,
   updateUserBodySchema,
 } from "./schema.js";
+import { createCredentialsService } from "./credentials.service.js";
 import { createUsersService } from "./service.js";
 
 /**
@@ -25,11 +27,13 @@ import { createUsersService } from "./service.js";
  *                                    privileged profiles
  *   PUT  /users/:id/roles          — role set replace, OWNER only
  *   POST /users/:id/deactivate     — owner/admin; session kill after commit
+ *   POST /users/:id/credential-token — OWNER only; issues a one-time
+ *                                    activate/reset token, returned once
+ *                                    (task 1.4)
  *
  * The reporting line lives on org routes (PUT /users/:id/manager — task
- * 1.2); credential tokens land in task 1.4 — neither is here. Bearer-token
- * mutations need requireAuth only — Origin/CSRF gates protect the
- * cookie-bearing session endpoints, not Bearer calls (spec §8).
+ * 1.2). Bearer-token mutations need requireAuth only — Origin/CSRF gates
+ * protect the cookie-bearing session endpoints, not Bearer calls (spec §8).
  */
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -88,6 +92,7 @@ export function userRoutes(deps: {
     revokeAllUserSessions: (userId, requestId, reason) =>
       auth.revokeAllUserSessions(userId, requestId, reason),
   });
+  const credentials = createCredentialsService({ db, clock });
   const router = Router();
 
   router.get(
@@ -160,6 +165,23 @@ export function userRoutes(deps: {
       // An absent body is the same as {} — no reports decision supplied.
       const body = parseBody(deactivateUserBodySchema, req.body ?? {});
       res.json(await users.deactivateUser(actorOf(res), id, body));
+    },
+  );
+
+  router.post(
+    "/users/:id/credential-token",
+    requireAuth(auth),
+    async (req: Request, res: Response) => {
+      const id = pathId(req.params.id);
+      const body = parseBody(issueCredentialTokenBodySchema, req.body);
+      const issued = await credentials.issueCredentialToken(
+        actorOf(res),
+        id,
+        body.purpose,
+      );
+      // The raw token crosses the wire exactly once — never store it.
+      res.setHeader("Cache-Control", "no-store");
+      res.status(201).json(issued);
     },
   );
 
