@@ -287,7 +287,7 @@ git commit -m "feat: add revocable authentication and refresh rotation"
 - `apiFetch(path, init?): Promise<Response>`; `getAccessToken(): Promise<string>`; `logout(): Promise<void>`.
 - Build public allowlist cụ thể; phase này chỉ setup/login/account shell, nghiệp vụ chưa hoàn tất bị disabled.
 
-- [ ] **Step 1: Viết test đỏ** trong `tests/e2e/auth.spec.ts`. Định nghĩa fixture E2E owner bootstrap và hai tab cùng cookie; browser refresh đồng thời không revoke nhầm; không token/localStorage, production không tải assets/data.js.
+- [x] **Step 1: Viết test đỏ** trong `tests/e2e/auth.spec.ts`. Định nghĩa fixture E2E owner bootstrap và hai tab cùng cookie; browser refresh đồng thời không revoke nhầm; không token/localStorage, production không tải assets/data.js.
 
 ```ts
 await page.goto("/index.html");
@@ -298,13 +298,13 @@ await expect(page.getByTestId("account-name")).toBeVisible();
 expect(await page.evaluate(() => Object.keys(localStorage))).not.toContain("gwp-demo-tc-session");
 ```
 
-- [ ] **Step 2: Chạy test trước triển khai.**
+- [x] **Step 2: Chạy test trước triển khai.**
 
 Run: `npm run test:e2e -- tests/e2e/auth.spec.ts`.
 Expected: FAIL tại hành vi/assertion mới hoặc missing module; sửa lỗi setup/môi trường trước,
 không coi lỗi không kết nối DB là bằng chứng RED hợp lệ.
 
-- [ ] **Step 3: Triển khai phần lõi và nối interface.**
+- [x] **Step 3: Triển khai phần lõi và nối interface.**
 
 Login form thật thay chọn vai trò. Chuyển requireSession thành async identity API; xóa dereference PEOPLE[me.id]. apiFetch thêm bearer, chỉ retry 401 một lần. Refresh dùng navigator.locks theo origin + BroadcastChannel chia sẻ access token trong memory giữa tabs; fallback browser unsupported hiển thị yêu cầu browser hỗ trợ, không lưu token disk. Build chỉ copy UI đã chuyển đổi, fonts bundle local có license; dùng esbuild bundle web entrypoints và shared/canvas TypeScript (khi Phase2 tạo) thành ESM browser, không serve source TS. Không public fixtures/docs/server. Root GitHub Pages demo không phải production target; không fallback về fake auth khi API lỗi.
 
@@ -316,12 +316,12 @@ for (const path of ["/.env","/server/src/config.ts","/docs/superpowers/specs/202
   expect((await request(app).get(path)).status).toBe(404);
 ```
 
-- [ ] **Step 4: Chạy lại test và kiểm tra hồi quy.**
+- [x] **Step 4: Chạy lại test và kiểm tra hồi quy.**
 
 Run: `npm run test:e2e -- tests/e2e/auth.spec.ts`, rồi `npm run typecheck`.
 Expected: test mới PASS, typecheck exit 0. Chạy thêm toàn bộ integration tests của module vừa thay đổi.
 
-- [ ] **Step 5: Commit riêng task sau khi kiểm tra diff.**
+- [x] **Step 5: Commit riêng task sau khi kiểm tra diff.**
 
 ```sh
 git diff --check
