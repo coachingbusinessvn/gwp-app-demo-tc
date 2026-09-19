@@ -1,5 +1,13 @@
 # Phase 0 — Foundation (Backend + Real Auth) Implementation Plan
 
+> **SUPERSEDED / KHÔNG TRIỂN KHAI NGUYÊN TRẠNG — 2026-09-20.**
+> Spec tổng đã cập nhật revision 2: PostgreSQL-only, AI local + BYOK, auth/bootstrap
+> an toàn, public assets allowlist và Docker Compose từ Phase 0. Plan này vẫn chứa
+> quyết định cũ (SQLite/dual DB, token trong browser storage, serve repository root).
+> Giữ nội dung để tham khảo lịch sử; phải lập plan Phase 0 thay thế và duyệt trước khi
+> thực thi bất kỳ task/code block nào bên dưới.
+> Nguồn chuẩn: [spec revision 2](../specs/2026-09-19-gwp-app-real-design.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Stand up a Node/TypeScript API + SQLite behind the existing static frontend, with real email/password login (JWT) replacing the fake role-picker, and the demo people seeded into the database.
