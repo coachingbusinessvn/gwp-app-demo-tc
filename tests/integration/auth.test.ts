@@ -124,12 +124,14 @@ describe("POST /api/v1/auth/login", () => {
       expect(cookieValue(logged, config.refreshCookieName)).toBeTruthy();
 
       // CSRF cookie: readable by JS (no HttpOnly), still Strict+Secure.
+      // Path=/ (task 0.5) — double-submit requires document.cookie to read
+      // it on app pages so JS can mirror it into X-CSRF-Token.
       const csrf = cookieLine(logged, config.csrfCookieName);
       expect(csrf).toBeDefined();
       expect(csrf).not.toContain("HttpOnly");
       expect(csrf).toContain("Secure");
       expect(csrf).toContain("SameSite=Strict");
-      expect(csrf).toContain("Path=/api/v1/auth");
+      expect(csrf).toContain("Path=/");
       expect(cookieValue(logged, config.csrfCookieName)).toBeTruthy();
     } finally {
       await f.close();

@@ -13,6 +13,8 @@ import { createAuthService } from "./service.js";
  *
  * - The refresh token only ever travels in the HttpOnly gwp_refresh cookie
  *   (Secure, SameSite=Strict, Path=/api/v1/auth) — never in a JSON body.
+ *   The gwp_csrf double-submit cookie uses Path=/ so app pages can read it
+ *   via document.cookie and mirror it into X-CSRF-Token.
  * - login is rate-limited per account+IP AND per IP; refresh/logout per IP.
  * - refresh/logout require the matching Origin header and the double-submit
  *   X-CSRF-Token ↔ gwp_csrf cookie pair.
@@ -39,7 +41,12 @@ export function authRoutes(deps: {
     httpOnly: false,
     secure: true,
     sameSite: "strict",
-    path: COOKIE_PATH,
+    // Path=/ — the double-submit cookie must be readable via document.cookie
+    // on app pages so JS can mirror it into X-CSRF-Token. It is not a secret
+    // (that is the point of double-submit); the refresh token cookie stays
+    // scoped to COOKIE_PATH. Changed from COOKIE_PATH in task 0.5 once the
+    // real web client existed.
+    path: "/",
     maxAge: config.refreshTokenTtlSeconds * 1000,
   } as const;
 
@@ -61,7 +68,7 @@ export function authRoutes(deps: {
     res.clearCookie(config.csrfCookieName, {
       secure: true,
       sameSite: "strict",
-      path: COOKIE_PATH,
+      path: "/", // must match csrfCookie.path or the clear is a no-op
     });
   };
 

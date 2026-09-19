@@ -6,18 +6,25 @@ import { createApp } from "../../server/src/app.js";
 import { loadConfig, type DemoMode } from "../../server/src/config.js";
 import { createDb } from "../../server/src/db/connection.js";
 import { migrate } from "../../server/src/db/migrate.js";
-import { hashPassword } from "../../server/src/modules/auth/password.js";
 import type {
   ActorContext,
   Id,
-  Role,
 } from "../../server/src/shared/contracts.js";
+import {
+  FIXTURE_PASSWORD,
+  PERSONAS,
+  generatePersonaIds,
+  personaEmail,
+  seedCompanyWithPersonas,
+  type Persona,
+} from "./seed-personas.js";
 
-export type Persona = "owner" | "admin" | "manager" | "member" | "outsider";
-
-/** All seeded personas share this literal password (test-only). */
-export const FIXTURE_PASSWORD = "fixture-password";
-export const personaEmail = (p: Persona): string => `${p}@example.test`;
+export {
+  FIXTURE_PASSWORD,
+  PERSONAS,
+  personaEmail,
+  type Persona,
+} from "./seed-personas.js";
 
 export interface Fixture {
   db: Knex;
@@ -59,65 +66,6 @@ export const testEnv: NodeJS.ProcessEnv = {
   PORT: "8080",
   TRUST_PROXY: "false",
 };
-
-const PERSONAS: readonly Persona[] = [
-  "owner",
-  "admin",
-  "manager",
-  "member",
-  "outsider",
-];
-
-/**
- * Persona wiring (task 0.4): everyone is an active user of ids.company with
- * the argon2id hash of FIXTURE_PASSWORD. member reports to manager; outsider
- * is a member reporting directly to owner — inside the company but OUTSIDE
- * manager's subtree (for cross-subtree deny tests). Insertion order follows
- * PERSONAS so the composite manager FK always resolves to an earlier row.
- */
-const PERSONA_SEED: Record<Persona, { role: Role; manager: Persona | null }> =
-  {
-    owner: { role: "owner", manager: null },
-    admin: { role: "admin", manager: null },
-    manager: { role: "manager", manager: "owner" },
-    member: { role: "member", manager: "manager" },
-    outsider: { role: "member", manager: "owner" },
-  };
-
-async function seedPersonas(
-  db: Knex,
-  companyId: Id,
-  personaIds: Record<Persona, Id>,
-): Promise<void> {
-  // One hash for all five — the credential is a published fixture, so
-  // per-user salts would only burn CPU (same rule as the demo seed).
-  const passwordHash = await hashPassword(FIXTURE_PASSWORD);
-  const roleIdByKey = new Map<string, string>(
-    (await db("role").select("id", "key")).map(
-      (r: { id: string; key: string }) => [r.key, r.id],
-    ),
-  );
-  for (const persona of PERSONAS) {
-    const seed = PERSONA_SEED[persona];
-    await db("app_user").insert({
-      id: personaIds[persona],
-      company_id: companyId,
-      email: personaEmail(persona),
-      name: `Fixture ${persona.charAt(0).toUpperCase()}${persona.slice(1)}`,
-      title: "Fixture User",
-      status: "active",
-      password_hash: passwordHash,
-      manager_id: seed.manager ? personaIds[seed.manager] : null,
-    });
-    const roleId = roleIdByKey.get(seed.role);
-    if (!roleId) throw new Error(`fixture: role ${seed.role} not seeded`);
-    await db("user_role").insert({
-      company_id: companyId,
-      user_id: personaIds[persona],
-      role_id: roleId,
-    });
-  }
-}
 
 const ROLE_NAME = /^[a-z_][a-z0-9_]{0,62}$/i;
 
@@ -197,9 +145,7 @@ export async function fixture(options?: {
   });
   const runtimeRole = urlUser(TEST_DATABASE_URL);
   const migratorRole = urlUser(TEST_MIGRATOR_DATABASE_URL);
-  const personaIds = Object.fromEntries(
-    PERSONAS.map((p) => [p, randomUUID()]),
-  ) as Record<Persona, Id>;
+  const personaIds = generatePersonaIds();
 
   const maintenanceDb = createDb(TEST_MAINTENANCE_DATABASE_URL);
   await assertConnectedToTestDb(maintenanceDb);
@@ -224,11 +170,12 @@ export async function fixture(options?: {
       try {
         await migrate(migratorDb, { mode: config.mode });
         if (options?.seeded) {
-          const inserted = await migratorDb("company")
-            .insert({ name: "GWP Test Company" })
-            .returning("id");
-          companyId = (inserted[0] as { id: string }).id;
-          await seedPersonas(migratorDb, companyId, personaIds);
+          const seeded = await seedCompanyWithPersonas(
+            migratorDb,
+            "GWP Test Company",
+            personaIds,
+          );
+          companyId = seeded.companyId;
         }
       } finally {
         await migratorDb.destroy().catch(() => {});

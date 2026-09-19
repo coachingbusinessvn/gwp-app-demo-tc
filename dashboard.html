@@ -4,14 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Bảng theo dõi — Performance Follow-up | GoWise Partners</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/fonts.css">
 <link rel="stylesheet" href="assets/gwp.css">
 </head>
-<body>
+<body data-page="dashboard">
 <main>
-  <div class="eyebrow" id="eyebrow"></div>
+  <div class="eyebrow" id="eyebrow">Performance Follow-up</div>
   <h1 class="title" id="ptitle">Bảng theo dõi</h1>
   <p class="note" id="psub"></p>
 
@@ -35,156 +33,6 @@
   </section>
 </main>
 
-<script src="assets/data.js"></script>
-<script src="assets/app.js"></script>
-<script>
-const me = requireSession();
-if(me){
-renderHeader(me);
-document.getElementById("eyebrow").textContent = "Tuần 33 · " + dmy("2026-08-13");
-document.getElementById("ptitle").textContent = "Chào " + me.name.split(" ").slice(-1)[0] + ", đây là tình hình hôm nay";
-document.getElementById("psub").textContent = me.role;
-
-/* ---------- Khối “Cần bạn xử lý” ---------- */
-(function(){
-  const team = collectTeam(me.id);
-  const withCanvas = team.filter(p=>canvasOf(p.id));
-  const st = withCanvas.map(p=>({p, s:statusOf(p.id)}));
-  const nOk = st.filter(x=>x.s.code==="ok").length;
-  const nRisk = st.filter(x=>x.s.tone==="risk").length;
-  const blockers = blockersOwnedBy(me);
-
-  let h = '<div class="eyebrow">Ưu tiên hôm nay</div><h2 class="title">Cần bạn xử lý</h2>';
-  h += '<div class="stats">'+
-    stat("Canvas đúng nhịp", nOk+"/"+withCanvas.length, "Có bằng chứng cập nhật trong kỳ review")+
-    stat("Cần can thiệp", String(nRisk), "Quá hạn hoặc đứt nhịp cập nhật")+
-    stat("Nút thắt bạn giữ", String(blockers.length), "Điều kiện mức Cao mà bạn là người sở hữu")+
-  '</div>';
-
-  if(blockers.length){
-    h += '<h3 class="sub">Việc đang chờ chính bạn</h3><div class="recs">';
-    blockers.forEach(b=>{
-      h += '<div class="rec risk"><div class="ic">⚠</div><div class="tx"><b>'+esc(b.cond)+'</b>'+
-           '<span>'+esc(b.box)+' · canvas của '+esc(b.person.name)+' — '+esc(b.act||"chưa có hành động")+
-           '. Ghi nhận từ '+dmy(b.since)+'.</span></div></div>';
-    });
-    h += '</div><p class="note">Đây là các điều kiện cấp dưới không tự gỡ được. Chúng thường nằm im lâu nhất vì người sở hữu là cấp trên.</p>';
-  }
-
-  const risky = st.filter(x=>x.s.tone==="risk" || x.s.code==="draft");
-  if(risky.length){
-    h += '<h3 class="sub">Người cần bạn ghé qua trước</h3><div class="weeklist">';
-    risky.forEach(x=>{
-      h += '<a class="week prow" href="employee.html?p='+encodeURIComponent(x.p.id)+'">'+
-        '<div><span class="ava">'+esc(initials(x.p.name))+'</span></div>'+
-        '<div><div class="wt">'+esc(x.p.name)+' <span class="rl">· '+esc(x.p.role)+'</span></div>'+
-        '<div class="wch">'+esc(canvasOf(x.p.id).name)+' — '+esc(x.s.label)+'</div></div>'+
-        '<div><span class="chip '+(x.s.tone==="risk"?"risk":"draft")+'">'+esc(x.s.tone==="risk"?"Cần can thiệp":"Chờ bằng chứng")+'</span></div></a>';
-    });
-    h += '</div>';
-  }
-
-  /* Ghi nhận tiến bộ — sếp cần biết chỗ nào đang chạy tốt, không chỉ chỗ cháy */
-  const bright = st.filter(x=>{
-    const v = fullVersion(canvasOf(x.p.id),0);
-    return (v.observed||[]).some(o=>o.dec==="CONTINUE" && o.layer!=="RESULT");
-  });
-  if(bright.length){
-    h += '<h3 class="sub">Đang có tiến triển — nên ghi nhận</h3><div class="recs">';
-    bright.forEach(x=>{
-      const v = fullVersion(canvasOf(x.p.id),0);
-      const ev = (v.observed||[]).filter(o=>o.dec==="CONTINUE")[0];
-      h += '<div class="rec ok"><div class="ic">✓</div><div class="tx"><b>'+esc(x.p.name)+' — '+esc(ev.val)+'</b>'+
-           '<span>Nguồn: '+esc(ev.src)+' · xác nhận bởi '+esc(ev.ver)+'.</span></div></div>';
-    });
-    h += '</div>';
-  }
-
-  h += '<div class="btnrow" style="margin-top:16px">'+
-       '<a class="btn" href="canvas-online/">Tạo canvas mới</a>'+
-       '<a class="btn ghost" href="canvas-online/#import">Nhập canvas từ Markdown</a>'+
-       '<a class="btn ghost" href="coaching-report/">Coaching Report</a>'+
-       '</div>';
-  document.getElementById("attention").innerHTML = h;
-})();
-
-function stat(lb,vl,hint){
-  return '<div class="stat"><div class="lb">'+esc(lb)+'</div><div class="vl">'+esc(vl)+'</div><div class="hint">'+esc(hint)+'</div></div>';
-}
-function collectTeam(rootId){
-  const out=[];
-  (function walk(node){ node.children.forEach(c=>{ out.push(PEOPLE[c.id]); walk(c); }); })(findNode(ORG,rootId)||{children:[]});
-  return out;
-}
-function findNode(node,id){
-  if(node.id===id) return node;
-  for(const c of node.children||[]){ const r=findNode(c,id); if(r) return r; }
-  return null;
-}
-
-/* ---------- Cây tổ chức ---------- */
-(function(){
-  const root = findNode(ORG, me.id) || ORG;
-  function dot(s){
-    const color = s.tone==="risk" ? "var(--risk)" : s.tone==="validated" ? "var(--ok)" : "var(--gp-slate)";
-    return '<span title="'+esc(s.label)+'" style="width:9px;height:9px;border-radius:50%;background:'+color+';display:inline-block;flex:none"></span>';
-  }
-  function node(n, isRoot){
-    const p = PEOPLE[n.id]; if(!p) return "";
-    const cv = canvasOf(p.id), s = statusOf(p.id);
-    const vcount = cv ? cv.versions.length : 0;
-    const inner =
-      '<span class="ava">'+esc(initials(p.name))+'</span>'+
-      '<span><span class="nm">'+esc(p.name)+(isRoot?' <span class="lvl">bạn</span>':'')+'</span><br>'+
-      '<span class="rl">'+esc(p.role)+'</span></span>'+
-      '<span class="meta">'+dot(s)+'<span class="cnt">'+(cv? vcount+" bản canvas" : "Chưa có canvas")+'</span>'+
-      (cv?'<span class="chip '+(s.tone==="risk"?"risk":cv.versions[0].stage.toLowerCase())+'">'+esc(s.label)+'</span>':'')+'</span>';
-    const el = cv
-      ? '<a class="person" href="employee.html?p='+encodeURIComponent(p.id)+'">'+inner+'</a>'
-      : '<div class="person" style="cursor:default;opacity:.72">'+inner+'</div>';
-    const kids = (n.children||[]).length
-      ? '<ul>'+n.children.map(c=>node(c,false)).join("")+'</ul>' : "";
-    return '<li>'+el+kids+'</li>';
-  }
-  document.getElementById("tree").innerHTML = node(root, true);
-})();
-
-/* ---------- Tab canvas cá nhân ---------- */
-(function(){
-  const cv = canvasOf(me.id);
-  const host = document.getElementById("mine");
-  if(!cv){ host.innerHTML='<h2 class="title">Canvas cá nhân</h2><p class="note">Bạn chưa có canvas nào. Tạo bản đầu tiên để đội ngũ thấy bạn đang theo đuổi kết quả gì.</p>'+
-    '<div class="btnrow" style="margin-top:12px"><a class="btn" href="canvas-online/">Tạo canvas mới</a><a class="btn ghost" href="coaching-report/">Coaching Report</a></div>'; return; }
-  const v = fullVersion(cv,0);
-  host.innerHTML =
-    '<div class="eyebrow">Canvas cá nhân · '+esc(v.week)+'</div>'+
-    '<h2 class="title">'+esc(cv.name)+'</h2>'+
-    '<p class="note" style="margin-bottom:12px">'+stageChip(v.stage)+' &nbsp;Cập nhật '+dmy(v.date)+' · '+esc(v.change)+'</p>'+
-    chainHTML(v)+
-    '<div class="btnrow" style="margin-top:14px">'+
-      '<a class="btn" href="canvas.html?p='+me.id+'&v=0">Mở canvas chi tiết</a>'+
-      '<a class="btn ghost" href="employee.html?p='+me.id+'">Xem các bản theo tuần</a>'+
-      '<a class="btn ghost" href="canvas-online/">Sửa trên Canvas Online</a>'+
-      '<a class="btn ghost" href="coaching-report/">Coaching Report</a>'+
-    '</div>';
-})();
-
-/* ---------- Tabs ---------- */
-(function(){
-  const tabs=[["tab-team","panel-team"],["tab-mine","panel-mine"]];
-  tabs.forEach(([tid,pid])=>{
-    document.getElementById(tid).addEventListener("click",()=>{
-      tabs.forEach(([t,p])=>{
-        const on = t===tid;
-        document.getElementById(t).setAttribute("aria-selected", on?"true":"false");
-        document.getElementById(p).hidden = !on;
-      });
-    });
-  });
-})();
-
-renderFooter();
-}
-</script>
+<script type="module" src="assets/app.js"></script>
 </body>
 </html>

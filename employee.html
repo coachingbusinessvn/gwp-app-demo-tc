@@ -4,12 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Canvas theo tuần — Performance Follow-up | GoWise Partners</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/fonts.css">
 <link rel="stylesheet" href="assets/gwp.css">
 </head>
-<body>
+<body data-page="employee">
 <main>
   <p class="crumb"><a href="dashboard.html">Bảng theo dõi</a> <span>›</span> <span id="cname">…</span></p>
   <div id="head"></div>
@@ -17,75 +15,6 @@
   <section class="card" id="list"></section>
 </main>
 
-<script src="assets/data.js"></script>
-<script src="assets/app.js"></script>
-<script src="assets/export.js"></script>
-<script>
-const me = requireSession();
-if(me){
-renderHeader(me);
-const pid = qs("p");
-const person = PEOPLE[pid];
-const cv = person ? canvasOf(pid) : null;
-
-if(!person || !cv){
-  document.getElementById("head").innerHTML =
-    '<div class="card"><h1 class="title">Không tìm thấy canvas</h1>'+
-    '<p class="note">Người này chưa có canvas nào, hoặc đường dẫn không đúng.</p>'+
-    '<div class="btnrow" style="margin-top:12px"><a class="btn ghost" href="dashboard.html">Về bảng theo dõi</a>'+
-    '<a class="btn" href="canvas-online/">Tạo canvas mới</a>'+
-    '<a class="btn ghost" href="coaching-report/">Coaching Report</a></div></div>';
-} else {
-  document.getElementById("cname").textContent = person.name;
-  const s = statusOf(pid);
-  const v0 = fullVersion(cv,0);
-
-  document.getElementById("head").innerHTML =
-    '<div class="card">'+
-    '<div class="eyebrow">'+esc(person.role)+'</div>'+
-    '<h1 class="title">'+esc(person.name)+'</h1>'+
-    '<p class="note">Canvas <b>'+esc(cv.name)+'</b> · '+stageChip(v0.stage)+
-      ' <span class="chip '+(s.tone==="risk"?"risk":s.tone)+'">'+esc(s.label)+'</span></p>'+
-    '<div class="btnrow" style="margin-top:14px">'+
-      '<a class="btn" href="canvas.html?p='+encodeURIComponent(pid)+'&v=0">Mở bản mới nhất</a>'+
-      '<a class="btn ghost" href="canvas-online/">Tạo canvas mới</a>'+
-      '<a class="btn ghost" href="canvas-online/#import" id="btnImport">Nhập canvas từ Markdown</a>'+
-      '<a class="btn ghost" href="coaching-report/">Coaching Report</a>'+
-    '</div></div>';
-
-  /* Xu hướng hiệu suất */
-  document.getElementById("trend").innerHTML =
-    '<div class="eyebrow">Biến đổi hiệu suất</div>'+
-    '<h2 class="title">Ba tầng bằng chứng theo tuần</h2>'+
-    chartHTML(cv.series);
-
-  /* Danh sách bản theo tuần */
-  let h = '<div class="eyebrow">Lịch sử</div><h2 class="title">Các bản canvas theo tuần</h2>'+
-          '<p class="note" style="margin-bottom:12px">Mỗi bản là một lần chốt sau phiên 1-1. Bấm để xem chi tiết và gợi ý cải tiến.</p>'+
-          '<div class="weeklist">';
-  cv.versions.forEach((v,i)=>{
-    const full = fullVersion(cv,i);
-    const nObs = (full.observed||[]).length;
-    h += '<div class="week wrow">'+
-      '<div><div class="wk">'+esc(v.week)+' · '+esc(v.v)+'</div><div class="wdate">'+dmy(v.date)+'</div></div>'+
-      '<div><a class="wt wlink" href="canvas.html?p='+encodeURIComponent(pid)+'&v='+i+'">'+esc(v.change)+'</a>'+
-      '<div class="wch">'+(nObs? nObs+' quan sát thật' : 'Chưa có quan sát thật')+
-      (i===0?' · bản mới nhất':'')+'</div></div>'+
-      '<div class="wact">'+stageChip(v.stage)+
-        '<button class="mini" type="button" data-copy="'+i+'" title="Sao chép Markdown để dán vào trợ lý AI">Sao chép MD</button>'+
-        '<button class="mini" type="button" data-xlsx="'+i+'" title="Tải file Excel">Excel</button>'+
-      '</div></div>';
-  });
-  h += '</div><p class="note" style="margin-top:10px">Sao chép Markdown rồi dán vào <b>Canvas Session Renderer</b> (cập nhật sau phiên coach) hoặc <b>Canvas Coach</b> (chấm điểm &amp; coach cải tiến).</p>';
-  document.getElementById("list").innerHTML = h;
-  document.getElementById("list").addEventListener("click",e=>{
-    const c=e.target.closest("[data-copy]"), x=e.target.closest("[data-xlsx]");
-    if(c) copyMd(cv, fullVersion(cv,+c.dataset.copy), c);
-    if(x) downloadXlsx(cv, fullVersion(cv,+x.dataset.xlsx));
-  });
-}
-renderFooter();
-}
-</script>
+<script type="module" src="assets/app.js"></script>
 </body>
 </html>

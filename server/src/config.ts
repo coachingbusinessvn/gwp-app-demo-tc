@@ -1,3 +1,7 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
 export type DemoMode = "demo" | "production";
 
 export interface Config {
@@ -17,6 +21,12 @@ export interface Config {
   refreshCookieName: string;
   /** JS-readable cookie mirrored by the X-CSRF-Token header. */
   csrfCookieName: string;
+  /**
+   * Directory the static middleware serves — always the allowlisted
+   * `<repo>/public-build` produced by scripts/build-public.ts, NEVER the
+   * repository root (spec §2: only built public assets are served).
+   */
+  publicDir: string;
 }
 
 const REQUIRED = [
@@ -28,6 +38,24 @@ const REQUIRED = [
 ] as const;
 
 const MIN_SECRET_LENGTH = 32;
+
+/**
+ * Repository root = the nearest ancestor containing package.json. Works from
+ * both source layout (server/src/config.ts → ../..) and the compiled layout
+ * (dist/server/src/config.js walks past dist/ to the same root) so
+ * publicDir always lands at <repo>/public-build regardless of entrypoint.
+ */
+function resolveRepoRoot(): string {
+  let dir = path.dirname(fileURLToPath(import.meta.url));
+  for (;;) {
+    if (existsSync(path.join(dir, "package.json"))) return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  // Unreachable in this repo; fall back to the source-layout resolution.
+  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+}
 
 function fail(message: string): never {
   throw new Error(`config: ${message}`);
@@ -149,5 +177,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     ),
     refreshCookieName: "gwp_refresh",
     csrfCookieName: "gwp_csrf",
+    publicDir: path.join(resolveRepoRoot(), "public-build"),
   };
 }

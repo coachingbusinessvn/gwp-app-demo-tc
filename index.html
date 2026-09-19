@@ -4,46 +4,28 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Đăng nhập — Performance Follow-up | GoWise Partners</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/fonts.css">
 <link rel="stylesheet" href="assets/gwp.css">
 </head>
 <body class="login">
-<form class="loginbox" id="frm" autocomplete="off">
-  <img id="logo" alt="GoWise Partners">
+<form class="loginbox" id="frm-login" autocomplete="on">
+  <svg class="mark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="52" height="52" role="img" aria-label="GoWise Partners"><circle cx="32" cy="32" r="29" fill="none" stroke="#C9A668" stroke-width="3"/><path d="M20 22l7 22 5-14 5 14 7-22" fill="none" stroke="#E7D0A2" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
   <div class="brand">GoWise Partners</div>
   <h1>Performance Follow-up</h1>
   <p class="sub">Theo dõi canvas hiệu suất của đội ngũ theo nhịp tuần: ai đang đúng nhịp, ai cần bạn vào cuộc, và điều gì đang chặn kết quả.</p>
 
-  <label for="who">Đăng nhập bằng vai trò</label>
-  <select id="who">
-    <option value="l1">Trần Hải Đăng — Giám đốc vùng HCM</option>
-    <option value="p7">Phạm Thu Hà — Trưởng PGD Quận 7</option>
-    <option value="thn">Vũ Quốc Bảo — Tổ trưởng Thu hồi nợ sớm</option>
-  </select>
+  <label for="email">Email</label>
+  <input type="email" id="email" name="email" autocomplete="username" required>
 
   <label for="pw">Mật khẩu</label>
-  <input type="password" id="pw" value="demo" placeholder="demo">
+  <input type="password" id="pw" name="password" autocomplete="current-password" required>
 
-  <button class="btn" type="submit">Vào bảng theo dõi</button>
-  <div class="login-tools">
-    <a href="canvas-online/">Canvas Online</a>
-    <a href="coaching-report/">Coaching Report</a>
-  </div>
-  <p class="demo">Bản demo: chọn vai trò rồi bấm vào, mật khẩu để nguyên. Dữ liệu chỉ nằm trong trình duyệt máy này; tên người và số liệu đều là giả định.</p>
+  <p class="err" id="loginErr" role="alert" hidden></p>
+
+  <button class="btn" type="submit">Đăng nhập</button>
+  <p class="demo">Bản demo — tài khoản mẫu được công bố: member@example.test, manager@example.test, owner@example.test · mật khẩu “fixture-password”.</p>
 </form>
 
-<script src="assets/data.js"></script>
-<script src="assets/app.js"></script>
-<script>
-document.getElementById("logo").src=LOGO;
-if(session() && PEOPLE[session().personId]) location.replace("dashboard.html");
-document.getElementById("frm").addEventListener("submit",e=>{
-  e.preventDefault();
-  signIn(document.getElementById("who").value);
-  location.href="dashboard.html";
-});
-</script>
+<script type="module" src="web/auth.js"></script>
 </body>
 </html>

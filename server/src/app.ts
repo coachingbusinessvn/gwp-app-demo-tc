@@ -81,10 +81,16 @@ export function createApp({ db, clock, config }: AppDeps): Express {
   // Module routers mount here, BEFORE the catch-all:
   app.use("/api/v1", setupRoutes({ db, config })); // task 0.3
   app.use("/api/v1/auth", authRoutes({ db, clock, config })); // task 0.4
-  //   app.use(express.static(config.publicDir, ...)) // task 0.5
 
-  // Unknown /api/v1/* → JSON 404 with NOT_FOUND code; any other unknown path
-  // also gets the JSON envelope until static serving lands in task 0.5.
+  // Public asset boundary (task 0.5, spec §2): serve ONLY the allowlisted
+  // build output at config.publicDir (<repo>/public-build) — never the
+  // repository root, never dotfiles, no implicit index.html on directories.
+  // Anything unresolved falls through to the JSON 404 below.
+  app.use(
+    express.static(config.publicDir, { dotfiles: "deny", index: false }),
+  );
+
+  // Unknown /api/v1/* and any other unmatched path → JSON 404 NOT_FOUND.
   app.use((_req, _res, next) => {
     next(new AppError(404, "NOT_FOUND", "Không tìm thấy tài nguyên"));
   });

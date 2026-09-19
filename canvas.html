@@ -4,135 +4,15 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Canvas chi tiết — Performance Follow-up | GoWise Partners</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/fonts.css">
 <link rel="stylesheet" href="assets/gwp.css">
 </head>
-<body>
+<body data-page="canvas">
 <main>
-  <p class="crumb"><a href="dashboard.html">Bảng theo dõi</a> <span>›</span> <a id="lnkEmp" href="#">…</a> <span>›</span> <span id="vname">…</span></p>
+  <p class="crumb"><a href="dashboard.html">Bảng theo dõi</a> <span>›</span> <span id="vname">…</span></p>
   <div id="app"></div>
 </main>
 
-<script src="assets/data.js"></script>
-<script src="assets/app.js"></script>
-<script src="assets/export.js"></script>
-<script>
-const me = requireSession();
-if(me){
-renderHeader(me);
-const pid=qs("p"), vi=parseInt(qs("v")||"0",10);
-const person=PEOPLE[pid], cv=person?canvasOf(pid):null;
-
-if(!person||!cv||!cv.versions[vi]){
-  document.getElementById("app").innerHTML='<div class="card"><h1 class="title">Không tìm thấy bản canvas</h1>'+
-    '<p class="note">Đường dẫn không đúng hoặc bản canvas đã bị xóa.</p>'+
-    '<div class="btnrow" style="margin-top:12px"><a class="btn ghost" href="dashboard.html">Về bảng theo dõi</a></div></div>';
-} else {
-  const v=fullVersion(cv,vi), raw=cv.versions[vi];
-  document.getElementById("lnkEmp").textContent=person.name;
-  document.getElementById("lnkEmp").href="employee.html?p="+encodeURIComponent(pid);
-  document.getElementById("vname").textContent=raw.week+" · "+raw.v;
-
-  const tbl=(head,rows)=> rows.length
-    ? '<div class="tscroll"><table class="t"><thead><tr>'+head.map(h=>'<th>'+esc(h)+'</th>').join("")+'</tr></thead><tbody>'+
-      rows.map(r=>'<tr>'+r.map(c=>'<td>'+(isBlank(c)?'<span style="color:var(--gp-slate)">'+esc(c||"(chưa điền)")+'</span>':esc(c))+'</td>').join("")+'</tr>').join("")+
-      '</tbody></table></div>'
-    : '<p class="note"><i>(chưa có dữ liệu)</i></p>';
-
-  let h='';
-
-  /* Đầu trang */
-  h+='<div class="card"><div class="eyebrow">'+esc(person.name)+' · '+esc(person.role)+'</div>'+
-    '<h1 class="title">'+esc(cv.name)+'</h1>'+
-    '<p class="note">'+stageChip(v.stage)+' · Build Mode '+esc(v.mode)+' · Schema 3.0 · Cập nhật '+dmy(v.date)+
-    (v.owner?' · Người lập: '+esc(v.owner):'')+'</p>'+
-    '<p class="note" style="margin-top:6px">'+esc(raw.change)+'</p>'+
-    (raw.brief?'<p class="note" style="color:var(--warn)">Bản rút gọn trong demo — các bảng bên dưới lấy từ bản đầy đủ gần nhất.</p>':'')+
-    '<h3 class="sub">Chuỗi nhân quả</h3>'+chainHTML(v)+
-    '<div class="btnrow" style="margin-top:14px">'+
-      '<button class="btn" id="btnCopy" type="button">Sao chép Markdown</button>'+
-      '<button class="btn ghost" id="btnXlsx" type="button">Tải Excel (.xlsx)</button>'+
-      '<button class="btn ghost" id="btnMd" type="button">Tải Markdown (.md)</button>'+
-      '<a class="btn ghost" href="employee.html?p='+encodeURIComponent(pid)+'">Các bản theo tuần</a>'+
-      '<button class="btn ghost" id="btnPrint" type="button">In / Lưu PDF</button>'+
-    '</div></div>';
-
-  /* Làm tiếp với trợ lý AI — khép vòng app ↔ chatbot ↔ Canvas Online */
-  h+='<div class="card"><div class="eyebrow">Làm tiếp với trợ lý AI</div>'+
-     '<h2 class="title">Đưa canvas này sang trợ lý phù hợp</h2>'+
-     '<p class="note" style="margin-bottom:12px">Bấm <b>Sao chép Markdown</b> ở trên, rồi dán vào một trong hai trợ lý — cả hai đều đọc đúng khung schema 3.0 này.</p>'+
-     '<div class="recs">'+
-       '<div class="rec"><div class="ic">◆</div><div class="tx"><b>Canvas Session Renderer — sau mỗi phiên 1-1</b>'+
-       '<span>Dán canvas này kèm ghi chú buổi coach vừa xong. Trợ lý phân tích dữ liệu phiên, đề xuất khung cập nhật, '+
-       'rồi dựng bản mới kèm so sánh v'+(vi+1)+' → v'+(vi+2)+' và file Excel / HTML để gửi lại nhân viên.</span></div></div>'+
-       '<div class="rec"><div class="ic">◆</div><div class="tx"><b>Canvas Coach — khi cần chấm điểm và coach cải tiến</b>'+
-       '<span>Dán canvas và yêu cầu chấm theo rubric v3.0. Trợ lý chấm điểm từng bước rồi coach theo ORACLE để chính người sở hữu canvas tự chốt hướng cải tiến.</span></div></div>'+
-       '<div class="rec"><div class="ic">◆</div><div class="tx"><b>Canvas Online — khi muốn sửa tay rồi xuất lại</b>'+
-       '<span>Mở trang điền, bấm “📥 Nhập từ Markdown”, dán vào và chỉnh trực tiếp trên biểu mẫu.</span></div></div>'+
-     '</div>'+
-     '<div class="btnrow" style="margin-top:14px">'+
-       '<a class="btn ghost" href="canvas-online/#import">Mở Canvas Online để sửa tay</a>'+
-       '<a class="btn ghost" href="canvas-online/">Tạo canvas mới</a>'+
-       '<a class="btn ghost" href="coaching-report/">Coaching Report</a>'+
-     '</div></div>';
-
-  /* Gợi ý cải tiến */
-  h+='<div class="card"><div class="eyebrow">Gợi ý cho phiên 1-1 tới</div>'+
-     '<h2 class="title">Điều nên xử lý trước</h2>'+
-     '<p class="note" style="margin-bottom:12px">Kiểm tra cấu trúc canvas theo schema 3.0 — không phải chấm điểm. Muốn chấm theo rubric, gửi canvas cho Canvas Coach.</p>'+
-     recsHTML(recommendations(v))+'</div>';
-
-  /* Xu hướng */
-  h+='<div class="card"><div class="eyebrow">Biến đổi hiệu suất</div>'+
-     '<h2 class="title">Ba tầng bằng chứng theo tuần</h2>'+chartHTML(cv.series)+'</div>';
-
-  /* Nội dung canvas */
-  h+='<div class="card"><h2 class="title">1. Mục tiêu</h2><p>'+esc(v.goal)+'</p>'+
-     (v.context?'<p class="note"><b>Bối cảnh &amp; phạm vi:</b> '+esc(v.context)+'</p>':'')+'</div>';
-
-  h+='<div class="card"><h2 class="title">2. Key Result + Critical Outputs</h2>'+
-     tbl(["Thành phần","Loại","Hiện tại","Mục tiêu","Thời hạn","Tiêu chuẩn chất lượng"],
-       [[v.kr.metric,"Key Result",v.kr.cur,v.kr.tgt,v.kr.due,v.kr.cs]].concat(
-        (v.outputs||[]).map(o=>[o.name,"Critical Output",o.cur,o.tgt,o.due,o.cs])))+'</div>';
-
-  h+='<div class="card"><h2 class="title">3. Hướng giải pháp + Hành vi đòn bẩy</h2>'+
-     '<p><b>Solution Direction:</b> '+esc(v.direction)+'</p>'+
-     (v.logic?'<p class="note"><b>Logic chốt hướng:</b> '+esc(v.logic)+'</p>':'')+
-     tbl(["Chủ thể","Lever Behavior","Bối cảnh","Output tác động","Dấu hiệu quan sát được","Tần suất"],
-       (v.behaviors||[]).map(b=>[b.actor,b.beh,b.ctx,b.out,b.sign,b.freq]))+'</div>';
-
-  h+='<div class="card"><h2 class="title">4. Điều kiện — 6 Boxes</h2>'+
-     tbl(["6 Boxes","Điều kiện cần","Hiện trạng / Bằng chứng","Khoảng cách","Ưu tiên","Hành vi liên quan","Hành động sơ bộ","Người sở hữu"],
-       (v.boxes||[]).map((b,i)=>[BOXES[i],b.cond,b.ev,b.gap,b.pri,b.beh,b.act,b.own]))+'</div>';
-
-  h+='<div class="card"><h2 class="title">5. Kế hoạch thử nghiệm</h2>'+
-     tbl(["Hành động","Bắt đầu","Kết thúc","Owner","Supporter","Success Criteria","Trạng thái","Rủi ro / Điều chỉnh"],
-       (v.actions||[]).map(a=>[a.act,a.start,a.due,a.own,a.sup,a.cri,a.st,a.risk]))+
-     ((v.risks||[]).length?'<h3 class="sub">Rủi ro / Giả định cần kiểm chứng</h3><ul class="note" style="padding-left:20px">'+
-       v.risks.map(r=>'<li>'+esc(r)+'</li>').join("")+'</ul>':'')+'</div>';
-
-  h+='<div class="card"><h2 class="title">6. Bằng chứng theo dõi</h2>'+
-     '<h3 class="sub">Measurement Plan</h3>'+
-     tbl(["Ngày dự kiến","Tầng","Chỉ số / tiêu chí","Baseline","Target","Nguồn dữ liệu","Người thu thập","Người xác nhận"],
-       (v.plan||[]).map(p=>[p.date,p.layer,p.metric,p.base,p.tgt,p.src,p.col,p.ver]))+
-     '<h3 class="sub">Observed Evidence'+(v.stage==="DRAFT"?" (DRAFT — chưa có quan sát)":"")+'</h3>'+
-     tbl(["Ngày quan sát","Tầng","Giá trị / bằng chứng","Nguồn trích dẫn","Độ tin cậy","Bài học","Quyết định","Người xác nhận"],
-       (v.observed||[]).length? v.observed.map(o=>[o.date,o.layer,o.val,o.src,o.conf,o.learn,o.dec,o.ver])
-                              : [["TBD","TBD","TBD","TBD","TBD","TBD","TBD","TBD"]])+
-     '<h3 class="sub">Lịch review &amp; bài học</h3>'+
-     tbl(["Mốc Review","Ngày","Behavior Evidence","Output Evidence","Result Evidence","Điều hiệu quả","Điều chưa hiệu quả","Learning &amp; Next Step","Người xác nhận"],
-       (v.reviews||[]).map(r=>[r.cp,r.date,r.be,r.oe,r.re,r.ok,r.no,r.ln,r.ver]))+'</div>';
-
-  document.getElementById("app").innerHTML=h;
-  document.getElementById("btnPrint").addEventListener("click",()=>window.print());
-  document.getElementById("btnCopy").addEventListener("click",e=>copyMd(cv,v,e.currentTarget));
-  document.getElementById("btnXlsx").addEventListener("click",()=>downloadXlsx(cv,v));
-  document.getElementById("btnMd").addEventListener("click",()=>downloadMd(cv,v));
-}
-renderFooter();
-}
-</script>
+<script type="module" src="assets/app.js"></script>
 </body>
 </html>
