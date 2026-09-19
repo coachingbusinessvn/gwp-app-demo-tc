@@ -36,9 +36,22 @@ Chi tiết đầy đủ (command + output verbatim):
 
 ## Image digest (build 2026-09-20)
 
-- `gwp-app:local` `sha256:1bd6c8264928d1e2617da978415f9cffb2deb5de28b78048239e832278f25bff`
+- `gwp-app:local` `sha256:cb8e1d66f15a1e4a77ae6abd7c3345d9879a66bdbf121ec6e3b42d0dce099da6` (rebuild sau fix index.html)
 - `node:24-bookworm-slim` `node@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6`
 - `postgres:18-alpine` `postgres@sha256:6c538e7206ea40ff740ef27883529390a690b6ead6ba96b44c67a9f7c638e8fd`
+
+## Review độc lập (Codex gpt-5.6-terra:high)
+
+- Gate 1: FAIL — phát hiện race `pg_dump` toàn-DB trên `gwp_test` với
+  fixture schema đang bị drop song song (72/73, fail đúng test đó).
+  Phần còn lại sạch: boundary `/api/v1`, auth/session, audit append-only,
+  static allowlist, env scoping, e2e 5/5, restart giữ owner.
+- Fix `c61b336` + `78a187a` + `d19e909` → re-check: fix review PASS,
+  `npm test` 73/73 không còn race, typecheck + e2e 5/5 PASS, seed-demo
+  từ chối production đúng. Chặn duy nhất còn lại: container đang chạy
+  image cũ (trước fix index.html) → đã `docker compose up -d --build app`
+  và verify live: `/index.html` không còn `fixture-password`/`example.test`,
+  health live+ready 200.
 
 ## Giới hạn đã biết (không chặn Phase 0)
 
