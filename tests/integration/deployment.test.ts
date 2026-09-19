@@ -11,6 +11,10 @@ import { loadConfig } from "../../server/src/config.js";
 import { createDb } from "../../server/src/db/connection.js";
 import { migrate, MIGRATIONS, migrationStatus } from "../../server/src/db/migrate.js";
 import {
+  assertConnectedToDisposableDb,
+  assertDisposableDbUrl,
+} from "../helpers/disposable-db.js";
+import {
   FIXTURE_PASSWORD,
   fixture,
   TEST_DATABASE_URL,
@@ -284,77 +288,103 @@ describe("migrator idempotency", () => {
 
 describe("backup/restore smoke on the disposable test DB", () => {
   it(
-    "pg_dump -Fc backup of gwp_test restores into gwp_restore_test",
+    "pg_dump -Fc backup of a dedicated gwp_backup_src restores into gwp_restore_test",
     { timeout: 240_000 },
     async () => {
-      // Ensure the public schema of gwp_test actually has the schema to
-      // dump — fixtures isolate into test_* schemas, so migrate public once.
-      const migrator = createDb(TEST_MIGRATOR_DATABASE_URL);
-      try {
-        await migrate(migrator);
-      } finally {
-        await migrator.destroy();
-      }
-
-      const dumpPath = path.join(
-        os.tmpdir(),
-        `gwp-deploy-test-${randomUUID()}.dump`,
-      );
-
-      const backup = run(
-        [
-          "npx",
-          "tsx",
-          "scripts/ops/backup.ts",
-          "--output",
-          dumpPath,
-        ],
-        { ...OPS_ENV, BACKUP_DATABASE_URL: TEST_MAINTENANCE_DATABASE_URL },
-      );
-      expect(backup.status, backup.stderr + backup.stdout).toBe(0);
-      expect(backup.stdout).toContain(dumpPath);
-      expect(statSync(dumpPath).size).toBeGreaterThan(0);
-
-      const restore = run(
-        [
-          "npx",
-          "tsx",
-          "scripts/ops/restore-test.ts",
-          "--backup",
-          dumpPath,
-          "--target",
-          TEST_MAINTENANCE_DATABASE_URL,
-        ],
-        OPS_ENV,
-      );
-      expect(restore.status, restore.stderr + restore.stdout).toBe(0);
-      expect(restore.stdout).toContain("gwp_restore_test");
-
-      const restoredUrl = TEST_MAINTENANCE_DATABASE_URL.replace(
+      // Whole-database pg_dump must NOT run against gwp_test: parallel
+      // fixtures create/drop test_* schemas there and pg_dump fails when a
+      // resolved schema disappears mid-dump (observed flake). A dedicated
+      // database only this test ever touches makes the round-trip
+      // deterministic. Destructive CREATE/DROP goes through the disposable
+      // guard pair first (URL shape + live current_database()).
+      assertDisposableDbUrl(TEST_MAINTENANCE_DATABASE_URL, {
+        envVar: "TEST_MAINTENANCE_DATABASE_URL",
+        dbName: "gwp_test",
+        requireContainerHost: true,
+      });
+      const backupSrcUrl = TEST_MAINTENANCE_DATABASE_URL.replace(
         /\/gwp_test$/,
-        "/gwp_restore_test",
+        "/gwp_backup_src",
       );
-      const restored = createDb(restoredUrl);
-      try {
-        const companies = await restored.raw(
-          "select count(*) as c from company",
-        );
-        expect(Number(companies.rows[0].c)).toBeGreaterThanOrEqual(0);
-        const applied = await restored.raw(
-          "select count(*) as c from schema_migration",
-        );
-        expect(Number(applied.rows[0].c)).toBe(MIGRATIONS.length);
-      } finally {
-        await restored.destroy();
-      }
-
-      // Tidy: leave no restore-test database behind on the disposable
-      // container (the script re-drops on each run anyway).
       const maintenance = createDb(TEST_MAINTENANCE_DATABASE_URL);
       try {
+        await assertConnectedToDisposableDb(maintenance, "gwp_test");
         await maintenance.raw(
-          "DROP DATABASE IF EXISTS gwp_restore_test WITH (FORCE)",
+          "DROP DATABASE IF EXISTS gwp_backup_src WITH (FORCE)",
         );
+        await maintenance.raw("CREATE DATABASE gwp_backup_src");
+        try {
+          // gwp_test is the container superuser and owns the fresh DB, so
+          // migrate() runs all DDL directly — no role bootstrap needed on a
+          // throwaway source.
+          const src = createDb(backupSrcUrl);
+          try {
+            await migrate(src);
+          } finally {
+            await src.destroy();
+          }
+
+          const dumpPath = path.join(
+            os.tmpdir(),
+            `gwp-deploy-test-${randomUUID()}.dump`,
+          );
+
+          const backup = run(
+            [
+              "npx",
+              "tsx",
+              "scripts/ops/backup.ts",
+              "--output",
+              dumpPath,
+            ],
+            { ...OPS_ENV, BACKUP_DATABASE_URL: backupSrcUrl },
+          );
+          expect(backup.status, backup.stderr + backup.stdout).toBe(0);
+          expect(backup.stdout).toContain(dumpPath);
+          expect(statSync(dumpPath).size).toBeGreaterThan(0);
+
+          const restore = run(
+            [
+              "npx",
+              "tsx",
+              "scripts/ops/restore-test.ts",
+              "--backup",
+              dumpPath,
+              "--target",
+              TEST_MAINTENANCE_DATABASE_URL,
+            ],
+            OPS_ENV,
+          );
+          expect(restore.status, restore.stderr + restore.stdout).toBe(0);
+          expect(restore.stdout).toContain("gwp_restore_test");
+
+          const restoredUrl = TEST_MAINTENANCE_DATABASE_URL.replace(
+            /\/gwp_test$/,
+            "/gwp_restore_test",
+          );
+          const restored = createDb(restoredUrl);
+          try {
+            const companies = await restored.raw(
+              "select count(*) as c from company",
+            );
+            expect(Number(companies.rows[0].c)).toBeGreaterThanOrEqual(0);
+            const applied = await restored.raw(
+              "select count(*) as c from schema_migration",
+            );
+            expect(Number(applied.rows[0].c)).toBe(MIGRATIONS.length);
+          } finally {
+            await restored.destroy();
+          }
+        } finally {
+          // Tidy: leave neither database behind on the disposable container
+          // (both are re-dropped at the start of each run anyway).
+          await maintenance.raw(
+            "DROP DATABASE IF EXISTS gwp_restore_test WITH (FORCE)",
+          );
+          await maintenance.raw(
+            "DROP DATABASE IF EXISTS gwp_backup_src WITH (FORCE)",
+          );
+        }
       } finally {
         await maintenance.destroy();
       }
