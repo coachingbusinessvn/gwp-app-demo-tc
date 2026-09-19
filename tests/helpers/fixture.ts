@@ -6,9 +6,18 @@ import { createApp } from "../../server/src/app.js";
 import { loadConfig, type DemoMode } from "../../server/src/config.js";
 import { createDb } from "../../server/src/db/connection.js";
 import { migrate } from "../../server/src/db/migrate.js";
-import type { ActorContext, Id } from "../../server/src/shared/contracts.js";
+import { hashPassword } from "../../server/src/modules/auth/password.js";
+import type {
+  ActorContext,
+  Id,
+  Role,
+} from "../../server/src/shared/contracts.js";
 
 export type Persona = "owner" | "admin" | "manager" | "member" | "outsider";
+
+/** All seeded personas share this literal password (test-only). */
+export const FIXTURE_PASSWORD = "fixture-password";
+export const personaEmail = (p: Persona): string => `${p}@example.test`;
 
 export interface Fixture {
   db: Knex;
@@ -59,6 +68,57 @@ const PERSONAS: readonly Persona[] = [
   "outsider",
 ];
 
+/**
+ * Persona wiring (task 0.4): everyone is an active user of ids.company with
+ * the argon2id hash of FIXTURE_PASSWORD. member reports to manager; outsider
+ * is a member reporting directly to owner — inside the company but OUTSIDE
+ * manager's subtree (for cross-subtree deny tests). Insertion order follows
+ * PERSONAS so the composite manager FK always resolves to an earlier row.
+ */
+const PERSONA_SEED: Record<Persona, { role: Role; manager: Persona | null }> =
+  {
+    owner: { role: "owner", manager: null },
+    admin: { role: "admin", manager: null },
+    manager: { role: "manager", manager: "owner" },
+    member: { role: "member", manager: "manager" },
+    outsider: { role: "member", manager: "owner" },
+  };
+
+async function seedPersonas(
+  db: Knex,
+  companyId: Id,
+  personaIds: Record<Persona, Id>,
+): Promise<void> {
+  // One hash for all five — the credential is a published fixture, so
+  // per-user salts would only burn CPU (same rule as the demo seed).
+  const passwordHash = await hashPassword(FIXTURE_PASSWORD);
+  const roleIdByKey = new Map<string, string>(
+    (await db("role").select("id", "key")).map(
+      (r: { id: string; key: string }) => [r.key, r.id],
+    ),
+  );
+  for (const persona of PERSONAS) {
+    const seed = PERSONA_SEED[persona];
+    await db("app_user").insert({
+      id: personaIds[persona],
+      company_id: companyId,
+      email: personaEmail(persona),
+      name: `Fixture ${persona.charAt(0).toUpperCase()}${persona.slice(1)}`,
+      title: "Fixture User",
+      status: "active",
+      password_hash: passwordHash,
+      manager_id: seed.manager ? personaIds[seed.manager] : null,
+    });
+    const roleId = roleIdByKey.get(seed.role);
+    if (!roleId) throw new Error(`fixture: role ${seed.role} not seeded`);
+    await db("user_role").insert({
+      company_id: companyId,
+      user_id: personaIds[persona],
+      role_id: roleId,
+    });
+  }
+}
+
 const ROLE_NAME = /^[a-z_][a-z0-9_]{0,62}$/i;
 
 function urlUser(url: string): string {
@@ -99,11 +159,12 @@ const AGENT_METHODS = [
 /**
  * Real-Postgres test fixture: unique schema per fixture() call (one per test
  * file/test), search_path isolation, real migrate() runner on the migrator
- * credential. Persona seeds and signed sessions arrive in tasks 0.3–0.4;
- * until then persona ids are freshly minted UUIDs and api(persona) attaches a
- * placeholder Bearer header. seeded:true inserts the single company row via
- * test-only SQL so ids.company is a real UUID; otherCompany stays a
- * nonexistent UUID for forged-input tests.
+ * credential. seeded:true inserts the single company row plus the five
+ * personas (active, FIXTURE_PASSWORD, ids.* are the real user UUIDs) via
+ * test-only SQL, then performs a REAL POST /api/v1/auth/login per persona —
+ * api(persona) sends the cached access token as Bearer, never a fabricated
+ * token (task 0.4). otherCompany stays a nonexistent UUID for forged-input
+ * tests.
  *
  * migrated:false creates the schema and runtime connection but skips
  * migrations/grants — for readiness/probe tests that need a pending state.
@@ -136,6 +197,9 @@ export async function fixture(options?: {
   });
   const runtimeRole = urlUser(TEST_DATABASE_URL);
   const migratorRole = urlUser(TEST_MIGRATOR_DATABASE_URL);
+  const personaIds = Object.fromEntries(
+    PERSONAS.map((p) => [p, randomUUID()]),
+  ) as Record<Persona, Id>;
 
   const maintenanceDb = createDb(TEST_MAINTENANCE_DATABASE_URL);
   await assertConnectedToTestDb(maintenanceDb);
@@ -164,6 +228,7 @@ export async function fixture(options?: {
             .insert({ name: "GWP Test Company" })
             .returning("id");
           companyId = (inserted[0] as { id: string }).id;
+          await seedPersonas(migratorDb, companyId, personaIds);
         }
       } finally {
         await migratorDb.destroy().catch(() => {});
@@ -219,10 +284,40 @@ export async function fixture(options?: {
   const db = createDb(TEST_DATABASE_URL, { searchPath: schema });
   const app = createApp({ db, clock: () => new Date(), config });
 
+  // Real login per persona through the mounted routes — the cached access
+  // token is indistinguishable from a browser's (spec §8: tests do not fake
+  // tokens). On failure, tear down everything this fixture created.
+  const personaTokens = {} as Record<Persona, string>;
+  if (options?.seeded) {
+    try {
+      for (const persona of PERSONAS) {
+        const res = await request(app)
+          .post("/api/v1/auth/login")
+          .set("Origin", config.appOrigin)
+          .send({ email: personaEmail(persona), password: FIXTURE_PASSWORD });
+        if (res.status !== 200) {
+          throw new Error(
+            `fixture: persona login for "${persona}" returned ${res.status} — ` +
+              "seeded fixtures require the mounted auth routes",
+          );
+        }
+        personaTokens[persona] = (res.body as { accessToken: string })
+          .accessToken;
+      }
+    } catch (err) {
+      await db.destroy().catch(() => {});
+      await maintenanceDb
+        .raw(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`)
+        .catch(() => {});
+      await maintenanceDb.destroy().catch(() => {});
+      throw err;
+    }
+  }
+
   const ids = {
     company: companyId ?? randomUUID(),
     otherCompany: randomUUID(),
-    ...Object.fromEntries(PERSONAS.map((p) => [p, randomUUID()])),
+    ...personaIds,
   } as Fixture["ids"];
   const sessionIds = Object.fromEntries(
     PERSONAS.map((p) => [p, randomUUID()]),
@@ -231,9 +326,16 @@ export async function fixture(options?: {
   const api = (persona?: Persona): SuperTest<Test> => {
     const agent = request.agent(app);
     if (!persona) return agent as unknown as SuperTest<Test>;
+    const token = personaTokens[persona];
+    if (!token) {
+      throw new Error(
+        `fixture: api(${persona}) requires fixture({ seeded: true }) — ` +
+          "personas and their sessions are only created for seeded fixtures",
+      );
+    }
     const headers: Record<string, string> = {
-      // Bearer test-session per roadmap; auth lands in task 0.4.
-      Authorization: `Bearer test-session-${persona}`,
+      // Real cached access token from the persona's login + valid Origin.
+      Authorization: `Bearer ${token}`,
       Origin: config.appOrigin,
     };
     for (const method of AGENT_METHODS) {

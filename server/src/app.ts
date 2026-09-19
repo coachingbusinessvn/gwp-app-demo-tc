@@ -10,6 +10,7 @@ import cookieParser from "cookie-parser";
 import type { Knex } from "knex";
 import type { Config } from "./config.js";
 import { migrationStatus } from "./db/migrate.js";
+import { authRoutes } from "./modules/auth/routes.js";
 import { setupRoutes } from "./modules/auth/setup.routes.js";
 import { AppError } from "./shared/errors.js";
 import type { AppErrorBody, Clock } from "./shared/contracts.js";
@@ -79,7 +80,7 @@ export function createApp({ db, clock, config }: AppDeps): Express {
 
   // Module routers mount here, BEFORE the catch-all:
   app.use("/api/v1", setupRoutes({ db, config })); // task 0.3
-  //   app.use("/api/v1/auth", authRoutes)            // task 0.4
+  app.use("/api/v1/auth", authRoutes({ db, clock, config })); // task 0.4
   //   app.use(express.static(config.publicDir, ...)) // task 0.5
 
   // Unknown /api/v1/* → JSON 404 with NOT_FOUND code; any other unknown path

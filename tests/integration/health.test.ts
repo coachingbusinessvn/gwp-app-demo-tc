@@ -113,7 +113,8 @@ describe("fixture-isolated readiness & body limit", () => {
   });
 
   it("exposes the Fixture contract surface (ids, actor, api, close)", async () => {
-    const f = await fixture();
+    // api(persona) sends a real session Bearer — needs seeded personas (0.4).
+    const f = await fixture({ seeded: true });
     try {
       expect(f.ids.company).toEqual(expect.any(String));
       expect(f.ids.otherCompany).toEqual(expect.any(String));

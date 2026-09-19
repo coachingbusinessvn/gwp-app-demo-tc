@@ -151,15 +151,18 @@ describe("app_user invariants", () => {
   it("normalizes email and enforces uniqueness per company (23505)", async () => {
     const f = await fixture({ seeded: true });
     try {
-      await f.db("app_user").insert({
-        company_id: f.ids.company,
-        email: "  Owner@Test.Com ",
-        name: "Owner",
-        status: "pending",
-      });
+      const [inserted] = await f
+        .db("app_user")
+        .insert({
+          company_id: f.ids.company,
+          email: "  Owner@Test.Com ",
+          name: "Owner",
+          status: "pending",
+        })
+        .returning("id");
       const stored = await f
         .db("app_user")
-        .where({ company_id: f.ids.company })
+        .where({ id: inserted.id })
         .first();
       expect(stored.email_normalized).toBe("owner@test.com");
 
@@ -201,9 +204,15 @@ describe("app_user invariants", () => {
         status: "active",
         password_hash: "$argon2id$test-hash",
       });
+      // Scope to the rows this test inserted — seeded fixtures already hold
+      // the five personas (task 0.4).
       const count = await f
         .db("app_user")
         .where({ company_id: f.ids.company })
+        .whereIn("email_normalized", [
+          "pending@example.test",
+          "active@example.test",
+        ])
         .count("* as n")
         .first();
       expect(count).toMatchObject({ n: "2" });
@@ -215,18 +224,19 @@ describe("app_user invariants", () => {
   it("enforces the composite manager FK and rejects self-management", async () => {
     const f = await fixture({ seeded: true });
     try {
+      // Emails distinct from the seeded persona addresses (unique per company).
       const [manager] = await f
         .db("app_user")
         .insert({
           company_id: f.ids.company,
-          email: "manager@example.test",
+          email: "fk-manager@example.test",
           name: "Manager",
           status: "pending",
         })
         .returning("id");
       await f.db("app_user").insert({
         company_id: f.ids.company,
-        email: "member@example.test",
+        email: "fk-member@example.test",
         name: "Member",
         status: "pending",
         manager_id: manager.id,
@@ -287,7 +297,11 @@ describe("append-only audit", () => {
           metadata: {},
         });
       });
-      expect(await f.db("audit_event").select("id")).toHaveLength(1);
+      // Persona logins at fixture setup already wrote auth.login events —
+      // scope the count to this test's action.
+      expect(
+        await f.db("audit_event").where({ action: "test.event" }).select("id"),
+      ).toHaveLength(1);
 
       await expect(
         f.db("audit_event").update({ action: "tamper" }),
@@ -325,7 +339,10 @@ describe("append-only audit", () => {
           },
         });
       });
-      const row = await f.db("audit_event").first();
+      const row = await f
+        .db("audit_event")
+        .where({ action: "user.role_granted" })
+        .first();
       expect(row).toMatchObject({
         company_id: f.ids.company,
         actor_id: actorId,

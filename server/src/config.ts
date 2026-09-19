@@ -9,6 +9,14 @@ export interface Config {
   appOrigin: string;
   port: number;
   trustProxy: boolean | number | string;
+  /** Access JWT lifetime — spec §8 default 10 minutes. */
+  accessTokenTtlSeconds: number;
+  /** Refresh session absolute lifetime — spec §8 max 7 days. */
+  refreshTokenTtlSeconds: number;
+  /** HttpOnly cookie carrying the rotating refresh token. */
+  refreshCookieName: string;
+  /** JS-readable cookie mirrored by the X-CSRF-Token header. */
+  csrfCookieName: string;
 }
 
 const REQUIRED = [
@@ -36,6 +44,19 @@ function parsePort(raw: string | undefined): number {
   if (!Number.isInteger(port) || port < 1 || port > 65535)
     fail(`PORT must be an integer between 1 and 65535, got "${raw}"`);
   return port;
+}
+
+function parsePositiveInt(
+  env: NodeJS.ProcessEnv,
+  key: string,
+  fallback: number,
+): number {
+  const raw = env[key];
+  if (raw === undefined || raw === "") return fallback;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n <= 0)
+    fail(`${key} must be a positive integer, got "${raw}"`);
+  return n;
 }
 
 function parseTrustProxy(raw: string | undefined): boolean | number | string {
@@ -116,5 +137,17 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     appOrigin,
     port: parsePort(env.PORT),
     trustProxy: parseTrustProxy(env.TRUST_PROXY),
+    accessTokenTtlSeconds: parsePositiveInt(
+      env,
+      "ACCESS_TOKEN_TTL_SECONDS",
+      600,
+    ),
+    refreshTokenTtlSeconds: parsePositiveInt(
+      env,
+      "REFRESH_TOKEN_TTL_SECONDS",
+      604_800,
+    ),
+    refreshCookieName: "gwp_refresh",
+    csrfCookieName: "gwp_csrf",
   };
 }
