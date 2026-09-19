@@ -161,7 +161,7 @@ git commit -m "feat: enforce current reporting-tree authorization"
 - `setRoles(actor,userId,roles: Role[])`; `deactivateUser(actor,userId,{replacementManagerId?})`.
 - `createPendingUser(actor,{email,name,title,departmentId?,teamId?})`; `updateProfile` không login identity/role/manager của người khác cho admin.
 
-- [ ] **Step 1: Viết test đỏ** trong `tests/integration/user-roles.test.ts`. Admin tạo pending member nhưng không owner; owner cuối bị 409 kể cả song song; manager inactive cần chuyển cấp dưới; revoked session 401.
+- [x] **Step 1: Viết test đỏ** trong `tests/integration/user-roles.test.ts`. Admin tạo pending member nhưng không owner; owner cuối bị 409 kể cả song song; manager inactive cần chuyển cấp dưới; revoked session 401.
 
 ```ts
 expect((await f.api("admin").put("/api/v1/users/"+f.ids.admin+"/roles")
@@ -173,13 +173,13 @@ const user = await f.api("admin").post("/api/v1/users")
 expect(user.body).toMatchObject({status:"pending",roles:["member"]});
 ```
 
-- [ ] **Step 2: Chạy test trước triển khai.**
+- [x] **Step 2: Chạy test trước triển khai.**
 
 Run: `npm test -- tests/integration/user-roles.test.ts`.
 Expected: FAIL tại hành vi/assertion mới hoặc missing module; sửa lỗi setup/môi trường trước,
 không coi lỗi không kết nối DB là bằng chứng RED hợp lệ.
 
-- [ ] **Step 3: Triển khai phần lõi và nối interface.**
+- [x] **Step 3: Triển khai phần lõi và nối interface.**
 
 Roles allowlist union additive. Under company lock count active owners before removing/deactivating; include active status change. Admin cannot edit privileged owner/admin or credentials/email khác, deactivate manager có reports trả403. Owner transfer reports hoặc null trong cùng transaction; revoke sessions, audit và update atomically. Archive user giữ historical FK.
 
@@ -195,12 +195,12 @@ await db.transaction(async tx => {
 });
 ```
 
-- [ ] **Step 4: Chạy lại test và kiểm tra hồi quy.**
+- [x] **Step 4: Chạy lại test và kiểm tra hồi quy.**
 
 Run: `npm test -- tests/integration/user-roles.test.ts`, rồi `npm run typecheck`.
 Expected: test mới PASS, typecheck exit 0. Chạy thêm toàn bộ integration tests của module vừa thay đổi.
 
-- [ ] **Step 5: Commit riêng task sau khi kiểm tra diff.**
+- [x] **Step 5: Commit riêng task sau khi kiểm tra diff.**
 
 ```sh
 git diff --check

@@ -15,9 +15,10 @@ import { fixture, personaEmail, type Persona } from "../helpers/fixture.js";
  *                                        never touch owner/admin profiles
  *   POST  /api/v1/users/:id/deactivate — owner/admin; admin may only
  *                                        deactivate plain members; a target
- *                                        with active reports needs the owner
- *                                        to decide their new line in the same
- *                                        transaction; every deactivation
+ *                                        with direct reports of any status
+ *                                        needs the owner to decide their new
+ *                                        line in the same transaction; every
+ *                                        deactivation
  *                                        durably revokes the user's sessions
  *   GET   /api/v1/users[/:id]          — directory read for any member
  *

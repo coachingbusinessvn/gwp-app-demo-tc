@@ -1077,8 +1077,8 @@ paths:
           description: >
             Caller lacks the required privilege for this target — not
             owner/admin, an admin touching a privileged account or a user
-            with active reports, or an owner who omitted the reports
-            decision (REPORTS_UNASSIGNED).
+            with direct reports of any status, or an owner who omitted the
+            reports decision (REPORTS_UNASSIGNED).
           content:
             application/json:
               schema:
@@ -1553,9 +1553,9 @@ components:
       type: object
       additionalProperties: false
       description: >
-        Empty body is legal. When the target still has active reports the
-        key is required: a uuid transfers the reports, explicit null
-        unassigns them, absent → 403 REPORTS_UNASSIGNED.
+        Empty body is legal. When the target still has direct reports of
+        any status the key is required: a uuid transfers the reports,
+        explicit null unassigns them, absent → 403 REPORTS_UNASSIGNED.
       properties:
         replacementManagerId:
           type: string
