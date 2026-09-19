@@ -454,10 +454,11 @@ paths:
       tags: [org]
       summary: Archive a department
       description: >
-        Owner/admin only. A department still referenced by any user returns
-        409 ORG_UNIT_IN_USE — members must be transferred first; there is no
-        cascade delete. Archiving is idempotent; archived units keep their
-        row and historical foreign keys.
+        Owner/admin only. A department still referenced by any user, or
+        still holding live (non-archived) teams, returns 409
+        ORG_UNIT_IN_USE — transfer members and archive/move child teams
+        first; there is no cascade delete. Archiving is idempotent;
+        archived units keep their row and historical foreign keys.
       operationId: archiveDepartment
       security:
         - bearerAuth: []
@@ -489,7 +490,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "409":
-          description: Department is still referenced by users.
+          description: Department is still referenced by users or has live teams.
           content:
             application/json:
               schema:
@@ -588,7 +589,9 @@ paths:
       summary: Rename or move a team
       description: >
         Owner/admin only. A departmentId patch moves the team; the target
-        must be a live department of this company.
+        must be a live department of this company, and a team that still
+        has members cannot move — transfer them first (409
+        ORG_UNIT_IN_USE). Moving an empty team is allowed.
       operationId: updateTeam
       security:
         - bearerAuth: []
@@ -632,7 +635,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "409":
-          description: Target department is archived.
+          description: Target department is archived, or the team still has members.
           content:
             application/json:
               schema:

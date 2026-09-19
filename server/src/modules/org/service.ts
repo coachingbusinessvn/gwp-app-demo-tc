@@ -9,6 +9,7 @@ import { AppError } from "../../shared/errors.js";
 import { lockCompany } from "../../shared/company-lock.js";
 import { appendAudit } from "../audit/service.js";
 import {
+  departmentHasActiveTeams,
   departmentHasUsers,
   findCompanyById,
   findDepartmentById,
@@ -38,7 +39,8 @@ import {
  *   JWT — and every mutation serializes on lockCompany + writes its audit
  *   row in the same transaction (commit or rollback together).
  * - Archive is a flag, never a delete: a unit still referenced by app_user
- *   returns 409 ORG_UNIT_IN_USE (members must be transferred first); an
+ *   (or a department still holding live teams) returns 409
+ *   ORG_UNIT_IN_USE — transfer members / archive children first; an
  *   unreferenced unit gets archived_at and keeps all historical FKs.
  * - Reads (company profile, department/team lists) are open to every
  *   authenticated member of the company — the §4 matrix restricts
@@ -290,6 +292,21 @@ export function createOrgService({ db, clock }: OrgDeps) {
       if (!existing) throw notFound();
       if (patch.departmentId !== undefined) {
         await requireActiveDepartment(tx, actor.companyId, patch.departmentId);
+        // A real move rewrites team.department_id — a referenced key of
+        // app_user_team_fk (ON UPDATE NO ACTION). Moving a populated team
+        // would break that FK mid-statement, so it follows the archive
+        // rule: transfer members first. Re-patching the same department
+        // is a no-op, not a move, and stays allowed.
+        if (
+          patch.departmentId !== existing.department_id &&
+          (await teamHasUsers(tx, actor.companyId, id))
+        ) {
+          throw new AppError(
+            409,
+            "ORG_UNIT_IN_USE",
+            "Tổ đang có thành viên — chuyển thành viên trước khi đổi phòng ban",
+          );
+        }
       }
       const fields: string[] = [];
       const row = await updateTeam(tx, actor.companyId, id, {
@@ -316,8 +333,10 @@ export function createOrgService({ db, clock }: OrgDeps) {
 
   /**
    * Archive one unit. Referenced by any app_user row → 409 ORG_UNIT_IN_USE
-   * (transfer members first; there is deliberately no cascade). Unreferenced
-   * → archived_at set; the row, its FKs and the audit trail all survive.
+   * (transfer members first; there is deliberately no cascade); a
+   * department with live child teams → the same 409 (archive/move the
+   * teams first — no half-archived trees). Unreferenced → archived_at
+   * set; the row, its FKs and the audit trail all survive.
    * Re-archiving an already-archived unit is an idempotent no-op returning
    * the unit as-is.
    */
@@ -350,6 +369,20 @@ export function createOrgService({ db, clock }: OrgDeps) {
           409,
           "ORG_UNIT_IN_USE",
           "Đơn vị đang được tham chiếu — chuyển thành viên trước khi lưu trữ",
+        );
+      }
+
+      // A department with live child teams cannot archive either —
+      // archive (or move) the teams first so no half-archived tree is
+      // left behind. Already-archived teams do not block.
+      if (
+        kind === "department" &&
+        (await departmentHasActiveTeams(tx, actor.companyId, id))
+      ) {
+        throw new AppError(
+          409,
+          "ORG_UNIT_IN_USE",
+          "Phòng ban còn tổ — lưu trữ hoặc chuyển các tổ trước khi lưu trữ phòng ban",
         );
       }
 

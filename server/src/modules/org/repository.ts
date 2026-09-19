@@ -152,6 +152,23 @@ export async function departmentHasUsers(
   return row !== undefined;
 }
 
+/**
+ * One live (non-archived) child team is enough to block a department
+ * archive — archived teams do not block; LIMIT 1 existence.
+ */
+export async function departmentHasActiveTeams(
+  db: Qb,
+  companyId: string,
+  departmentId: string,
+): Promise<boolean> {
+  const row = await db("team")
+    .where({ company_id: companyId, department_id: departmentId })
+    .whereNull("archived_at")
+    .select("id")
+    .first();
+  return row !== undefined;
+}
+
 export async function listTeams(
   db: Qb,
   companyId: string,

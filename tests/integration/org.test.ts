@@ -359,6 +359,53 @@ describe("PATCH /api/v1/teams/:id", () => {
       await f.close();
     }
   });
+
+  it("refuses to move a populated team with 409 ORG_UNIT_IN_USE — transfer members first", async () => {
+    const f = await fixture({ seeded: true });
+    try {
+      const depA = await createDepartment(f, "admin", "A");
+      const depB = await createDepartment(f, "admin", "B");
+      const team = await createTeam(f, "admin", depA.id, "T1");
+
+      // A member seated in depA+team: the composite app_user_team_fk ties
+      // her team to depA, so rewriting team.department_id would trip the
+      // FK (ON UPDATE NO ACTION) — the service must 409 instead of 500.
+      await f
+        .db("app_user")
+        .where({ id: f.ids.member })
+        .update({ department_id: depA.id, team_id: team.id });
+
+      const moved = (await f
+        .api("admin")
+        .patch(`/api/v1/teams/${team.id}`)
+        .send({ departmentId: depB.id })) as unknown as TestResponse;
+      expect(moved.status).toBe(409);
+      expect(moved.body.code).toBe("ORG_UNIT_IN_USE");
+
+      // The rejected move rolled back cleanly: the team still sits under
+      // depA and no org.team.update audit row was committed.
+      const row = await f.db("team").where({ id: team.id }).first();
+      expect(row.department_id).toBe(depA.id);
+      const audit = await f
+        .db("audit_event")
+        .where({ action: "org.team.update", target_id: team.id })
+        .first();
+      expect(audit).toBeUndefined();
+
+      // Only the move is guarded — renaming a populated team still works.
+      const renamed = (await f
+        .api("admin")
+        .patch(`/api/v1/teams/${team.id}`)
+        .send({ name: "T1 đổi tên" })) as unknown as TestResponse;
+      expect(renamed.status).toBe(200);
+      expect(renamed.body).toMatchObject({
+        name: "T1 đổi tên",
+        departmentId: depA.id,
+      });
+    } finally {
+      await f.close();
+    }
+  });
 });
 
 describe("GET /api/v1/teams", () => {
@@ -504,6 +551,14 @@ describe("archive semantics (spec §3)", () => {
       const dep = await createDepartment(f, "admin", "Lưu trữ");
       const team = await createTeam(f, "admin", dep.id, "Tổ cũ");
 
+      // Order matters: a department with live teams refuses to archive —
+      // archive child teams first, then the department.
+      const archTeam = (await f
+        .api("owner")
+        .post(`/api/v1/teams/${team.id}/archive`)) as unknown as TestResponse;
+      expect(archTeam.status).toBe(200);
+      expect(typeof archTeam.body.archivedAt).toBe("string");
+
       const archDep = (await f
         .api("owner")
         .post(
@@ -512,12 +567,6 @@ describe("archive semantics (spec §3)", () => {
       expect(archDep.status).toBe(200);
       expect(archDep.body.id).toBe(dep.id);
       expect(typeof archDep.body.archivedAt).toBe("string");
-
-      const archTeam = (await f
-        .api("owner")
-        .post(`/api/v1/teams/${team.id}/archive`)) as unknown as TestResponse;
-      expect(archTeam.status).toBe(200);
-      expect(typeof archTeam.body.archivedAt).toBe("string");
 
       // Archived rows are still listed, flagged — historical FKs survive.
       const deps = (await f
@@ -604,6 +653,52 @@ describe("archive semantics (spec §3)", () => {
         department_id: dep.id,
         team_id: team.id,
       });
+    } finally {
+      await f.close();
+    }
+  });
+
+  it("refuses to archive a department with live child teams — archive or move them first", async () => {
+    const f = await fixture({ seeded: true });
+    try {
+      const dep = await createDepartment(f, "admin", "Còn tổ");
+      const liveTeam = await createTeam(f, "admin", dep.id, "Tổ sống");
+      const doneTeam = await createTeam(f, "admin", dep.id, "Tổ xong");
+
+      // An already-archived child does not block; the live one does.
+      const archDone = (await f
+        .api("owner")
+        .post(
+          `/api/v1/teams/${doneTeam.id}/archive`,
+        )) as unknown as TestResponse;
+      expect(archDone.status).toBe(200);
+
+      const blocked = (await f
+        .api("admin")
+        .post(
+          `/api/v1/departments/${dep.id}/archive`,
+        )) as unknown as TestResponse;
+      expect(blocked.status).toBe(409);
+      expect(blocked.body.code).toBe("ORG_UNIT_IN_USE");
+
+      // Nothing was archived — no half-archived tree.
+      const depRow = await f.db("department").where({ id: dep.id }).first();
+      expect(depRow.archived_at).toBeNull();
+
+      // Archive the last live team — the department now archives cleanly.
+      const archLive = (await f
+        .api("owner")
+        .post(
+          `/api/v1/teams/${liveTeam.id}/archive`,
+        )) as unknown as TestResponse;
+      expect(archLive.status).toBe(200);
+      const ok = (await f
+        .api("admin")
+        .post(
+          `/api/v1/departments/${dep.id}/archive`,
+        )) as unknown as TestResponse;
+      expect(ok.status).toBe(200);
+      expect(typeof ok.body.archivedAt).toBe("string");
     } finally {
       await f.close();
     }
