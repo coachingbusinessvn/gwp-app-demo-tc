@@ -4,6 +4,7 @@ import type { Knex } from "knex";
 import type { DemoMode } from "../config.js";
 import { createDb } from "./connection.js";
 import { foundationMigration } from "./migrations/0001-foundation.js";
+import { organizationMigration } from "./migrations/0002-organization.js";
 
 /**
  * Migration runner: every migration is a named `up(db)` applied in
@@ -21,7 +22,10 @@ export interface Migration {
   up(db: Knex): Promise<void>;
 }
 
-export const MIGRATIONS: readonly Migration[] = [foundationMigration];
+export const MIGRATIONS: readonly Migration[] = [
+  foundationMigration,
+  organizationMigration,
+];
 
 const TRACKING_TABLE = "schema_migration";
 

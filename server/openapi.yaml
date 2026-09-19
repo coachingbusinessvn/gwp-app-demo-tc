@@ -12,9 +12,10 @@ info:
   title: GWP API
   version: 0.1.0
   description: >
-    GWP — Canvas Online as a self-hosted app. Phase 0 ships the foundation
-    surface only: first-run setup, session auth and health probes. Business
-    endpoints (canvas, coaching, AI) arrive in later phases.
+    GWP — Canvas Online as a self-hosted app. Phase 0 ships first-run
+    setup, session auth and health probes; Phase 1 adds the organization
+    surface (company profile, departments, teams — spec §3/§4). Canvas,
+    coaching and AI endpoints arrive in later phases.
   contact:
     name: GWP operators
 servers:
@@ -27,6 +28,11 @@ tags:
     description: One-shot first-run bootstrap.
   - name: auth
     description: Session authentication (JWT access + rotating refresh).
+  - name: org
+    description: >
+      Organization administration — single-company deployment, so there is
+      NO company create/list endpoint: the company is a singleton profile.
+      Mutations are owner/admin only; every authenticated member can read.
 
 paths:
   /health/live:
@@ -256,6 +262,428 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/company:
+    get:
+      tags: [org]
+      summary: Current company profile
+      description: >
+        Returns the singleton company of this deployment. Any authenticated
+        member may read it.
+      operationId: getCompany
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The company profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompanyProfile"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    patch:
+      tags: [org]
+      summary: Update the company profile
+      description: >
+        Owner/admin only. At least one of name/timezone is required;
+        timezone must be a valid IANA identifier (e.g. Asia/Ho_Chi_Minh).
+        Strict body — privilege fields like role/managerId are rejected.
+      operationId: updateCompany
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompanyPatchRequest"
+      responses:
+        "200":
+          description: Updated profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompanyProfile"
+        "400":
+          description: Body failed validation (incl. invalid IANA timezone).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller is neither owner nor admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/departments:
+    get:
+      tags: [org]
+      summary: List departments (keyset page)
+      description: >
+        Company-scoped list, ordered by id, including archived units (each
+        carries archivedAt). limit defaults to 25, max 100; cursor is the
+        id of the last item of the previous page.
+      operationId: listDepartments
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/LimitParam"
+        - $ref: "#/components/parameters/CursorParam"
+      responses:
+        "200":
+          description: One page of departments.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DepartmentPage"
+        "400":
+          description: Invalid limit or cursor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      tags: [org]
+      summary: Create a department
+      description: Owner/admin only. Strict body — only name is accepted.
+      operationId: createDepartment
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DepartmentCreateRequest"
+      responses:
+        "201":
+          description: Department created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Department"
+        "400":
+          description: Body failed validation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller is neither owner nor admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/departments/{id}:
+    patch:
+      tags: [org]
+      summary: Rename a department
+      description: >
+        Owner/admin only; works on live and archived units. Unknown or
+        non-uuid ids return the consistent 404.
+      operationId: updateDepartment
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/OrgUnitId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DepartmentUpdateRequest"
+      responses:
+        "200":
+          description: Department updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Department"
+        "400":
+          description: Body failed validation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller is neither owner nor admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: No such department in this company.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/departments/{id}/archive:
+    post:
+      tags: [org]
+      summary: Archive a department
+      description: >
+        Owner/admin only. A department still referenced by any user returns
+        409 ORG_UNIT_IN_USE — members must be transferred first; there is no
+        cascade delete. Archiving is idempotent; archived units keep their
+        row and historical foreign keys.
+      operationId: archiveDepartment
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/OrgUnitId"
+      responses:
+        "200":
+          description: Department archived (or already archived).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Department"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller is neither owner nor admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: No such department in this company.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Department is still referenced by users.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/teams:
+    get:
+      tags: [org]
+      summary: List teams (keyset page)
+      description: >
+        Company-scoped list, ordered by id, including archived units;
+        optionally filtered by departmentId.
+      operationId: listTeams
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/LimitParam"
+        - $ref: "#/components/parameters/CursorParam"
+        - $ref: "#/components/parameters/DepartmentIdFilter"
+      responses:
+        "200":
+          description: One page of teams.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamPage"
+        "400":
+          description: Invalid limit, cursor or departmentId filter.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      tags: [org]
+      summary: Create a team
+      description: >
+        Owner/admin only. departmentId must be a live (non-archived)
+        department of this company — the composite foreign key also makes
+        cross-company targets impossible.
+      operationId: createTeam
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TeamCreateRequest"
+      responses:
+        "201":
+          description: Team created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Team"
+        "400":
+          description: Body failed validation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller is neither owner nor admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: No such department in this company.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Target department is archived.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/teams/{id}:
+    patch:
+      tags: [org]
+      summary: Rename or move a team
+      description: >
+        Owner/admin only. A departmentId patch moves the team; the target
+        must be a live department of this company.
+      operationId: updateTeam
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/OrgUnitId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TeamUpdateRequest"
+      responses:
+        "200":
+          description: Team updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Team"
+        "400":
+          description: Body failed validation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller is neither owner nor admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: No such team, or target department, in this company.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Target department is archived.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/teams/{id}/archive:
+    post:
+      tags: [org]
+      summary: Archive a team
+      description: >
+        Owner/admin only. A team still referenced by any user returns 409
+        ORG_UNIT_IN_USE — members must be transferred first; there is no
+        cascade delete. Archiving is idempotent; archived units keep their
+        row and historical foreign keys.
+      operationId: archiveTeam
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/OrgUnitId"
+      responses:
+        "200":
+          description: Team archived (or already archived).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Team"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller is neither owner nor admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: No such team in this company.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Team is still referenced by users.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
 components:
   parameters:
     XCsrfToken:
@@ -265,6 +693,40 @@ components:
       description: Must equal the `gwp_csrf` cookie (double-submit).
       schema:
         type: string
+    LimitParam:
+      name: limit
+      in: query
+      required: false
+      description: Page size — default 25, maximum 100.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 25
+    CursorParam:
+      name: cursor
+      in: query
+      required: false
+      description: Keyset cursor — the id of the last item of the previous page.
+      schema:
+        type: string
+        format: uuid
+    OrgUnitId:
+      name: id
+      in: path
+      required: true
+      description: Org unit id inside the caller's company.
+      schema:
+        type: string
+        format: uuid
+    DepartmentIdFilter:
+      name: departmentId
+      in: query
+      required: false
+      description: Restrict the team list to one department.
+      schema:
+        type: string
+        format: uuid
   responses:
     RateLimited:
       description: Rate limit exceeded — see Retry-After header.
@@ -383,3 +845,127 @@ components:
           items:
             type: string
             enum: [owner, admin, manager, member]
+    CompanyProfile:
+      type: object
+      required: [id, name, timezone, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        timezone:
+          type: string
+          description: IANA timezone identifier (e.g. Asia/Ho_Chi_Minh).
+        createdAt:
+          type: string
+          format: date-time
+    CompanyPatchRequest:
+      type: object
+      description: >
+        At least one field required. Strict — unknown keys are rejected.
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        timezone:
+          type: string
+          description: Valid IANA timezone identifier.
+          maxLength: 100
+    Department:
+      type: object
+      required: [id, name, archivedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        archivedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Non-null when the unit is archived; never deleted.
+    DepartmentPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Department"
+        nextCursor:
+          type: string
+          nullable: true
+          description: Pass as ?cursor= for the next page; null at the end.
+    DepartmentCreateRequest:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+    DepartmentUpdateRequest:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+    Team:
+      type: object
+      required: [id, departmentId, name, archivedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        departmentId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        archivedAt:
+          type: string
+          format: date-time
+          nullable: true
+    TeamPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Team"
+        nextCursor:
+          type: string
+          nullable: true
+    TeamCreateRequest:
+      type: object
+      required: [departmentId, name]
+      additionalProperties: false
+      properties:
+        departmentId:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+    TeamUpdateRequest:
+      type: object
+      description: >
+        At least one field required. Strict — unknown keys are rejected.
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        departmentId:
+          type: string
+          format: uuid

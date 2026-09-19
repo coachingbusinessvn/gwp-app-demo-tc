@@ -46,7 +46,7 @@ describe("foundation schema (migration 0001)", () => {
       expect(state).toMatchObject({ mode: "demo", seed_version: 0 });
 
       const status = await migrationStatus(f.db);
-      expect(status.applied).toEqual(["0001-foundation"]);
+      expect(status.applied).toEqual(["0001-foundation", "0002-organization"]);
       expect(status.pending).toEqual([]);
     } finally {
       await f.close();
@@ -65,11 +65,14 @@ describe("foundation schema (migration 0001)", () => {
       try {
         await migrate(migratorDb);
         const status = await migrationStatus(migratorDb);
-        expect(status).toEqual({ applied: ["0001-foundation"], pending: [] });
+        expect(status).toEqual({
+          applied: ["0001-foundation", "0002-organization"],
+          pending: [],
+        });
         const count = await migratorDb("schema_migration")
           .count("* as n")
           .first();
-        expect(count).toMatchObject({ n: "1" });
+        expect(count).toMatchObject({ n: "2" });
       } finally {
         await migratorDb.destroy();
       }
@@ -121,7 +124,7 @@ describe("foundation schema (migration 0001)", () => {
         f.db("schema_migration").insert({ name: "tamper" }),
       ).rejects.toMatchObject({ code: "42501" });
       // Runtime keeps SELECT on schema_migration — readiness probe needs it.
-      expect(await f.db("schema_migration").select("name")).toHaveLength(1);
+      expect(await f.db("schema_migration").select("name")).toHaveLength(2);
     } finally {
       await f.close();
     }
@@ -397,7 +400,7 @@ describe("readiness with real migrations", () => {
       expect(res.body).toMatchObject({
         code: "MIGRATIONS_PENDING",
         request_id: expect.any(String),
-        details: { pending: ["0001-foundation"] },
+        details: { pending: ["0001-foundation", "0002-organization"] },
       });
     } finally {
       await f.close();
