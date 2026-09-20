@@ -225,7 +225,7 @@ git commit -m "feat: persist canvases behind shared subject policy"
 - `restore(actor,canvasId,versionId,{expectedRevision?})`; `archive(actor,canvasId)`; `transferOwner(actor,canvasId,newOwnerId)` owner-only.
 - `withReceipt(tx,scope,key,requestHash,write): Promise<{resultId}>` giữ7days.
 
-- [ ] **Step 1: Viết test đỏ** trong `tests/integration/canvas-concurrency.test.ts`. 2 save same revision→200/409; publish retry không double; same key khác body409; revocation sau retry404; restore lịch sử không đổi, existing draft yêu cầu confirm/CAS.
+- [x] **Step 1: Viết test đỏ** trong `tests/integration/canvas-concurrency.test.ts`. 2 save same revision→200/409; publish retry không double; same key khác body409; revocation sau retry404; restore lịch sử không đổi, existing draft yêu cầu confirm/CAS.
 
 ```ts
 const url="/api/v1/canvases/"+canvasId+"/draft";
@@ -235,13 +235,13 @@ expect(results.map(r=>r.status).sort()).toEqual([200,409]);
 expect((await f.db("canvas_draft").where({canvas_id:canvasId}).first()).revision).toBe(2);
 ```
 
-- [ ] **Step 2: Chạy test trước triển khai.**
+- [x] **Step 2: Chạy test trước triển khai.**
 
 Run: `npm test -- tests/integration/canvas-concurrency.test.ts`.
 Expected: FAIL tại hành vi/assertion mới hoặc missing module; sửa lỗi setup/môi trường trước,
 không coi lỗi không kết nối DB là bằng chứng RED hợp lệ.
 
-- [ ] **Step 3: Triển khai phần lõi và nối interface.**
+- [x] **Step 3: Triển khai phần lõi và nối interface.**
 
 Protected writes lockCompany, then canvas FOR UPDATE; recheck current policy in tx. UPDATE WHERE revision CAS. Publish validates, uses max version+1 under canvas lock, inserts immutable snapshot/audit/receipt and deletes draft. Check receipt before missing draft but after permission. Restore old body copied into new draft based current version; if draft exists require expected revision+confirmation, no hidden discard. Archive prevents writes; transfer requires owner/current-company and audit.
 
@@ -256,12 +256,12 @@ RETURNING *;
 -- INSERT write_receipt + audit → DELETE canvas_draft → COMMIT.
 ```
 
-- [ ] **Step 4: Chạy lại test và kiểm tra hồi quy.**
+- [x] **Step 4: Chạy lại test và kiểm tra hồi quy.**
 
 Run: `npm test -- tests/integration/canvas-concurrency.test.ts`, rồi `npm run typecheck`.
 Expected: test mới PASS, typecheck exit 0. Chạy thêm toàn bộ integration tests của module vừa thay đổi.
 
-- [ ] **Step 5: Commit riêng task sau khi kiểm tra diff.**
+- [x] **Step 5: Commit riêng task sau khi kiểm tra diff.**
 
 ```sh
 git diff --check
