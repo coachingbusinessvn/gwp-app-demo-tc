@@ -50,7 +50,7 @@
 - `blankCanvas(clock:()=>Date): CanvasBody`; `fromLegacy(raw): {body:CanvasBody|null,warnings:string[]}`.
 - Payload includes solution.direction/logic, risks:string, meta stage/mode; row IDs và measurement extension.
 
-- [ ] **Step 1: Viết test đỏ** trong `tests/unit/canvas-schema.test.ts`. Kiểm toàn bộ field editor, enums, đủ 6 boxes, missing reference, VALIDATED thiếu evidence, unknown fields, brief không tạo body.
+- [x] **Step 1: Viết test đỏ** trong `tests/unit/canvas-schema.test.ts`. Kiểm toàn bộ field editor, enums, đủ 6 boxes, missing reference, VALIDATED thiếu evidence, unknown fields, brief không tạo body.
 
 ```ts
 expect(fromLegacy({v:"v1",brief:true}).body).toBeNull();
@@ -61,13 +61,13 @@ expect(mapped.risks).toBe(legacyFull.risks.join("\n"));
 expect(CanvasBodySchema.safeParse({...mapped,company_id:"injected"}).success).toBe(false);
 ```
 
-- [ ] **Step 2: Chạy test trước triển khai.**
+- [x] **Step 2: Chạy test trước triển khai.**
 
 Run: `npm test -- tests/unit/canvas-schema.test.ts`.
 Expected: FAIL tại hành vi/assertion mới hoặc missing module; sửa lỗi setup/môi trường trước,
 không coi lỗi không kết nối DB là bằng chứng RED hợp lệ.
 
-- [ ] **Step 3: Triển khai phần lõi và nối interface.**
+- [x] **Step 3: Triển khai phần lõi và nối interface.**
 
 Trích mọi field blankState hiện tại kể cả solution và reviews. Schema strict cho nested objects, UUID rows; outputs1–3 behaviors2–5, boxes6 ở publish; draft cho phép field rỗng nhưng vẫn đúng kiểu/ref. Import preserve text, enum lỗi không thay default ngầm. Seed chỉ full snapshot, brief ghi migration notes. Field mapping documented: cur→current,tgt→target,due→deadline,beh→behavior,own→assignee_label, risks array→newline text. Blank observed row không coi là evidence.
 
@@ -83,12 +83,12 @@ export const Measurement = z.object({
 // schema_version=1 là payload version, meta schema nghiệp vụ vẫn "3.0".
 ```
 
-- [ ] **Step 4: Chạy lại test và kiểm tra hồi quy.**
+- [x] **Step 4: Chạy lại test và kiểm tra hồi quy.**
 
 Run: `npm test -- tests/unit/canvas-schema.test.ts`, rồi `npm run typecheck`.
 Expected: test mới PASS, typecheck exit 0. Chạy thêm toàn bộ integration tests của module vừa thay đổi.
 
-- [ ] **Step 5: Commit riêng task sau khi kiểm tra diff.**
+- [x] **Step 5: Commit riêng task sau khi kiểm tra diff.**
 
 ```sh
 git diff --check
