@@ -68,7 +68,10 @@ export const testEnv: NodeJS.ProcessEnv = {
   DEMO_MODE: "demo",
   APP_ORIGIN: "https://gwp.test",
   PORT: "8080",
-  TRUST_PROXY: "false",
+  // Trust loopback X-Forwarded-For so each fixture can present a distinct
+  // client IP — otherwise every parallel fixture shares one per-IP rate-limit
+  // bucket and seeded logins flake under load (e2e does the same).
+  TRUST_PROXY: "loopback",
 };
 
 const ROLE_NAME = /^[a-z_][a-z0-9_]{0,62}$/i;
@@ -143,8 +146,17 @@ export async function fixture(options?: {
   const runtimeRole = urlUser(TEST_DATABASE_URL);
   const migratorRole = urlUser(TEST_MIGRATOR_DATABASE_URL);
   const personaIds = generatePersonaIds();
+  // Each fixture presents as its own client IP so parallel fixtures get
+  // independent rate-limit buckets (TRUST_PROXY=loopback in testEnv).
+  const fixtureIp = `10.${(Math.random() * 254 + 1) | 0}.${
+    (Math.random() * 254 + 1) | 0
+  }.${(Math.random() * 254 + 1) | 0}`;
 
-  const maintenanceDb = createDb(TEST_MAINTENANCE_DATABASE_URL);
+  // Small pools per fixture: 3 connections each × parallel workers must stay
+  // far below the disposable container's max_connections.
+  const maintenanceDb = createDb(TEST_MAINTENANCE_DATABASE_URL, {
+    poolMax: 2,
+  });
   await assertConnectedToTestDb(maintenanceDb);
   await maintenanceDb.raw(`CREATE SCHEMA "${schema}"`);
 
@@ -163,6 +175,7 @@ export async function fixture(options?: {
       // credential applies pending migrations, then is destroyed.
       const migratorDb = createDb(TEST_MIGRATOR_DATABASE_URL, {
         searchPath: schema,
+        poolMax: 2,
       });
       try {
         await migrate(migratorDb, { mode: config.mode });
@@ -225,7 +238,7 @@ export async function fixture(options?: {
     throw err;
   }
 
-  const db = createDb(TEST_DATABASE_URL, { searchPath: schema });
+  const db = createDb(TEST_DATABASE_URL, { searchPath: schema, poolMax: 5 });
   const app = createApp({ db, clock: () => new Date(), config });
 
   // Real login per persona through the mounted routes — the cached access
@@ -238,6 +251,7 @@ export async function fixture(options?: {
         const res = await request(app)
           .post("/api/v1/auth/login")
           .set("Origin", config.appOrigin)
+          .set("X-Forwarded-For", fixtureIp)
           .send({ email: personaEmail(persona), password: FIXTURE_PASSWORD });
         if (res.status !== 200) {
           throw new Error(
@@ -269,19 +283,22 @@ export async function fixture(options?: {
 
   const api = (persona?: Persona): SuperTest<Test> => {
     const agent = request.agent(app);
-    if (!persona) return agent as unknown as SuperTest<Test>;
-    const token = personaTokens[persona];
-    if (!token) {
-      throw new Error(
-        `fixture: api(${persona}) requires fixture({ seeded: true }) — ` +
-          "personas and their sessions are only created for seeded fixtures",
-      );
-    }
     const headers: Record<string, string> = {
-      // Real cached access token from the persona's login + valid Origin.
-      Authorization: `Bearer ${token}`,
       Origin: config.appOrigin,
+      "X-Forwarded-For": fixtureIp,
     };
+    if (persona) {
+      const token = personaTokens[persona];
+      if (!token) {
+        throw new Error(
+          `fixture: api(${persona}) requires fixture({ seeded: true }) — ` +
+            "personas and their sessions are only created for seeded fixtures",
+        );
+      }
+      // Real cached access token from the persona's login — never a
+      // fabricated token (spec §8).
+      headers.Authorization = `Bearer ${token}`;
+    }
     for (const method of AGENT_METHODS) {
       const original = agent[method].bind(agent);
       (agent as unknown as Record<string, unknown>)[method] = (

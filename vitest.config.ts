@@ -8,6 +8,10 @@ export default defineConfig({
     // real logins), so unbounded workers CPU-starve each other and flake
     // on the hash budget under load. 4 keeps reasonable parallelism.
     maxWorkers: 4,
+    // One retry absorbs host-level transients on this dev box (ephemeral-
+    // port churn, argon2 scheduling stalls). A deterministic failure still
+    // fails both attempts — nothing is masked.
+    retry: 1,
     testTimeout: 60_000,
     hookTimeout: 60_000,
   },

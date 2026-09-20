@@ -8,6 +8,10 @@ services:
       POSTGRES_DB: gwp_test
       POSTGRES_USER: gwp_test
       POSTGRES_PASSWORD: gwp_test
+    # Headroom for parallel fixtures — each fixture holds small pools
+    # (maintenance 2 + migrator 2 + runtime 5) but connection churn under
+    # argon2 load once exhausted the default 100.
+    command: ["postgres", "-c", "max_connections=300"]
     ports:
       - "127.0.0.1:54329:5432"
     healthcheck:

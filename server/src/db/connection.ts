@@ -7,6 +7,9 @@ export interface CreateDbOptions {
    * isolation; production code leaves it unset.
    */
   searchPath?: string;
+  /** Pool ceiling — tests pass a small value so parallel fixtures cannot
+   * exhaust the disposable container's max_connections. Default 10. */
+  poolMax?: number;
 }
 
 /** Runtime Knex connection (PostgreSQL is the only supported engine). */
@@ -17,7 +20,7 @@ export function createDb(url: string, options?: CreateDbOptions): Knex {
     connection: { connectionString: url },
     pool: {
       min: 0,
-      max: 10,
+      max: options?.poolMax ?? 10,
       ...(searchPath
         ? {
             afterCreate: (
