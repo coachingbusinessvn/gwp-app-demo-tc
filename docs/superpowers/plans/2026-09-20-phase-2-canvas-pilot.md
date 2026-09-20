@@ -108,7 +108,7 @@ git commit -m "feat: define canonical canvas payload and legacy adapter"
 - `parseMarkdown(text:string): {body:CanvasBody,issues:Issue[]}`; `toMarkdown(body): {text:string,warnings:string[]}`.
 - `Issue = {path:string,code:string,severity:'error'|'warning',message:string}` từ validation.ts.
 
-- [ ] **Step 1: Viết test đỏ** trong `tests/unit/canvas-markdown.test.ts`. Tên hành vi lặp/mơ hồ, unknown sections, pipe/newline trong cells, tiếng Việt, stage, Markdown thiếu field; JSON giữ UUID, Markdown cảnh báo mất extensions.
+- [x] **Step 1: Viết test đỏ** trong `tests/unit/canvas-markdown.test.ts`. Tên hành vi lặp/mơ hồ, unknown sections, pipe/newline trong cells, tiếng Việt, stage, Markdown thiếu field; JSON giữ UUID, Markdown cảnh báo mất extensions.
 
 ```ts
 const exported=toMarkdown(canonicalBody);
@@ -120,13 +120,13 @@ expect(parsed.issues.filter(i=>i.severity==="error")).toEqual([]);
 expect(toMarkdown(withMeasurement).warnings).toContain("JSON_REQUIRED_FOR_EXTENSIONS");
 ```
 
-- [ ] **Step 2: Chạy test trước triển khai.**
+- [x] **Step 2: Chạy test trước triển khai.**
 
 Run: `npm test -- tests/unit/canvas-markdown.test.ts`.
 Expected: FAIL tại hành vi/assertion mới hoặc missing module; sửa lỗi setup/môi trường trước,
 không coi lỗi không kết nối DB là bằng chứng RED hợp lệ.
 
-- [ ] **Step 3: Triển khai phần lõi và nối interface.**
+- [x] **Step 3: Triển khai phần lõi và nối interface.**
 
 Tách parseCanvasMarkdown/sanitizeState nhưng bỏ silent truncation/defaulting. Dùng map tên duy nhất→ID; ambiguous thêm blocking issue. API import không nhận actor/company metadata. Golden fixture khóa 6 phần canonical, parse table escape. JSON export có body/schema_version, không password/org quyền; import external assignee ID phải confirm/match company phía service.
 
@@ -140,12 +140,12 @@ export function resolveNamedLink(name:string, rows:{id:string;name:string}[]): s
 // Không catch lỗi rồi bỏ cell; trả Issue.path và giữ nguyên nội dung để sửa.
 ```
 
-- [ ] **Step 4: Chạy lại test và kiểm tra hồi quy.**
+- [x] **Step 4: Chạy lại test và kiểm tra hồi quy.**
 
 Run: `npm test -- tests/unit/canvas-markdown.test.ts`, rồi `npm run typecheck`.
 Expected: test mới PASS, typecheck exit 0. Chạy thêm toàn bộ integration tests của module vừa thay đổi.
 
-- [ ] **Step 5: Commit riêng task sau khi kiểm tra diff.**
+- [x] **Step 5: Commit riêng task sau khi kiểm tra diff.**
 
 ```sh
 git diff --check
