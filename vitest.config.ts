@@ -4,7 +4,11 @@ export default defineConfig({
   test: {
     include: ["tests/**/*.test.ts"],
     globalSetup: ["tests/helpers/global-setup.ts"],
-    testTimeout: 30_000,
-    hookTimeout: 30_000,
+    // Bounded parallelism: every fixture pays ~10 argon2id ops (seed +
+    // real logins), so unbounded workers CPU-starve each other and flake
+    // on the hash budget under load. 4 keeps reasonable parallelism.
+    maxWorkers: 4,
+    testTimeout: 60_000,
+    hookTimeout: 60_000,
   },
 });
