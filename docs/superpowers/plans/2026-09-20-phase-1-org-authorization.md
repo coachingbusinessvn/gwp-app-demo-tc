@@ -221,7 +221,7 @@ git commit -m "feat: protect role changes and user deactivation"
 - `consumeCredentialToken(raw,password): Promise<void>`; `changeOwnPassword(actor,current,next)`.
 - CLI `npm run owner:recover -- --email <email>` local prompt/explicit confirmation, no public bypass.
 
-- [ ] **Step 1: Viết test đỏ** trong `tests/integration/credentials.test.ts`. Hash-only DB; TTL24h; consumed token reuse; actor admin 403; password change revokes all sessions; CLI wrong DB/mode refused.
+- [x] **Step 1: Viết test đỏ** trong `tests/integration/credentials.test.ts`. Hash-only DB; TTL24h; consumed token reuse; actor admin 403; password change revokes all sessions; CLI wrong DB/mode refused.
 
 ```ts
 expect((await f.api("admin").post("/api/v1/users/"+f.ids.member+"/credential-token")
@@ -233,13 +233,13 @@ expect((await use()).status).toBe(400);
 expect(JSON.stringify(await f.db("one_time_token").select("*"))).not.toContain(r.body.token);
 ```
 
-- [ ] **Step 2: Chạy test trước triển khai.**
+- [x] **Step 2: Chạy test trước triển khai.**
 
 Run: `npm test -- tests/integration/credentials.test.ts`.
 Expected: FAIL tại hành vi/assertion mới hoặc missing module; sửa lỗi setup/môi trường trước,
 không coi lỗi không kết nối DB là bằng chứng RED hợp lệ.
 
-- [ ] **Step 3: Triển khai phần lõi và nối interface.**
+- [x] **Step 3: Triển khai phần lõi và nối interface.**
 
 CSPRNG256-bit, SHA256 hash, purpose enum, 24h TTL, used_at locked in transaction. Owner thấy token chỉ lần phát, giao người dùng qua kênh nội bộ; admin không thấy. Reset/activation không tự đăng nhập. CLI dùng stdin password không argv/history, xác nhận deployment ID/email, hash Argon2id, revoke sessions/audit. Thêm package script owner:recover. Rate limit consume routes, constant error cho invalid/expired/used.
 
@@ -252,12 +252,12 @@ UPDATE auth_session SET revoked_at=now() WHERE user_id=$3 AND revoked_at IS NULL
 -- Cả ba UPDATE và audit cùng transaction; chỉ hash Argon2 ngoài tx.
 ```
 
-- [ ] **Step 4: Chạy lại test và kiểm tra hồi quy.**
+- [x] **Step 4: Chạy lại test và kiểm tra hồi quy.**
 
 Run: `npm test -- tests/integration/credentials.test.ts`, rồi `npm run typecheck`.
 Expected: test mới PASS, typecheck exit 0. Chạy thêm toàn bộ integration tests của module vừa thay đổi.
 
-- [ ] **Step 5: Commit riêng task sau khi kiểm tra diff.**
+- [x] **Step 5: Commit riêng task sau khi kiểm tra diff.**
 
 ```sh
 git diff --check
