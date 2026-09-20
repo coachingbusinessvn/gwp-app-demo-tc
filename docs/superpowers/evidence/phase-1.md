@@ -3,7 +3,24 @@
 Ngày: 2026-09-20. Branch: `feat/real-app-design`.
 Plan: `docs/superpowers/plans/2026-09-20-phase-1-org-authorization.md`.
 Commits theo task: 1.1 `073633e`+`98931ff`, 1.2 `19dfd64`, 1.3
-`5e64c53`+`87f3d81`, 1.4 `aa8f251`+`5cfad12`, 1.5 xem `git log` cuối.
+`5e64c53`+`87f3d81`, 1.4 `aa8f251`+`5cfad12`, 1.5 `3344ff0`+`ff137be`.
+
+### Sửa sau review task 1.5 (`ff137be`)
+
+- **Audit keyset cursor mất hàng cùng-mili giây** (Important):
+  `encodeAuditCursor` dùng `toISOString()` (ms) trong khi `created_at` là
+  `timestamptz` µs và `now()` = thời điểm transaction → các row cùng tx chia
+  sẻ `created_at`, row `.123456` bị so với cursor `.123` → rơi mất ở trang
+  tiếp theo. Fix: SELECT `to_char(created_at AT TIME ZONE 'UTC',
+  'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')` làm `cursor_ts`, emit verbatim; test mới
+  ghi 2 event trong MỘT transaction (chứng minh `created_at` trùng µs) rồi
+  phân trang `limit=1` — cursor cũ sẽ bỏ sót row thứ hai. Đồng thời dọn bug
+  test tiềm ẩn: `UPDATE` backdate chạy qua `maintenanceDb` không qualify →
+  vô tình ghi `public.audit_event`.
+- Minor theo kèm: label "Tổ" giữ `for`/id khi đổi phòng ban; nav "Quản trị"
+  cho owner/admin trong `assets/app.js` (roles từ `/auth/me`, không render
+  cho member); OpenAPI `additionalProperties` chuyển `anyOf`+`nullable`
+  (đúng 3.0.3).
 
 ## Điều kiện nghiệm thu (exit gate của plan)
 
