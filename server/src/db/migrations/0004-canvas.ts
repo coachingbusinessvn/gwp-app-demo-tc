@@ -28,11 +28,21 @@ import type { Migration } from "../migrate.js";
  *   version it branched from (same triple-column FK as current_version_id).
  *   source ∈ {manual, import, ai} records how the draft was created
  *   (import/ai land in later phases; the API writes 'manual').
+ * - write_receipt (task 2.4): idempotent-write receipts keyed by
+ *   (scope, key). The scope string is caller-namespaced (e.g.
+ *   "canvas.publish:<companyId>:<canvasId>") so one table serves every
+ *   idempotent write without cross-resource collisions; request_hash
+ *   detects same-key/different-payload reuse (409), result_id points at
+ *   the row the write produced. Retention is 7 days: lookups ignore older
+ *   rows and the same-key insert reclaims the slot — a periodic janitor
+ *   DELETE on created_at bounds table growth but is not required for
+ *   correctness.
  *
  * Indexes follow spec §3's query list: scoped lists filter by
  * (company_id, owner_user_id); version lookups resolve by
  * (canvas_id, version_no) — covered by the unique constraint — and drafts
- * resolve by canvas_id via the unique index.
+ * resolve by canvas_id via the unique index. Receipt lookups hit the
+ * (scope, key) unique index directly.
  */
 export const canvasMigration: Migration = {
   name: "0004-canvas",
@@ -150,5 +160,24 @@ export const canvasMigration: Migration = {
     await db.raw(
       `CREATE INDEX canvas_company_owner ON canvas (company_id, owner_user_id)`,
     );
+
+    // Idempotent-write receipts (task 2.4): a retried write with the same
+    // (scope, key) replays its stored result instead of applying twice;
+    // the same key with a different request_hash is a 409 conflict.
+    // created_at carries the 7-day retention window — the lookup in
+    // shared/write-receipt.ts treats older rows as expired and reclaims
+    // the (scope, key) slot, and a janitor can DELETE by created_at for
+    // table growth (correctness does not depend on it).
+    await db.raw(`
+      CREATE TABLE write_receipt (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        scope text NOT NULL,
+        key text NOT NULL,
+        request_hash text NOT NULL,
+        result_id uuid NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        CONSTRAINT write_receipt_scope_key UNIQUE (scope, key)
+      )
+    `);
   },
 };

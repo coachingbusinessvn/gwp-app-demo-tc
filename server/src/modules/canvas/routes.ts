@@ -3,22 +3,32 @@ import type { Knex } from "knex";
 import type { Config } from "../../config.js";
 import type { ActorContext, Clock } from "../../shared/contracts.js";
 import { AppError } from "../../shared/errors.js";
-import { pageLimit } from "../../shared/pagination.js";
+import { keysetCursorParam, pageLimit } from "../../shared/pagination.js";
 import { createAuthService } from "../auth/service.js";
 import { requireAuth } from "../auth/middleware.js";
 import { createPolicy } from "../authorization/policy.js";
 import { createCanvasService } from "./service.js";
-import { createCanvasBodySchema } from "./schema.js";
-import type { CanvasCursor } from "./queries.js";
+import {
+  createCanvasBodySchema,
+  publishBodySchema,
+  restoreBodySchema,
+  saveDraftBodySchema,
+  transferBodySchema,
+} from "./schema.js";
 
 /**
- * /api/v1 canvas surface (task 2.3, spec §4/§5):
+ * /api/v1 canvas surface (tasks 2.3/2.4, spec §4/§5):
  *
- *   POST /canvases                          — create canvas + first draft
- *   GET  /canvases?limit&cursor             — subject-scoped keyset page
- *   GET  /canvases/:id                      — canvas detail
- *   POST /canvases/:id/draft                — open the shared draft
- *   GET  /canvases/:id/versions/:versionId  — one published snapshot
+ *   POST /canvases                                — create canvas + first draft
+ *   GET  /canvases?limit&cursor                   — subject-scoped keyset page
+ *   GET  /canvases/:id                            — canvas detail
+ *   POST /canvases/:id/draft                      — open the shared draft
+ *   PUT  /canvases/:id/draft                      — CAS save (expectedRevision)
+ *   POST /canvases/:id/publish                    — idempotent publish
+ *   GET  /canvases/:id/versions/:versionId        — one published snapshot
+ *   POST /canvases/:id/versions/:versionId/restore — restore into the draft
+ *   POST /canvases/:id/archive                    — archive (write-off flag)
+ *   POST /canvases/:id/transfer                   — owner-only transfer
  *
  * Every handler is Bearer-only (requireAuth) and thin: parseBody + actorOf
  * + path-id → 404. All access decisions live in the service behind the
@@ -27,8 +37,6 @@ import type { CanvasCursor } from "./queries.js";
  */
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const ISO_INSTANT_RE =
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
 
 function actorOf(res: Response): ActorContext {
   return res.locals.actor as ActorContext;
@@ -62,26 +70,6 @@ function pathId(raw: string | string[]): string {
   return id;
 }
 
-/**
- * Composite keyset cursor `<iso-µs>|<uuid>` — the (created_at, id) position
- * of the previous page's last row, same convention as GET /audit. Anything
- * malformed is INVALID_CURSOR.
- */
-function cursorParam(raw: unknown): CanvasCursor | undefined {
-  if (raw === undefined) return undefined;
-  const s = typeof raw === "string" ? raw : "";
-  const sep = s.lastIndexOf("|");
-  const at = sep > 0 ? s.slice(0, sep) : "";
-  const id = sep > 0 ? s.slice(sep + 1) : "";
-  if (!ISO_INSTANT_RE.test(at) || !UUID_RE.test(id)) {
-    throw new AppError(400, "INVALID_CURSOR", "Con trỏ trang không hợp lệ");
-  }
-  if (!Number.isFinite(new Date(at).getTime())) {
-    throw new AppError(400, "INVALID_CURSOR", "Con trỏ trang không hợp lệ");
-  }
-  return { at, id };
-}
-
 export function canvasRoutes(deps: {
   db: Knex;
   clock: Clock;
@@ -113,7 +101,9 @@ export function canvasRoutes(deps: {
       res.json(
         await canvas.listCanvases(actorOf(res), {
           limit: pageLimit(req.query.limit),
-          cursor: cursorParam(req.query.cursor),
+          // Shared keyset parser — rejects impossible dates (JS normalizes
+          // them, Postgres then throws 22008) as 400, never a 500.
+          cursor: keysetCursorParam(req.query.cursor),
         }),
       );
     },
@@ -139,6 +129,28 @@ export function canvasRoutes(deps: {
     },
   );
 
+  router.put(
+    "/canvases/:id/draft",
+    requireAuth(auth),
+    async (req: Request, res: Response) => {
+      const body = parseBody(saveDraftBodySchema, req.body);
+      res.json(
+        await canvas.saveDraft(actorOf(res), pathId(req.params.id), body),
+      );
+    },
+  );
+
+  router.post(
+    "/canvases/:id/publish",
+    requireAuth(auth),
+    async (req: Request, res: Response) => {
+      const body = parseBody(publishBodySchema, req.body);
+      res.json(
+        await canvas.publish(actorOf(res), pathId(req.params.id), body),
+      );
+    },
+  );
+
   router.get(
     "/canvases/:id/versions/:versionId",
     requireAuth(auth),
@@ -148,6 +160,46 @@ export function canvasRoutes(deps: {
           actorOf(res),
           pathId(req.params.id),
           pathId(req.params.versionId),
+        ),
+      );
+    },
+  );
+
+  router.post(
+    "/canvases/:id/versions/:versionId/restore",
+    requireAuth(auth),
+    async (req: Request, res: Response) => {
+      // The body is optional — restoring onto an empty canvas needs none.
+      const body = parseBody(restoreBodySchema, req.body ?? {});
+      res.json(
+        await canvas.restore(
+          actorOf(res),
+          pathId(req.params.id),
+          pathId(req.params.versionId),
+          body,
+        ),
+      );
+    },
+  );
+
+  router.post(
+    "/canvases/:id/archive",
+    requireAuth(auth),
+    async (req: Request, res: Response) => {
+      res.json(await canvas.archive(actorOf(res), pathId(req.params.id)));
+    },
+  );
+
+  router.post(
+    "/canvases/:id/transfer",
+    requireAuth(auth),
+    async (req: Request, res: Response) => {
+      const body = parseBody(transferBodySchema, req.body);
+      res.json(
+        await canvas.transferOwner(
+          actorOf(res),
+          pathId(req.params.id),
+          body.newOwnerId,
         ),
       );
     },

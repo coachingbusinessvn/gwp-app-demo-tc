@@ -63,6 +63,22 @@ export async function findCanvasById(
     .first()) as CanvasRow | undefined;
 }
 
+/**
+ * The canvas row FOR UPDATE — the per-canvas serialization point every
+ * protected write takes after lockCompany (task 2.4): draft saves, publish,
+ * restore, archive and transfer all serialize on this row inside the tx.
+ */
+export async function lockCanvasById(
+  tx: Knex.Transaction,
+  companyId: string,
+  id: string,
+): Promise<CanvasRow | undefined> {
+  return (await tx("canvas")
+    .where({ id, company_id: companyId })
+    .forUpdate()
+    .first()) as CanvasRow | undefined;
+}
+
 export async function insertCanvas(
   tx: Knex.Transaction,
   row: {
@@ -133,6 +149,80 @@ export async function insertDraft(
 }
 
 /**
+ * CAS save (task 2.4): UPDATE … WHERE revision = expected — the optimistic-
+ * concurrency predicate. Zero rows means the draft moved (or is gone);
+ * the service turns that into 409 DRAFT_CONFLICT / 404. Under the company
+ * lock this can only lose to a genuinely stale expectedRevision.
+ */
+export async function updateDraftCas(
+  tx: Knex.Transaction,
+  companyId: string,
+  canvasId: string,
+  expectedRevision: number,
+  patch: {
+    body: CanvasBody;
+    base_version_id?: string | null;
+    schema_version?: number;
+    updated_by: string;
+  },
+): Promise<CanvasDraftRow | undefined> {
+  const set: Record<string, unknown> = {
+    body: JSON.stringify(patch.body),
+    updated_by: patch.updated_by,
+    updated_at: tx.fn.now(),
+    revision: expectedRevision + 1,
+  };
+  if (patch.base_version_id !== undefined)
+    set.base_version_id = patch.base_version_id;
+  if (patch.schema_version !== undefined)
+    set.schema_version = patch.schema_version;
+  const rows = (await tx("canvas_draft")
+    .where({
+      company_id: companyId,
+      canvas_id: canvasId,
+      revision: expectedRevision,
+    })
+    .update(set, [
+      "id",
+      "company_id",
+      "canvas_id",
+      "base_version_id",
+      "revision",
+      "schema_version",
+      "body",
+      "source",
+      "created_by",
+      "created_at",
+      "updated_by",
+      "updated_at",
+    ])) as unknown as CanvasDraftRow[];
+  return rows[0];
+}
+
+/** The draft row FOR UPDATE — publish/restore lock it before deciding. */
+export async function lockDraftByCanvas(
+  tx: Knex.Transaction,
+  companyId: string,
+  canvasId: string,
+): Promise<CanvasDraftRow | undefined> {
+  return (await tx("canvas_draft")
+    .where({ canvas_id: canvasId, company_id: companyId })
+    .forUpdate()
+    .first()) as CanvasDraftRow | undefined;
+}
+
+/** The publish tail: the draft is consumed once its body is snapshotted. */
+export async function deleteDraftByCanvas(
+  tx: Knex.Transaction,
+  companyId: string,
+  canvasId: string,
+): Promise<void> {
+  await tx("canvas_draft")
+    .where({ canvas_id: canvasId, company_id: companyId })
+    .delete();
+}
+
+/**
  * One published snapshot of one canvas — the (company_id, canvas_id) pair
  * in the WHERE keeps a version id from ever resolving through another
  * canvas (defense in depth alongside the composite FK).
@@ -150,4 +240,92 @@ export async function findVersionById(
       company_id: companyId,
     })
     .first()) as CanvasVersionRow | undefined;
+}
+
+/**
+ * Highest published version_no of a canvas — call only while the canvas
+ * row is held FOR UPDATE so the next number cannot race (task 2.4).
+ */
+export async function maxVersionNo(
+  tx: Knex.Transaction,
+  companyId: string,
+  canvasId: string,
+): Promise<number> {
+  const row = (await tx("canvas_version")
+    .where({ company_id: companyId, canvas_id: canvasId })
+    .max("version_no as max")
+    .first()) as { max: number | null } | undefined;
+  return row?.max ?? 0;
+}
+
+/** INSERT one immutable published snapshot (task 2.4). */
+export async function insertVersion(
+  tx: Knex.Transaction,
+  row: {
+    company_id: string;
+    canvas_id: string;
+    version_no: number;
+    schema_version: number;
+    body: CanvasBody;
+    change_summary: string | null;
+    provenance: Record<string, unknown> | null;
+    published_by: string;
+  },
+): Promise<CanvasVersionRow> {
+  const rows = (await tx("canvas_version").insert(
+    { ...row, body: JSON.stringify(row.body) },
+    [
+      "id",
+      "company_id",
+      "canvas_id",
+      "version_no",
+      "schema_version",
+      "body",
+      "change_summary",
+      "provenance",
+      "published_by",
+      "published_at",
+    ],
+  )) as unknown as CanvasVersionRow[];
+  return rows[0];
+}
+
+/** Point the canvas head at a freshly published version. */
+export async function setCanvasCurrentVersion(
+  tx: Knex.Transaction,
+  companyId: string,
+  canvasId: string,
+  versionId: string,
+): Promise<void> {
+  await tx("canvas")
+    .where({ id: canvasId, company_id: companyId })
+    .update({ current_version_id: versionId });
+}
+
+/** Flag the canvas archived — archive is a state change, never a delete. */
+export async function archiveCanvasRow(
+  tx: Knex.Transaction,
+  companyId: string,
+  canvasId: string,
+  archivedBy: string,
+): Promise<void> {
+  await tx("canvas")
+    .where({ id: canvasId, company_id: companyId })
+    .update({
+      status: "archived",
+      archived_at: tx.fn.now(),
+      archived_by: archivedBy,
+    });
+}
+
+/** Reassign the canvas owner (task 2.4 transferOwner — owner role only). */
+export async function transferCanvasOwner(
+  tx: Knex.Transaction,
+  companyId: string,
+  canvasId: string,
+  newOwnerId: string,
+): Promise<void> {
+  await tx("canvas")
+    .where({ id: canvasId, company_id: companyId })
+    .update({ owner_user_id: newOwnerId });
 }

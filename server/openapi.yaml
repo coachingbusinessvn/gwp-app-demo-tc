@@ -1586,6 +1586,299 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+    put:
+      tags: [canvas]
+      summary: Save the shared draft (optimistic concurrency)
+      description: >
+        Conflict-safe draft write (task 2.4): the client asserts the
+        `expectedRevision` it read and the `baseVersionId` the draft
+        branched from — the save applies only while both still hold, via
+        an UPDATE … WHERE revision CAS under the company write lock. A
+        stale revision or base returns 409 DRAFT_CONFLICT and writes
+        nothing; a canvas with no draft is the uniform 404. The body is
+        re-validated draft-mode (400 with issue paths) and
+        assignee_user_id references re-checked exactly like on create.
+        Audits canvas.draft.save, metadata only.
+      operationId: saveCanvasDraft
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CanvasId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CanvasDraftSaveRequest"
+      responses:
+        "200":
+          description: The saved draft — revision bumped by one.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CanvasDraft"
+        "400":
+          description: >
+            Strict-envelope or draft-mode validation failure — issue
+            paths in details.fields.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: >
+            No such canvas, no draft to save, or no subject access to
+            the canvas owner — the denial is uniform.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: >
+            DRAFT_CONFLICT — expectedRevision or baseVersionId is stale;
+            or CANVAS_ARCHIVED on an archived canvas.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/canvases/{id}/publish:
+    post:
+      tags: [canvas]
+      summary: Publish the live draft as an immutable version
+      description: >
+        Turns the shared draft into the next immutable canvas_version
+        (task 2.4): version_no = max(version_no)+1 taken under the canvas
+        row lock, the draft is consumed, canvas.current_version_id points
+        at the new snapshot, and the whole thing commits in one
+        transaction with its metadata-only audit row. The body must pass
+        publish-mode completeness — errors are 400 with issue paths.
+        `idempotencyKey` binds the write to a (scope, key) write_receipt:
+        a retry with the same key replays the stored versionId/versionNo
+        without writing again, and the same key carrying a different
+        request is 409. The receipt is consulted AFTER the permission
+        check, so a revoked actor can never replay. `expectedRevision` is
+        the draft CAS — a stale value is 409 DRAFT_CONFLICT.
+      operationId: publishCanvas
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CanvasId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CanvasPublishRequest"
+      responses:
+        "200":
+          description: The published version (fresh or replayed).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CanvasPublishResponse"
+        "400":
+          description: >
+            Strict-envelope failure or publish-mode completeness errors —
+            issue paths in details.fields.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: >
+            No such canvas, no live draft, or no subject access to the
+            canvas owner — the denial is uniform.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: >
+            IDEMPOTENCY_CONFLICT (key reused with a different payload),
+            DRAFT_CONFLICT (stale expectedRevision or base), or
+            CANVAS_ARCHIVED.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/canvases/{id}/versions/{versionId}/restore:
+    post:
+      tags: [canvas]
+      summary: Restore a published version into the shared draft
+      description: >
+        Copies the version's body into the canvas's draft (task 2.4) —
+        history is never mutated; restore writes only canvas_draft. With
+        no live draft a new one is created (revision 1) based on the
+        CURRENT head, content starting at the restored body. With a live
+        draft the request must carry its `expectedRevision` AND
+        `confirm: true` — restore never silently discards in-progress
+        work and answers 409 DRAFT_CONFLICT otherwise. Audits
+        canvas.restore, metadata only.
+      operationId: restoreCanvasVersion
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CanvasId"
+        - $ref: "#/components/parameters/VersionId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CanvasRestoreRequest"
+      responses:
+        "200":
+          description: The draft holding the restored body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CanvasDraft"
+        "400":
+          description: Strict-envelope validation failure.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: >
+            No such canvas/version pair, or no subject access to the
+            canvas owner.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: >
+            DRAFT_CONFLICT — a live draft exists and expectedRevision +
+            confirm:true were not both supplied; or CANVAS_ARCHIVED.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/canvases/{id}/archive:
+    post:
+      tags: [canvas]
+      summary: Archive the canvas (write-off flag, never a delete)
+      description: >
+        Flips status to archived with archived_at/archived_by (task 2.4,
+        spec §9). Reads keep working; every write path — save, publish,
+        draft open, restore, transfer — answers 409 CANVAS_ARCHIVED.
+        Archiving an already-archived canvas is the same 409. Audits
+        canvas.archive, metadata only.
+      operationId: archiveCanvas
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CanvasId"
+      responses:
+        "200":
+          description: The canvas detail after archiving.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Canvas"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: No such canvas, or no subject access to its owner.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: The canvas is already archived.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/canvases/{id}/transfer:
+    post:
+      tags: [canvas]
+      summary: Transfer canvas ownership (owner role only)
+      description: >
+        Reassigns the canvas owner (task 2.4). Restricted by ROLE, not by
+        subject scoping: the caller must hold the owner role — member,
+        manager and admin are all denied 403 even where subject access
+        would pass. The target must be an ACTIVE user of the same
+        company — foreign/unknown ids are the uniform 404, an inactive
+        one is 409 USER_NOT_ACTIVE. Access follows the new owner
+        immediately. Audits canvas.transfer, metadata only.
+      operationId: transferCanvasOwner
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CanvasId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CanvasTransferRequest"
+      responses:
+        "200":
+          description: The canvas detail under the new owner.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Canvas"
+        "400":
+          description: Strict-envelope validation failure.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: The caller does not hold the owner role.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: >
+            No such canvas, no such target user, or no subject access to
+            the canvas owner.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: The target user is inactive or the canvas is archived.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /api/v1/canvases/{id}/versions/{versionId}:
     get:
@@ -2280,6 +2573,80 @@ components:
               format: uuid
             revision:
               type: integer
+    CanvasDraftSaveRequest:
+      type: object
+      required: [expectedRevision, baseVersionId, body]
+      additionalProperties: false
+      properties:
+        expectedRevision:
+          type: integer
+          minimum: 1
+          description: The draft revision the client read — CAS guard.
+        baseVersionId:
+          type: string
+          format: uuid
+          nullable: true
+          description: >
+            The published version the draft branched from; null before
+            the first publish. A stale base is 409 DRAFT_CONFLICT.
+        body:
+          $ref: "#/components/schemas/CanvasBody"
+    CanvasPublishRequest:
+      type: object
+      required: [expectedRevision, idempotencyKey]
+      additionalProperties: false
+      properties:
+        expectedRevision:
+          type: integer
+          minimum: 1
+          description: The draft revision being published — CAS guard.
+        idempotencyKey:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: >
+            Client-supplied idempotency key bound to a (scope, key)
+            write_receipt — same key + same payload replays the stored
+            result; same key + different payload is 409.
+        changeSummary:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: Optional human note stored on the version row.
+    CanvasPublishResponse:
+      type: object
+      required: [versionId, versionNo]
+      properties:
+        versionId:
+          type: string
+          format: uuid
+        versionNo:
+          type: integer
+          description: Monotonic per canvas — never reused, never reordered.
+    CanvasRestoreRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        expectedRevision:
+          type: integer
+          minimum: 1
+          description: >
+            Required when a live draft exists — must equal its current
+            revision.
+        confirm:
+          type: boolean
+          description: >
+            Required true when a live draft exists — explicit overwrite
+            consent; restore never discards a draft silently.
+    CanvasTransferRequest:
+      type: object
+      required: [newOwnerId]
+      additionalProperties: false
+      properties:
+        newOwnerId:
+          type: string
+          format: uuid
+          description: An ACTIVE user of the same company.
     CanvasDraft:
       type: object
       required:
@@ -2414,10 +2781,14 @@ components:
           format: uuid
           nullable: true
         draft:
-          $ref: "#/components/schemas/CanvasDraft"
+          # OpenAPI 3.0.3: `nullable` is ignored as a $ref sibling — wrap
+          # the ref in allOf so the nullable actually takes effect.
+          allOf:
+            - $ref: "#/components/schemas/CanvasDraft"
           nullable: true
         currentVersion:
-          $ref: "#/components/schemas/CanvasVersionSummary"
+          allOf:
+            - $ref: "#/components/schemas/CanvasVersionSummary"
           nullable: true
     CanvasListItem:
       type: object

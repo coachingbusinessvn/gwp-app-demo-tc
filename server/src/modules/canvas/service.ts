@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { Knex } from "knex";
 import type {
   ActorContext,
@@ -7,6 +8,7 @@ import type {
 } from "../../shared/contracts.js";
 import { AppError } from "../../shared/errors.js";
 import { lockCompany } from "../../shared/company-lock.js";
+import { withReceipt } from "../../shared/write-receipt.js";
 import type { CanvasBody } from "../../../../shared/canvas/schema.js";
 import { blankCanvas } from "../../../../shared/canvas/defaults.js";
 import { validateCanvas } from "../../../../shared/canvas/validation.js";
@@ -14,14 +16,24 @@ import { appendAudit } from "../audit/service.js";
 import {
   assertActiveActor,
   findCompanyUser,
+  loadActorRoles,
 } from "../authorization/repository.js";
 import type { SubjectPolicy } from "../authorization/policy.js";
 import {
+  archiveCanvasRow,
+  deleteDraftByCanvas,
   findCanvasById,
   findDraftByCanvas,
   findVersionById,
   insertCanvas,
   insertDraft,
+  insertVersion,
+  lockCanvasById,
+  lockDraftByCanvas,
+  maxVersionNo,
+  setCanvasCurrentVersion,
+  transferCanvasOwner,
+  updateDraftCas,
   type CanvasDraftRow,
   type CanvasRow,
   type CanvasVersionRow,
@@ -47,6 +59,14 @@ import {
  * same transaction (spec §9) — metadata only, never canvas body content.
  * assertActiveActor re-runs under the lock so a deactivated actor cannot
  * complete an in-flight write on a stale context.
+ *
+ * Task 2.4 adds the conflict-safe write path on top: draft saves carry a
+ * revision CAS predicate (UPDATE … WHERE revision), publish runs the
+ * pinned order — permission → receipt lookup → draft lock/CAS+base check →
+ * publish-validate → insert version → bump current_version_id → insert
+ * write_receipt + audit → delete draft → commit — and lifecycle ops
+ * (restore/archive/transfer) hold the canvas row FOR UPDATE inside the
+ * same company lock.
  *
  * Design decisions (documented per task brief):
  * - `name` is the canvas record's display name and is STAMPED into
@@ -261,7 +281,7 @@ export function createCanvasService({ db, policy, clock }: CanvasDeps) {
     canvasId: Id,
   ): Promise<CanvasRow> {
     await assertActiveActor(tx, actor.companyId, actor.userId);
-    const canvas = await findCanvasById(tx, actor.companyId, canvasId);
+    const canvas = await lockCanvasById(tx, actor.companyId, canvasId);
     if (!canvas) throw notFound();
     await policy.assertSubjectAccess(actor, canvas.owner_user_id, tx);
     if (canvas.status === "archived") {
@@ -366,22 +386,19 @@ export function createCanvasService({ db, policy, clock }: CanvasDeps) {
     });
   }
 
-  /**
-   * Canvas detail: metadata + the shared draft (with body — it IS the
-   * working document) + the current version's summary. Subject access on
-   * the owner is the only gate; absent and denied are the same 404.
-   */
-  async function getCanvas(actor: ActorContext, id: Id): Promise<CanvasDto> {
-    const canvas = await findCanvasById(db, actor.companyId, id);
-    if (!canvas) throw notFound();
-    await policy.assertSubjectAccess(actor, canvas.owner_user_id);
+  /** Detail assembly shared by getCanvas and the lifecycle-op responses. */
+  async function canvasDto(
+    qb: Knex | Knex.Transaction,
+    actor: ActorContext,
+    canvas: CanvasRow,
+  ): Promise<CanvasDto> {
     const [ownerName, draft, version] = await Promise.all([
-      findUserDisplayName(db, actor.companyId, canvas.owner_user_id),
-      findDraftByCanvas(db, actor.companyId, canvas.id),
+      findUserDisplayName(qb, actor.companyId, canvas.owner_user_id),
+      findDraftByCanvas(qb, actor.companyId, canvas.id),
       canvas.current_version_id === null
         ? Promise.resolve(undefined)
         : findVersionById(
-            db,
+            qb,
             actor.companyId,
             canvas.id,
             canvas.current_version_id,
@@ -400,6 +417,42 @@ export function createCanvasService({ db, policy, clock }: CanvasDeps) {
       draft: draft ? toDraftDto(draft) : null,
       currentVersion: version ? toVersionSummary(version) : null,
     };
+  }
+
+  /**
+   * insertDraft with the race guard the EMAIL_TAKEN pattern sets
+   * (users/service.ts): the canvas_one_draft unique index is the real
+   * guard for any caller that skipped or lost the draft pre-check — a
+   * collision is 409 DRAFT_EXISTS, never a 500.
+   */
+  async function insertDraft409(
+    tx: Knex.Transaction,
+    row: Parameters<typeof insertDraft>[1],
+  ): Promise<CanvasDraftRow> {
+    try {
+      return await insertDraft(tx, row);
+    } catch (err) {
+      if ((err as { code?: string }).code === "23505") {
+        throw new AppError(
+          409,
+          "DRAFT_EXISTS",
+          "Canvas đã có bản nháp — không ghi đè bản đang sửa",
+        );
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Canvas detail: metadata + the shared draft (with body — it IS the
+   * working document) + the current version's summary. Subject access on
+   * the owner is the only gate; absent and denied are the same 404.
+   */
+  async function getCanvas(actor: ActorContext, id: Id): Promise<CanvasDto> {
+    const canvas = await findCanvasById(db, actor.companyId, id);
+    if (!canvas) throw notFound();
+    await policy.assertSubjectAccess(actor, canvas.owner_user_id);
+    return canvasDto(db, actor, canvas);
   }
 
   /**
@@ -479,7 +532,7 @@ export function createCanvasService({ db, policy, clock }: CanvasDeps) {
               canvas.current_version_id,
             );
       const body: CanvasBody = base ? base.body : blankCanvas(clock);
-      const draft = await insertDraft(tx, {
+      const draft = await insertDraft409(tx, {
         company_id: actor.companyId,
         canvas_id: canvasId,
         base_version_id: base?.id ?? null,
@@ -504,6 +557,408 @@ export function createCanvasService({ db, policy, clock }: CanvasDeps) {
     });
   }
 
+  /**
+   * CAS save (task 2.4, spec §5.2): the client asserts the revision it read
+   * and the published base it branched from; both must still hold. The
+   * draft row is locked FOR UPDATE inside the company lock, then the
+   * UPDATE carries the same revision predicate as a second guard — a
+   * mismatch is 409 DRAFT_CONFLICT, a missing draft is the uniform 404.
+   * The body is re-validated draft-mode and assignee references re-checked
+   * exactly like on create.
+   */
+  async function saveDraft(
+    actor: ActorContext,
+    canvasId: Id,
+    input: {
+      expectedRevision: number;
+      baseVersionId: Id | null;
+      body: unknown;
+    },
+  ): Promise<DraftDto> {
+    return db.transaction(async (tx) => {
+      await lockCompany(tx, actor.companyId);
+      await assertWriteIn(tx, actor, canvasId);
+      const body = requireValidDraftBody(input.body);
+      await requireCompanyAssignees(tx, actor.companyId, body);
+
+      const draft = await lockDraftByCanvas(tx, actor.companyId, canvasId);
+      if (!draft) throw notFound();
+      if (draft.revision !== input.expectedRevision) {
+        throw new AppError(
+          409,
+          "DRAFT_CONFLICT",
+          "Bản nháp đã thay đổi — tải lại trước khi lưu",
+        );
+      }
+      if (draft.base_version_id !== input.baseVersionId) {
+        // Stale base: the head moved since the client's read.
+        throw new AppError(
+          409,
+          "DRAFT_CONFLICT",
+          "Bản nháp đã đổi phiên bản gốc — tải lại trước khi lưu",
+        );
+      }
+      const updated = await updateDraftCas(
+        tx,
+        actor.companyId,
+        canvasId,
+        input.expectedRevision,
+        { body, updated_by: actor.userId },
+      );
+      // Unreachable while the company lock serializes writers — the CAS
+      // predicate stays so a lock-free future caller still cannot clobber.
+      if (!updated) {
+        throw new AppError(
+          409,
+          "DRAFT_CONFLICT",
+          "Bản nháp đã thay đổi — tải lại trước khi lưu",
+        );
+      }
+      await appendAudit(tx, {
+        companyId: actor.companyId,
+        actorId: actor.userId,
+        action: "canvas.draft.save",
+        targetType: "canvas",
+        targetId: canvasId,
+        outcome: "success",
+        requestId: actor.requestId,
+        metadata: { version: updated.revision },
+      });
+      return toDraftDto(updated);
+    });
+  }
+
+  /**
+   * Publish (task 2.4, spec §5.2) — pinned order:
+   *   permission → receipt lookup → lock draft / check expectedRevision +
+   *   baseVersionId → publish-validate → INSERT canvas_version →
+   *   UPDATE canvas.current_version_id → INSERT write_receipt + audit →
+   *   DELETE canvas_draft → COMMIT.
+   *
+   * Permission (active actor, subject access) runs BEFORE the receipt
+   * lookup so a revoked actor can never replay a stored result. The
+   * receipt makes retries safe: same (scope, key) + same request hash
+   * replays the stored versionId; same key + different hash is 409.
+   * The version number is max(version_no)+1 taken while the canvas row is
+   * held FOR UPDATE, so concurrent publishes can never share a number —
+   * the UNIQUE(canvas_id, version_no) index is the backstop.
+   */
+  async function publish(
+    actor: ActorContext,
+    canvasId: Id,
+    input: {
+      expectedRevision: number;
+      idempotencyKey: string;
+      changeSummary?: string;
+    },
+  ): Promise<{ versionId: Id; versionNo: number }> {
+    // What the idempotency key binds to: the publish decision for THIS
+    // canvas — the draft revision and the summary. The scope already pins
+    // company+canvas; the hash detects same-key/different-payload reuse.
+    const requestHash = createHash("sha256")
+      .update(
+        JSON.stringify({
+          canvasId,
+          expectedRevision: input.expectedRevision,
+          changeSummary: input.changeSummary ?? null,
+        }),
+      )
+      .digest("hex");
+
+    return db.transaction(async (tx) => {
+      await lockCompany(tx, actor.companyId);
+      await assertActiveActor(tx, actor.companyId, actor.userId);
+      const canvas = await lockCanvasById(tx, actor.companyId, canvasId);
+      if (!canvas) throw notFound();
+      await policy.assertSubjectAccess(actor, canvas.owner_user_id, tx);
+
+      const scope = `canvas.publish:${actor.companyId}:${canvasId}`;
+      let publishedNo: number | undefined;
+      const receipt = await withReceipt(
+        tx,
+        scope,
+        input.idempotencyKey,
+        requestHash,
+        async () => {
+          // --- the write: runs only when no live receipt exists --------
+          if (canvas.status === "archived") {
+            throw new AppError(
+              409,
+              "CANVAS_ARCHIVED",
+              "Canvas đã lưu trữ — không thể chỉnh sửa",
+            );
+          }
+          const draft = await lockDraftByCanvas(
+            tx,
+            actor.companyId,
+            canvasId,
+          );
+          if (!draft) throw notFound();
+          if (draft.revision !== input.expectedRevision) {
+            throw new AppError(
+              409,
+              "DRAFT_CONFLICT",
+              "Bản nháp đã thay đổi — tải lại trước khi publish",
+            );
+          }
+          if (draft.base_version_id !== canvas.current_version_id) {
+            throw new AppError(
+              409,
+              "DRAFT_CONFLICT",
+              "Bản nháp không còn trên phiên bản hiện tại — tải lại trước khi publish",
+            );
+          }
+          // Publish-mode completeness: schema/referential errors AND the
+          // business minimums — issue paths ride in details.fields.
+          const errors = validateCanvas(draft.body, "publish").filter(
+            (i) => i.severity === "error",
+          );
+          if (errors.length > 0) {
+            throw new AppError(
+              400,
+              "INVALID_INPUT",
+              "Canvas chưa đủ điều kiện publish",
+              { fields: [...new Set(errors.map((i) => i.path))] },
+            );
+          }
+          const versionNo = (await maxVersionNo(
+            tx,
+            actor.companyId,
+            canvasId,
+          )) + 1;
+          const version = await insertVersion(tx, {
+            company_id: actor.companyId,
+            canvas_id: canvasId,
+            version_no: versionNo,
+            schema_version: draft.schema_version,
+            body: draft.body,
+            change_summary: input.changeSummary ?? null,
+            provenance: { source: draft.source },
+            published_by: actor.userId,
+          });
+          await setCanvasCurrentVersion(
+            tx,
+            actor.companyId,
+            canvasId,
+            version.id,
+          );
+          publishedNo = versionNo;
+          return version.id;
+        },
+      );
+
+      let versionNo = publishedNo;
+      if (receipt.replayed) {
+        // Replay: the receipt only stores the result id — re-read the
+        // version row for the number (the row is immutable, never gone).
+        const version = await findVersionById(
+          tx,
+          actor.companyId,
+          canvasId,
+          receipt.resultId,
+        );
+        if (!version) {
+          throw new AppError(500, "INTERNAL", "Mất phiên bản đã ghi nhận");
+        }
+        versionNo = version.version_no;
+      } else {
+        // Fresh write: receipt row is in — audit + consume the draft
+        // (pinned tail of the publish order).
+        await appendAudit(tx, {
+          companyId: actor.companyId,
+          actorId: actor.userId,
+          action: "canvas.publish",
+          targetType: "canvas",
+          targetId: canvasId,
+          outcome: "success",
+          requestId: actor.requestId,
+          metadata: { version: versionNo },
+        });
+        await deleteDraftByCanvas(tx, actor.companyId, canvasId);
+      }
+      return { versionId: receipt.resultId, versionNo: versionNo! };
+    });
+  }
+
+  /**
+   * Restore (task 2.4): copy a published version's body into the shared
+   * draft — history is NEVER mutated (canvas_version is insert-only for
+   * the runtime role; restore writes only canvas_draft). No draft → a new
+   * draft is created with revision 1, base = the CURRENT head (not the
+   * restored version: the draft still branches from head, its content
+   * just starts at the old body). A live draft is never silently
+   * discarded: the caller must pass its current expectedRevision AND
+   * confirm:true; anything less is 409 DRAFT_CONFLICT.
+   */
+  async function restore(
+    actor: ActorContext,
+    canvasId: Id,
+    versionId: Id,
+    input: { expectedRevision?: number; confirm?: boolean },
+  ): Promise<DraftDto> {
+    return db.transaction(async (tx) => {
+      await lockCompany(tx, actor.companyId);
+      const canvas = await assertWriteIn(tx, actor, canvasId);
+      const version = await findVersionById(
+        tx,
+        actor.companyId,
+        canvasId,
+        versionId,
+      );
+      if (!version) throw notFound();
+
+      const existing = await lockDraftByCanvas(tx, actor.companyId, canvasId);
+      let draft: CanvasDraftRow;
+      if (existing) {
+        const confirmed =
+          input.confirm === true &&
+          input.expectedRevision === existing.revision;
+        if (!confirmed) {
+          throw new AppError(
+            409,
+            "DRAFT_CONFLICT",
+            "Canvas có bản nháp đang sửa — cần expectedRevision và confirm để thay thế",
+          );
+        }
+        const updated = await updateDraftCas(
+          tx,
+          actor.companyId,
+          canvasId,
+          existing.revision,
+          {
+            body: version.body,
+            base_version_id: canvas.current_version_id,
+            schema_version: version.schema_version,
+            updated_by: actor.userId,
+          },
+        );
+        if (!updated) {
+          throw new AppError(
+            409,
+            "DRAFT_CONFLICT",
+            "Bản nháp đã thay đổi — tải lại trước khi restore",
+          );
+        }
+        draft = updated;
+      } else {
+        draft = await insertDraft409(tx, {
+          company_id: actor.companyId,
+          canvas_id: canvasId,
+          base_version_id: canvas.current_version_id,
+          revision: 1,
+          schema_version: version.schema_version,
+          body: version.body,
+          source: "manual",
+          created_by: actor.userId,
+          updated_by: actor.userId,
+        });
+      }
+      await appendAudit(tx, {
+        companyId: actor.companyId,
+        actorId: actor.userId,
+        action: "canvas.restore",
+        targetType: "canvas",
+        targetId: canvasId,
+        outcome: "success",
+        requestId: actor.requestId,
+        metadata: { version: version.version_no },
+      });
+      return toDraftDto(draft);
+    });
+  }
+
+  /**
+   * Archive (task 2.4, spec §9): a flag flip, never a delete — every write
+   * gate (assertWriteIn) then blocks the canvas with 409 CANVAS_ARCHIVED
+   * while reads stay open. Archiving twice is the same 409 — the second
+   * call is a state conflict, not a no-op.
+   */
+  async function archive(
+    actor: ActorContext,
+    canvasId: Id,
+  ): Promise<CanvasDto> {
+    return db.transaction(async (tx) => {
+      await lockCompany(tx, actor.companyId);
+      const canvas = await assertWriteIn(tx, actor, canvasId);
+      await archiveCanvasRow(tx, actor.companyId, canvasId, actor.userId);
+      await appendAudit(tx, {
+        companyId: actor.companyId,
+        actorId: actor.userId,
+        action: "canvas.archive",
+        targetType: "canvas",
+        targetId: canvasId,
+        outcome: "success",
+        requestId: actor.requestId,
+        metadata: { status: "archived" },
+      });
+      const updated = await findCanvasById(tx, actor.companyId, canvasId);
+      return canvasDto(tx, actor, updated ?? canvas);
+    });
+  }
+
+  /**
+   * Transfer ownership (task 2.4): OWNER ROLE ONLY — checked on fresh role
+   * rows before anything else, so member/manager/admin are denied by role
+   * (403) even where subject access would pass; this is deliberately not
+   * just the subject-404 boundary. The target must be an ACTIVE user of
+   * the same company — foreign/unknown ids are the uniform 404, an
+   * inactive one is 409 USER_NOT_ACTIVE (same convention as createCanvas).
+   * After the flip, subject access follows the NEW owner immediately.
+   */
+  async function transferOwner(
+    actor: ActorContext,
+    canvasId: Id,
+    newOwnerId: Id,
+  ): Promise<CanvasDto> {
+    return db.transaction(async (tx) => {
+      await lockCompany(tx, actor.companyId);
+      await assertActiveActor(tx, actor.companyId, actor.userId);
+      const roles = await loadActorRoles(tx, actor.companyId, actor.userId);
+      if (!roles.includes("owner")) {
+        throw new AppError(
+          403,
+          "FORBIDDEN",
+          "Chỉ owner được chuyển quyền sở hữu canvas",
+        );
+      }
+      const canvas = await lockCanvasById(tx, actor.companyId, canvasId);
+      if (!canvas) throw notFound();
+      // Defense in depth — the owner role already scopes the whole company,
+      // so this can only deny if the policy rules ever change.
+      await policy.assertSubjectAccess(actor, canvas.owner_user_id, tx);
+      if (canvas.status === "archived") {
+        throw new AppError(
+          409,
+          "CANVAS_ARCHIVED",
+          "Canvas đã lưu trữ — không thể chỉnh sửa",
+        );
+      }
+      const target = await findCompanyUser(tx, actor.companyId, newOwnerId);
+      if (!target) throw notFound();
+      if (target.status !== "active") {
+        throw new AppError(
+          409,
+          "USER_NOT_ACTIVE",
+          "Người dùng không ở trạng thái hoạt động",
+        );
+      }
+      await transferCanvasOwner(tx, actor.companyId, canvasId, newOwnerId);
+      await appendAudit(tx, {
+        companyId: actor.companyId,
+        actorId: actor.userId,
+        action: "canvas.transfer",
+        targetType: "canvas",
+        targetId: canvasId,
+        outcome: "success",
+        requestId: actor.requestId,
+        // Metadata only: the changed FIELD name, never the user id value.
+        metadata: { field: "owner_user_id" },
+      });
+      const updated = await findCanvasById(tx, actor.companyId, canvasId);
+      return canvasDto(tx, actor, updated ?? canvas);
+    });
+  }
+
   return {
     createCanvas,
     getCanvas,
@@ -511,6 +966,11 @@ export function createCanvasService({ db, policy, clock }: CanvasDeps) {
     getVersion,
     assertWrite,
     createDraft,
+    saveDraft,
+    publish,
+    restore,
+    archive,
+    transferOwner,
   };
 }
 
