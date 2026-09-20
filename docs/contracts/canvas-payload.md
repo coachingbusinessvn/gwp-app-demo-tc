@@ -10,6 +10,9 @@ Module: `shared/canvas/` — pure TypeScript + zod, no server/client imports.
 - `defaults.ts` — `blankCanvas(clock)`, `newId()`, blank row factories.
 - `validation.ts` — `validateCanvas(body, "draft" | "publish"): Issue[]`.
 - `legacy.ts` — `fromLegacy(raw): { body: CanvasBody | null, warnings: string[] }`.
+- `markdown.ts` — `parseMarkdown(text): { body: CanvasBody | null, issues: Issue[] }`,
+  `toMarkdown(body): { text: string, warnings: string[] }`,
+  `resolveNamedLink(name, rows): { id, hits }`.
 
 Fixtures: `tests/fixtures/canvas/legacy.json` (assets/data.js `CANVAS.tc2`
 version `v2`, flattened with `id`/`personId`/`name`) and
@@ -220,3 +223,115 @@ Rules:
   schema issues — the adapter never returns a body the schema would reject.
 - The tc2 fixture maps with zero warnings and passes
   `validateCanvas(_, "publish")`.
+
+## Markdown import/export (`shared/canvas/markdown.ts`)
+
+The human-facing canvas document — same layout the legacy editor
+(`canvas-online/index.html`, `buildMarkdown`/`parseCanvasMarkdown`) emits —
+made loss-aware. `tests/fixtures/canvas/canonical.md` is the golden document:
+`toMarkdown(canonical.json)` reproduces it byte-for-byte and
+`parseMarkdown` rebuilds the body modulo regenerated row ids.
+
+```ts
+parseMarkdown(text: string): { body: CanvasBody | null, issues: Issue[] }
+toMarkdown(body: CanvasBody): { text: string, warnings: string[] }
+```
+
+`body` is `null` only when the text is not a canvas at all (no
+`# PERFORMANCE ARCHITECTURE CANVAS — …` title and no `## 1.`–`## 6.`
+section → `NOT_A_CANVAS` error) or the assembled body fails the final
+`CanvasBodySchema` gate (`schema` errors, same contract as `fromLegacy`).
+Otherwise the body always comes back — sections that are missing or
+unparseable produce issues and stay blank, never drop the document.
+
+### Document layout
+
+```text
+# PERFORMANCE ARCHITECTURE CANVAS — <meta.title>
+**Canvas Stage:** … · **Build Mode:** … · **Schema Version:** 3.0 ·
+**Last Updated:** … · **Migration Status:** Native v3
+**Người lập:** <meta.owner>           (only when non-empty)
+
+## 1. GOAL | MỤC TIÊU                  — statement paragraph, then
+                                         **Bối cảnh & phạm vi:** …
+## 2. KEY RESULT + CRITICAL OUTPUTS / CS — one table; the "Loại" column
+                                         is "Key Result" (kr) or
+                                         "Critical Output" (outputs[])
+## 3. SOLUTION DIRECTION + LEVER BEHAVIORS — **Solution Direction:**,
+                                         **Logic chốt hướng …:**, table
+## 4. CONDITIONS | 6 BOXES             — one row per canonical box
+## 5. ACTION EXPERIMENT                — table + **Rủi ro …:** bullet list
+## 6. FOLLOW-UP EVIDENCE …             — ### Measurement Plan /
+                                         ### Observed Evidence /
+                                         ### Lịch Review & bài học
+```
+
+Column order per table matches the legacy headers verbatim. Cell content
+is position-mapped; header text is not trusted. `boxes` always emits and
+parses all six rows (drafts included — `boxes.length(6)` is schema-level).
+
+### Cell escaping (reversible both directions)
+
+| raw cell text | Markdown cell |
+|---|---|
+| `\` | `\\` |
+| `\|` | `\|` (escaped pipe) |
+| `*` | `\*` |
+| newline / `\r` | `\n` / `\r` (literal two-char sequences) |
+
+Unknown `\x` sequences import verbatim (backslash kept). A cell that is
+*only* a placeholder — `TBD`, `(chưa điền|chưa đặt tên|chưa có dữ liệu)`,
+`—`/`–` — normalizes to `""` on import (schema-3.0 "no data yet"
+semantic, same rule the legacy importer applies). Export protects a real
+`(…)` value by escaping the first paren; an unprotectable collision
+(`TBD`, `—`) warns `PLACEHOLDER_COLLISION`-style text at export time.
+
+Whole-cell `**…**`/`*…*` emphasis unwraps on import (hand-formatted docs);
+exported cells escape `*` so canonical text survives.
+
+### Box→behavior links travel as names
+
+`boxes[].behavior_id` (a UUID) is written as the behavior's **name** in
+the "Hành vi liên quan" column — Markdown carries no ids. On import the
+name resolves by exact trimmed match against `behaviors[].behavior`:
+
+- exactly 1 hit → linked; `""` or literal `Cần xác nhận` → `null`
+  (unconfirmed — allowed in draft, publish still rejects);
+- 0 or >1 hits → blocking `AMBIGUOUS_OR_MISSING_REFERENCE` issue at
+  `boxes.<i>.behavior_id`; the row is preserved and `behavior_id` stays
+  `null`. No substring/folded matching — never a guess.
+
+### Loss rules (never silent)
+
+- Row `id`s are not in the document — every import regenerates UUIDs.
+  Identity in Markdown is positional; use JSON for stable ids.
+- Fields Markdown cannot carry — `observed[].measurement`,
+  `assignee_user_id` (boxes/actions) — emit `JSON_REQUIRED_FOR_EXTENSIONS`
+  (exact string in `warnings`) plus a detail line per location. A dangling
+  `behavior_id` (no matching `behaviors[].id`) emits a blank link cell
+  plus a warning. **JSON export/import stays the lossless path.**
+- Issue codes emitted by `parseMarkdown`: `NOT_A_CANVAS` (error),
+  `schema` (error, final gate), `AMBIGUOUS_OR_MISSING_REFERENCE` (error),
+  `MISSING_TITLE`, `MISSING_SECTION`, `MISSING_SUBSECTION`,
+  `MISSING_TABLE`, `MISSING_KEY_RESULT`, `MISSING_META`,
+  `UNKNOWN_SECTION`, `UNKNOWN_SUBSECTION`, `UNPARSED_CONTENT`,
+  `UNRECOGNIZED_BOX`, `DUPLICATE_BOX`, `DUPLICATE_KEY_RESULT`,
+  `UNKNOWN_ROW_TYPE`, `COLUMN_COUNT_MISMATCH`, `LIST_TRUNCATED`,
+  `INVALID_ENUM`, `INVALID_DATE`, `SCHEMA_VERSION_MISMATCH`,
+  `RISKS_FORMAT` (all warnings unless noted).
+- `meta.updated`, `actions[].start/deadline`, `plan/observed/reviews[].date`
+  go through the same date rules as `fromLegacy` (ISO validated against the
+  real calendar; anchored `DD/MM/YYYY` normalizes; garbage warns + blanks).
+  `kr.deadline`/`outputs[].deadline` stay verbatim free text.
+- `meta.stage`/`meta.mode`/`actions[].status` are required enums — absent
+  or unknown text warns and falls back (`DRAFT`/`GUIDED`/`Chưa bắt đầu`),
+  matching `fromLegacy`. Blankable enums warn and blank.
+- Prose fields (`goal.statement`, labeled values, `risks` bullets,
+  `meta.owner`, title) cannot express `\n` the way cells can — `toMarkdown`
+  warns when a value would not survive re-import verbatim.
+- Lists respect schema bounds on import (`outputs` ≤3, `behaviors` ≤5)
+  with `LIST_TRUNCATED` warnings naming the dropped rows; fully-blank
+  table rows carry no content and are dropped silently by design.
+
+`canvas-online/index.html` is intentionally untouched in this task — the
+legacy UI rewires to `parseMarkdown`/`toMarkdown` in Task 2.5.
