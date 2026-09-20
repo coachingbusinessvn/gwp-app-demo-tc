@@ -284,7 +284,18 @@ Unknown `\x` sequences import verbatim (backslash kept). A cell that is
 `—`/`–` — normalizes to `""` on import (schema-3.0 "no data yet"
 semantic, same rule the legacy importer applies). Export protects a real
 `(…)` value by escaping the first paren; an unprotectable collision
-(`TBD`, `—`) warns `PLACEHOLDER_COLLISION`-style text at export time.
+(`TBD`, `—`) warns `PLACEHOLDER_COLLISION`-style text at export time —
+and the same check applies to prose/meta fields (`meta.title`,
+`meta.owner`, labeled values, risk lines).
+
+**Grammar divergence vs. the legacy UI.** The old
+`canvas-online/index.html` parser never escapes cells: it joins
+multi-line cell text with `"; "` and would split a raw `|` mid-cell.
+This module instead emits escaped `\n` / `\|` sequences. The new parser
+reads old documents fine (a `"; "` join is just text, and unescaped
+pipes were already ambiguous there), but the **old UI will display the
+literal `\n` / `\|` sequences** until Task 2.5 rewires it onto these
+functions. Export Markdown is therefore a 2.5-onward artifact.
 
 Whole-cell `**…**`/`*…*` emphasis unwraps on import (hand-formatted docs);
 exported cells escape `*` so canonical text survives.
@@ -295,11 +306,20 @@ exported cells escape `*` so canonical text survives.
 the "Hành vi liên quan" column — Markdown carries no ids. On import the
 name resolves by exact trimmed match against `behaviors[].behavior`:
 
-- exactly 1 hit → linked; `""` or literal `Cần xác nhận` → `null`
+- exactly 1 hit → linked;
+- `""` or literal `Cần xác nhận` with no matching behavior → `null`
   (unconfirmed — allowed in draft, publish still rejects);
 - 0 or >1 hits → blocking `AMBIGUOUS_OR_MISSING_REFERENCE` issue at
   `boxes.<i>.behavior_id`; the row is preserved and `behavior_id` stays
   `null`. No substring/folded matching — never a guess.
+
+Marker collision: a behavior may literally be named `Cần xác nhận` —
+a real name match wins over the undecided marker, and the genuine
+ambiguity is surfaced as a `MARKER_COLLISION` warning (import) and an
+export warning naming `boxes.<i>` (a linked box whose target has that
+name produces a cell indistinguishable from "undecided"). When such a
+behavior exists, undecided boxes export an empty cell instead of the
+marker text (also warned) so "undecided" is never misread as a link.
 
 ### Loss rules (never silent)
 
@@ -313,12 +333,18 @@ name resolves by exact trimmed match against `behaviors[].behavior`:
 - Issue codes emitted by `parseMarkdown`: `NOT_A_CANVAS` (error),
   `schema` (error, final gate), `AMBIGUOUS_OR_MISSING_REFERENCE` (error),
   `MISSING_TITLE`, `MISSING_SECTION`, `MISSING_SUBSECTION`,
-  `MISSING_TABLE`, `MISSING_KEY_RESULT`, `MISSING_META`,
+  `MISSING_TABLE`, `MISSING_KEY_RESULT`, `MISSING_META`, `MISSING_BOX`,
   `UNKNOWN_SECTION`, `UNKNOWN_SUBSECTION`, `UNPARSED_CONTENT`,
-  `UNRECOGNIZED_BOX`, `DUPLICATE_BOX`, `DUPLICATE_KEY_RESULT`,
+  `DUPLICATE_LABEL`, `UNRECOGNIZED_BOX`, `AMBIGUOUS_BOX`,
+  `DUPLICATE_BOX`, `DUPLICATE_KEY_RESULT`, `MARKER_COLLISION`,
   `UNKNOWN_ROW_TYPE`, `COLUMN_COUNT_MISMATCH`, `LIST_TRUNCATED`,
   `INVALID_ENUM`, `INVALID_DATE`, `SCHEMA_VERSION_MISMATCH`,
   `RISKS_FORMAT` (all warnings unless noted).
+- Meta labels (`**Canvas Stage:**`, `**Người lập:**`, …) are only read
+  in the preamble before `## 1.` — a label-shaped line inside a section
+  is content (and flags `DUPLICATE_LABEL`/`UNPARSED_CONTENT`), never
+  overrides real metadata. Text after `**Rủi ro …:**` on the label line
+  itself is imported into `risks`, not dropped.
 - `meta.updated`, `actions[].start/deadline`, `plan/observed/reviews[].date`
   go through the same date rules as `fromLegacy` (ISO validated against the
   real calendar; anchored `DD/MM/YYYY` normalizes; garbage warns + blanks).
@@ -326,9 +352,12 @@ name resolves by exact trimmed match against `behaviors[].behavior`:
 - `meta.stage`/`meta.mode`/`actions[].status` are required enums — absent
   or unknown text warns and falls back (`DRAFT`/`GUIDED`/`Chưa bắt đầu`),
   matching `fromLegacy`. Blankable enums warn and blank.
-- Prose fields (`goal.statement`, labeled values, `risks` bullets,
-  `meta.owner`, title) cannot express `\n` the way cells can — `toMarkdown`
-  warns when a value would not survive re-import verbatim.
+- Multi-line fields (`goal.statement` paragraph, `risks` bullet block)
+  carry real newlines both directions — no warning. One-line fields —
+  the `**Label:**` values (`goal.context`, `solution.direction/logic`),
+  `meta.owner`, the `#` title — genuinely cannot hold `\n`; `toMarkdown`
+  warns only for those, and the importer joins continuations with a
+  space.
 - Lists respect schema bounds on import (`outputs` ≤3, `behaviors` ≤5)
   with `LIST_TRUNCATED` warnings naming the dropped rows; fully-blank
   table rows carry no content and are dropped silently by design.

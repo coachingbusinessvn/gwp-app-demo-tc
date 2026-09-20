@@ -448,3 +448,150 @@ describe("parseMarkdown — loss-aware issues, never throws", () => {
     }
   });
 });
+
+describe("review fixes — silent-drop and collision regressions", () => {
+  it("captures inline content on the '**Rủi ro …:**' label line (I-1)", () => {
+    const md = MINIMAL.replace(
+      "**Rủi ro / Giả định cần kiểm chứng:**\n\n- Rủi ro một\n- Giả định hai",
+      "**Rủi ro / Giả định cần kiểm chứng:** INLINE_RISK_CONTENT",
+    );
+    const r = parseMarkdown(md);
+    expect(r.body!.risks).toBe("INLINE_RISK_CONTENT");
+    // bullets on following lines still append after the inline text
+    const md2 = MINIMAL.replace(
+      "**Rủi ro / Giả định cần kiểm chứng:**",
+      "**Rủi ro / Giả định cần kiểm chứng:** INLINE_RISK_CONTENT",
+    );
+    const r2 = parseMarkdown(md2);
+    expect(r2.body!.risks).toContain("INLINE_RISK_CONTENT");
+    expect(r2.body!.risks).toContain("Rủi ro một");
+  });
+
+  it("a behavior literally named 'Cần xác nhận' resolves by name + MARKER_COLLISION (I-2)", () => {
+    const md = MINIMAL.replace(
+      "| Tổ trưởng | Hành vi hai |",
+      "| Tổ trưởng | Cần xác nhận |",
+    );
+    const r = parseMarkdown(md);
+    const marker = r.body!.behaviors.find((b) => b.behavior === "Cần xác nhận")!;
+    // box 2's cell "Cần xác nhận" links to the real behavior — never silently null
+    expect(r.body!.boxes[2]!.behavior_id).toBe(marker.id);
+    expect(
+      r.issues.some(
+        (i) => i.code === "MARKER_COLLISION" && i.path === "boxes.2.behavior_id",
+      ),
+    ).toBe(true);
+    expect(
+      errors(r.issues).filter((i) => i.path === "boxes.2.behavior_id"),
+    ).toEqual([]);
+    // with NO behavior of that name the same cell is the undecided marker
+    const r0 = parseMarkdown(MINIMAL);
+    expect(r0.body!.boxes[2]!.behavior_id).toBeNull();
+    expect(
+      r0.issues.filter((i) => i.path === "boxes.2.behavior_id"),
+    ).toEqual([]);
+  });
+
+  it("export warns when a linked box points to the collision-named behavior; reimport relinks (I-2)", () => {
+    const b = clone(canonical);
+    b.behaviors[0]!.behavior = "Cần xác nhận";
+    b.boxes[0]!.behavior_id = b.behaviors[0]!.id;
+    const { text, warnings: w } = toMarkdown(b);
+    expect(
+      w.some((x) => x.includes("boxes.0") && x.includes("Cần xác nhận")),
+    ).toBe(true);
+    const r = parseMarkdown(text);
+    expect(r.body!.boxes[0]!.behavior_id).toBe(r.body!.behaviors[0]!.id);
+    expect(
+      r.issues.some(
+        (i) => i.code === "MARKER_COLLISION" && i.path === "boxes.0.behavior_id",
+      ),
+    ).toBe(true);
+  });
+
+  it("duplicate labeled prose lines warn DUPLICATE_LABEL instead of vanishing (M-1)", () => {
+    const md = MINIMAL.replace(
+      "Mục tiêu thử nghiệm.\n",
+      "Mục tiêu thử nghiệm.\n\n**Bối cảnh & phạm vi:** ctx chính\n\n**Solution Direction:** lạc mục\n",
+    );
+    const r = parseMarkdown(md);
+    expect(r.body!.goal.context).toContain("ctx chính");
+    expect(
+      warnings(r.issues).some(
+        (i) => i.code === "DUPLICATE_LABEL" && i.message.includes("Solution Direction"),
+      ),
+    ).toBe(true);
+  });
+
+  it("export warns when meta.title/meta.owner equal a placeholder token (M-2)", () => {
+    const b = clone(canonical);
+    b.meta.title = "TBD";
+    b.meta.owner = "(chưa điền)";
+    const { warnings: w } = toMarkdown(b);
+    expect(w.some((x) => x.includes("meta.title"))).toBe(true);
+    expect(w.some((x) => x.includes("meta.owner"))).toBe(true);
+  });
+
+  it("single newlines round-trip in multi-line fields; only labeled prose warns (M-3)", () => {
+    const b = clone(canonical);
+    b.goal.statement = "Dòng một\nDòng hai";
+    b.goal.context = "ctx một\nctx hai";
+    b.risks = "rủi ro một\nrủi ro hai";
+    const { text, warnings: w } = toMarkdown(b);
+    expect(w.some((x) => x.includes("goal.statement"))).toBe(false);
+    expect(w.some((x) => x.includes("risks"))).toBe(false);
+    expect(
+      w.some((x) => x.includes("goal.context") && x.includes("xuống dòng")),
+    ).toBe(true);
+    const r = parseMarkdown(text);
+    expect(r.body!.goal.statement).toBe("Dòng một\nDòng hai");
+    expect(r.body!.risks).toBe("rủi ro một\nrủi ro hai");
+    expect(r.body!.goal.context).toContain("ctx một");
+    expect(r.body!.goal.context).toContain("ctx hai");
+  });
+
+  it("bold text sharing a label word but lacking a colon is UNPARSED_CONTENT (M-4)", () => {
+    const md = MINIMAL.replace(
+      "Mục tiêu thử nghiệm.\n",
+      "Mục tiêu thử nghiệm.\n\n**Bối cảnh đẹp quá** foo\n",
+    );
+    const r = parseMarkdown(md);
+    expect(
+      warnings(r.issues).some(
+        (i) =>
+          i.code === "UNPARSED_CONTENT" && i.message.includes("Bối cảnh đẹp quá"),
+      ),
+    ).toBe(true);
+    expect(
+      warnings(r.issues).filter((i) => i.code === "DUPLICATE_LABEL"),
+    ).toEqual([]);
+  });
+
+  it("meta labels inside later sections never override preamble metadata (M-6)", () => {
+    const md = MINIMAL.replace(
+      "| Việc A | 2026-09-21 | 2026-09-30 | Tổ trưởng | QA | xong | Đang thực hiện | r |\n",
+      "| Việc A | 2026-09-21 | 2026-09-30 | Tổ trưởng | QA | xong | Đang thực hiện | r |\n\n**Canvas Stage:** VALIDATED\n\n**Người lập:** Evil Override\n",
+    );
+    const r = parseMarkdown(md);
+    expect(r.body!.meta.stage).toBe("DRAFT");
+    expect(r.body!.meta.owner).not.toBe("Evil Override");
+    expect(
+      warnings(r.issues).some(
+        (i) => i.code === "DUPLICATE_LABEL" && i.path === "section.5",
+      ),
+    ).toBe(true);
+  });
+
+  it("a box-name cell matching several canonical boxes warns AMBIGUOUS_BOX", () => {
+    const md = MINIMAL.replace(
+      "| Kỳ vọng & Phản hồi | c1 |",
+      "| Kỳ vọng & Phản hồi + Công cụ & Nguồn lực | c1 |",
+    );
+    const r = parseMarkdown(md);
+    expect(
+      warnings(r.issues).some((i) => i.code === "AMBIGUOUS_BOX"),
+    ).toBe(true);
+    // first canonical hit wins; the row content is still preserved
+    expect(r.body!.boxes[0]!.condition).toBe("c1");
+  });
+});

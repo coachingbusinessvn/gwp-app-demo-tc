@@ -422,31 +422,55 @@ export function resolveNamedLink(
  *  parseMarkdown                                                       *
  * ------------------------------------------------------------------ */
 
-/** Labels the exporter itself emits — recognized furniture, not content. */
+/**
+ * Labels the exporter itself emits — recognized furniture, not content.
+ * The `:**` colon is required so a line like `**Bối cảnh đẹp quá** foo`
+ * (bold text, no label) still counts as leftover content.
+ */
 const KNOWN_LABEL_RE =
-  /^\*\*(Bối cảnh|Solution Direction|Logic chốt hướng|Rủi ro|Key Result|Người lập|Canvas Stage|Build Mode|Schema Version|Last Updated|Migration Status)/i;
+  /^\*\*(?:Bối cảnh|Solution Direction|Logic chốt hướng|Rủi ro|Key Result|Người lập|Canvas Stage|Build Mode|Schema Version|Last Updated|Migration Status)[^:\n]*:\*\*/i;
 
-/** Non-empty, unconsumed section lines → one warning (loss-aware). */
+/**
+ * Non-empty, unconsumed lines → warnings (loss-aware). Inside sections,
+ * an unconsumed known-label line means a *duplicate* label — the first
+ * occurrence was already imported, so it gets its own code. In the
+ * document preamble (`exemptKnownLabels`), the meta/`Người lập` lines are
+ * legitimate furniture and stay exempt.
+ */
 function warnLeftover(
   lines: string[],
   consumed: Set<number>,
   path: string,
   issues: Issue[],
+  opts: { exemptKnownLabels?: boolean } = {},
 ): void {
   const rest = lines
     .map((l, i) => ({ l: l.trim(), i }))
-    .filter(
-      ({ l, i }) =>
-        l !== "" && !consumed.has(i) && !KNOWN_LABEL_RE.test(l),
+    .filter(({ l, i }) => l !== "" && !consumed.has(i));
+  const flagged = opts.exemptKnownLabels
+    ? rest.filter(({ l }) => !KNOWN_LABEL_RE.test(l))
+    : rest;
+  if (flagged.length === 0) return;
+  const dupLabels = flagged.filter(({ l }) => KNOWN_LABEL_RE.test(l));
+  const other = flagged.filter(({ l }) => !KNOWN_LABEL_RE.test(l));
+  if (dupLabels.length > 0) {
+    issues.push(
+      warn(
+        "DUPLICATE_LABEL",
+        path,
+        `${dupLabels.length} dòng nhãn lặp lại (bắt đầu: "${dupLabels[0]!.l.slice(0, 80)}") — chỉ nhãn đầu tiên được import, dòng này bị lược, kiểm tra tay.`,
+      ),
     );
-  if (rest.length === 0) return;
-  issues.push(
-    warn(
-      "UNPARSED_CONTENT",
-      path,
-      `${rest.length} dòng không thuộc khung canvas, không import — bắt đầu: "${rest[0]!.l.slice(0, 80)}". Chép tay nếu cần.`,
-    ),
-  );
+  }
+  if (other.length > 0) {
+    issues.push(
+      warn(
+        "UNPARSED_CONTENT",
+        path,
+        `${other.length} dòng không thuộc khung canvas, không import — bắt đầu: "${other[0]!.l.slice(0, 80)}". Chép tay nếu cần.`,
+      ),
+    );
+  }
 }
 
 /**
@@ -585,11 +609,16 @@ export function parseMarkdown(text: string): MarkdownImport {
       );
     }
   }
-  warnLeftover(stray, new Set(), "document", issues);
+  warnLeftover(stray, new Set(), "document", issues, {
+    exemptKnownLabels: true,
+  });
 
   // ---- metadata (recognized labels; never imported into priv fields) --
+  // Meta labels only count in the preamble (before `## 1.`) — a
+  // "**Canvas Stage:** X" line inside a section is content, not metadata.
+  const metaText = stray.join("\n");
   const grabMeta = (label: string): string | null => {
-    const m = md.match(new RegExp(`\\*\\*${label}:\\*\\*\\s*([^·\\n*]*)`));
+    const m = metaText.match(new RegExp(`\\*\\*${label}:\\*\\*\\s*([^·\\n*]*)`));
     return m === null ? null : normalizeText(m[1]!);
   };
   const stageRaw = grabMeta("Canvas Stage");
@@ -749,6 +778,11 @@ export function parseMarkdown(text: string): MarkdownImport {
         ),
       );
     }
+    // The decorative "**Key Result:** …" line the exporter emits above the
+    // table is format furniture — consume that one line so it isn't
+    // flagged. Continuation lines under it are user content → leftover.
+    const krDeco = grabLabeled(L2, /^\*\*Key Result:\*\*\s*(.*)$/i);
+    if (krDeco) consumed2.add(krDeco.span[0]);
     warnLeftover(L2, consumed2, "section.2", issues);
   }
 
@@ -818,11 +852,23 @@ export function parseMarkdown(text: string): MarkdownImport {
         const cell = cleanCell(r[0]!);
         const lower = cell.toLowerCase();
         let slot = SIX_BOXES.findIndex((b) => b.toLowerCase() === lower);
-        if (slot < 0) {
-          slot = SIX_BOXES.findIndex((b) => {
+        if (slot < 0 && lower !== "") {
+          // Legacy fallback: a cell containing one canonical vn/en name.
+          // More than one hit is ambiguous — keep the first and say so.
+          const hits = SIX_BOXES.map((b, i) => ({ b, i })).filter(({ b }) => {
             const [vn, en] = b.split(" | ").map((x) => x.toLowerCase());
-            return lower !== "" && (lower.includes(vn!) || lower.includes(en!));
+            return lower.includes(vn!) || lower.includes(en!);
           });
+          if (hits.length > 1) {
+            issues.push(
+              warn(
+                "AMBIGUOUS_BOX",
+                `section.4.row.${idx}`,
+                `Bước 4, dòng ${idx + 1}: "${cell}" khớp ${hits.length} box chuẩn (${hits.map((h) => `"${h.b.split(" | ")[0]}"`).join(", ")}) — gắn vào "${hits[0]!.b.split(" | ")[0]}", kiểm tra lại.`,
+              ),
+            );
+          }
+          slot = hits.length ? hits[0]!.i : -1;
         }
         if (slot < 0) {
           issues.push(
@@ -884,21 +930,41 @@ export function parseMarkdown(text: string): MarkdownImport {
     const ctx = `Bước 4 ("${box.split(" | ")[0]}")`;
     const behName = cleanCell(r[5]!);
     let behaviorId: string | null = null;
-    if (behName !== "" && behName !== "Cần xác nhận") {
+    if (behName !== "") {
+      // Real behavior names win over the "Cần xác nhận" undecided marker —
+      // a behavior literally named "Cần xác nhận" is still linkable, but
+      // the collision is flagged since the cell is genuinely ambiguous.
       const hit = resolveNamedLink(behName, nameRows);
-      if (hit.id) {
-        behaviorId = hit.id;
-      } else {
+      if (hit.hits > 1) {
         issues.push(
           err(
             "AMBIGUOUS_OR_MISSING_REFERENCE",
             `boxes.${i}.behavior_id`,
-            hit.hits > 1
-              ? `${ctx}: hành vi "${behName}" khớp ${hit.hits} Lever Behaviors — không chọn được, để trống (Cần xác nhận), chọn lại trong form.`
-              : `${ctx}: hành vi "${behName}" không khớp đúng-tên Lever Behavior nào — để trống (Cần xác nhận), chọn lại trong form.`,
+            `${ctx}: hành vi "${behName}" khớp ${hit.hits} Lever Behaviors — không chọn được, để trống (Cần xác nhận), chọn lại trong form.`,
+          ),
+        );
+      } else if (hit.id) {
+        behaviorId = hit.id;
+        if (behName === "Cần xác nhận") {
+          issues.push(
+            warn(
+              "MARKER_COLLISION",
+              `boxes.${i}.behavior_id`,
+              `${ctx}: "${behName}" vừa là tên Lever Behavior vừa là nhãn "chưa xác nhận" — đã liên kết theo tên; nếu ý là chưa xác nhận, để ô trống.`,
+            ),
+          );
+        }
+      } else if (behName !== "Cần xác nhận") {
+        issues.push(
+          err(
+            "AMBIGUOUS_OR_MISSING_REFERENCE",
+            `boxes.${i}.behavior_id`,
+            `${ctx}: hành vi "${behName}" không khớp đúng-tên Lever Behavior nào — để trống (Cần xác nhận), chọn lại trong form.`,
           ),
         );
       }
+      // behName === "Cần xác nhận" with no behavior of that name → the
+      // undecided marker → null, no issue.
     }
     return {
       id: newId(),
@@ -956,8 +1022,13 @@ export function parseMarkdown(text: string): MarkdownImport {
     let riskWarned = false;
     for (let i = 0; i < L5.length; i++) {
       const tl = L5[i]!.trim();
-      if (!/^\*\*Rủi ro[^:]*:\*\*/i.test(tl)) continue;
+      const riskLabel = tl.match(/^\*\*Rủi ro[^:\n]*:\*\*\s*(.*)$/i);
+      if (!riskLabel) continue;
       consumed5.add(i);
+      // Text after the `:**` is risk content on the label line itself —
+      // capture it, never drop it.
+      const inline = riskLabel[1]!.trim();
+      if (inline !== "") riskLines.push(normalizeText(inline));
       for (let j = i + 1; j < L5.length; j++) {
         const tj = L5[j]!.trim();
         if (tj === "") {
@@ -1133,18 +1204,29 @@ export function toMarkdown(body: CanvasBody): MarkdownExport {
   const lossy = (cond: boolean, msg: string): void => {
     if (cond) warnings.push(msg);
   };
-  /** Prose values can't hold `\n` or `·`/`*` the way table cells can. */
-  const prose = (v: string, ctx: string, extra?: string): string => {
-    if (/\r|\n/.test(v)) {
-      warnings.push(
-        `${ctx}: giá trị chứa xuống dòng — Markdown prose chỉ giữ được một dòng${extra ?? ""}; phần xuống dòng sẽ nhập lại thành khoảng trắng.`,
-      );
-    }
+  /**
+   * Any value equal to a placeholder token reimports as "" — warn so the
+   * loss is never silent (applies to cells AND prose/meta fields alike).
+   */
+  const checkPlaceholder = (v: string, ctx: string): void => {
     if (PLACEHOLDER_RE.test(v.trim())) {
       warnings.push(
         `${ctx}: giá trị "${v.trim()}" trùng placeholder (TBD/(chưa điền)/—) — import lại sẽ thành trống, hãy diễn đạt khác.`,
       );
     }
+  };
+  /**
+   * Labeled one-line prose (`**Label:** value`) can't hold a newline —
+   * reimport joins continuation lines with a space. `goal.statement` and
+   * `risks` are multi-line fields and do NOT go through this.
+   */
+  const prose = (v: string, ctx: string): string => {
+    if (/\r|\n/.test(v)) {
+      warnings.push(
+        `${ctx}: giá trị chứa xuống dòng — nhãn Markdown chỉ giữ một dòng; phần xuống dòng sẽ nhập lại thành khoảng trắng.`,
+      );
+    }
+    checkPlaceholder(v, ctx);
     return v;
   };
 
@@ -1196,6 +1278,7 @@ export function toMarkdown(body: CanvasBody): MarkdownExport {
     /\r|\n/.test(title),
     "meta.title chứa xuống dòng — tiêu đề Markdown chỉ một dòng, đã nối bằng khoảng trắng.",
   );
+  checkPlaceholder(m.title, "meta.title");
   L.push(`# PERFORMANCE ARCHITECTURE CANVAS — ${title.replace(/\s*\r?\n\s*/g, " ")}`);
   L.push("");
   L.push(
@@ -1206,6 +1289,7 @@ export function toMarkdown(body: CanvasBody): MarkdownExport {
       /[·*\r\n]/.test(m.owner),
       `meta.owner chứa ký tự "·" / "*" / xuống dòng — dòng meta chỉ đọc tới ký tự đó khi import, phần sau sẽ mất.`,
     );
+    checkPlaceholder(m.owner, "meta.owner");
     L.push(`**Người lập:** ${m.owner.trim()}`);
   }
   L.push("");
@@ -1218,7 +1302,7 @@ export function toMarkdown(body: CanvasBody): MarkdownExport {
     /\n\s*\n/.test(stmt) || stmt.split("\n").some((l) => /^[|#*]/.test(l.trim())),
     "goal.statement chứa đoạn trống hoặc dòng bắt đầu bằng |/#/* — import Markdown chỉ đọc đoạn đầu tiên, phần sau sẽ thành UNPARSED_CONTENT.",
   );
-  prose(stmt, "goal.statement");
+  checkPlaceholder(stmt, "goal.statement");
   L.push(stmt || "(chưa điền)");
   if (body.goal.context.trim()) {
     prose(body.goal.context.trim(), "goal.context");
@@ -1293,6 +1377,14 @@ export function toMarkdown(body: CanvasBody): MarkdownExport {
           const hit = body.behaviors.find((x) => x.id === b.behavior_id);
           if (hit) {
             link = hit.behavior;
+            if (hit.behavior.trim() === "Cần xác nhận") {
+              // The exported cell is indistinguishable from the undecided
+              // marker — surface the collision (import resolves by name
+              // and emits MARKER_COLLISION).
+              warnings.push(
+                `boxes.${i}.behavior_id: Lever Behavior trùng tên nhãn "Cần xác nhận" — ô liên kết trông giống trạng thái chưa xác nhận; nên đổi tên hành vi.`,
+              );
+            }
           } else {
             warnings.push(
               `boxes.${i}.behavior_id "${b.behavior_id}" không tồn tại trong behaviors[] — ô liên kết để trống, kiểm tra lại.`,
@@ -1330,6 +1422,7 @@ export function toMarkdown(body: CanvasBody): MarkdownExport {
         /^[|#*]/.test(t) && !/^[-•]\s/.test(t),
         `risks dòng ${i + 1} bắt đầu bằng "${t[0]}" — import sẽ ngắt khối rủi ro tại đây, phần sau mất.`,
       );
+      checkPlaceholder(t.replace(/^[-•]\s*/, ""), `risks dòng ${i + 1}`);
     });
     L.push("");
     L.push("**Rủi ro / Giả định cần kiểm chứng:**");
