@@ -200,6 +200,11 @@ export async function fixture(options?: {
       await maintenanceDb.raw(
         `REVOKE UPDATE, DELETE ON TABLE "${schema}".audit_event FROM "${runtimeRole}"`,
       );
+      // canvas_version is insert-once/read-only for runtime — published
+      // snapshots are immutable (spec §5.2), same discipline as audit_event.
+      await maintenanceDb.raw(
+        `REVOKE UPDATE, DELETE ON TABLE "${schema}".canvas_version FROM "${runtimeRole}"`,
+      );
       await maintenanceDb.raw(
         `REVOKE INSERT, UPDATE, DELETE ON TABLE "${schema}".schema_migration FROM "${runtimeRole}"`,
       );

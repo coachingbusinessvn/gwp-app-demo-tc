@@ -6,6 +6,7 @@ import { createDb } from "./connection.js";
 import { foundationMigration } from "./migrations/0001-foundation.js";
 import { organizationMigration } from "./migrations/0002-organization.js";
 import { oneTimeTokenMigration } from "./migrations/0003-one-time-token.js";
+import { canvasMigration } from "./migrations/0004-canvas.js";
 
 /**
  * Migration runner: every migration is a named `up(db)` applied in
@@ -17,6 +18,12 @@ import { oneTimeTokenMigration } from "./migrations/0003-one-time-token.js";
  * Concurrent migrators serialize on a per-migration advisory lock
  * (pg_advisory_xact_lock) with an in-transaction re-check, so a second runner
  * that was waiting sees the migration already applied and skips it.
+ *
+ * enforceRuntimeRestrictions() at the end re-applies the least-privilege
+ * revokes (audit append-only, read-only migration tracking, immutable
+ * deployment mode, immutable canvas_version snapshots) every run, so the
+ * runtime role can never mutate rows the app treats as write-once — no
+ * matter which order bootstrap and migrate ran in.
  */
 export interface Migration {
   name: string;
@@ -27,6 +34,7 @@ export const MIGRATIONS: readonly Migration[] = [
   foundationMigration,
   organizationMigration,
   oneTimeTokenMigration,
+  canvasMigration,
 ];
 
 const TRACKING_TABLE = "schema_migration";
@@ -138,6 +146,17 @@ async function enforceRuntimeRestrictions(db: Knex): Promise<void> {
   if (audit.rows[0].c !== null) {
     await db.raw(
       `REVOKE UPDATE, DELETE ON TABLE "audit_event" FROM "${RUNTIME_ROLE}"`,
+    );
+  }
+  // canvas_version is insert-once/read-only for the runtime role: a
+  // published snapshot is immutable (spec §5.2) — restore/archival writes
+  // go to canvas/canvas_draft, never back into a version row.
+  const versions = await db.raw("SELECT to_regclass(?) AS c", [
+    "canvas_version",
+  ]);
+  if (versions.rows[0].c !== null) {
+    await db.raw(
+      `REVOKE UPDATE, DELETE ON TABLE "canvas_version" FROM "${RUNTIME_ROLE}"`,
     );
   }
   const tracking = await db.raw("SELECT to_regclass(?) AS c", [TRACKING_TABLE]);

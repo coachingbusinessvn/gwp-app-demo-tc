@@ -47,6 +47,13 @@ tags:
     description: >
       Administrative audit trail — owner/admin only, metadata-only rows;
       there is no endpoint to read raw rows or content payloads.
+  - name: canvas
+    description: >
+      Performance Architecture Canvases — subject content behind the shared
+      subject policy: self, the owner (whole company) or a manager over the
+      canvas owner's current reporting subtree. Admin has no canvas
+      privilege beyond its own canvases. Published versions are immutable
+      snapshots — there is no version update or delete endpoint.
 
 paths:
   /health/live:
@@ -1397,6 +1404,227 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/canvases:
+    post:
+      tags: [canvas]
+      summary: Create a canvas and its first draft
+      description: >
+        Subject policy on ownerUserId: a member may create only for itself,
+        a manager for users in its current reporting subtree, the owner for
+        anyone — admin for itself only (canvas content is subject data, not
+        org metadata). ownerUserId must be an ACTIVE user of the company.
+        `name` is the canvas record's display name and is stamped into
+        body.meta.title. `body` is the canonical canvas document
+        (docs/contracts/canvas-payload.md), validated draft-mode: schema or
+        referential errors are 400 with issue paths, blanks are fine.
+        assignee_user_id fields inside the body must resolve to
+        same-company users or the write is rejected — they are content,
+        never an access grant. Creates the canvas and the shared draft
+        (revision 1) atomically and audits canvas.create +
+        canvas.draft.create (metadata only).
+      operationId: createCanvas
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CanvasCreateRequest"
+      responses:
+        "201":
+          description: Canvas and first draft created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CanvasCreateResponse"
+        "400":
+          description: >
+            Body failed validation — strict envelope, a schema-invalid
+            canvas body (issue paths in details.fields), or an
+            assignee_user_id that is not a user of this company.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: >
+            No subject access to ownerUserId, or no such user in this
+            company — the denial is uniform.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: The target owner is not an active user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    get:
+      tags: [canvas]
+      summary: List visible canvases (keyset page)
+      description: >
+        The canvases whose owner sits in the caller's subject scope —
+        self for members, the whole company for the owner, the current
+        reporting subtree for managers, own canvases only for admin.
+        Ordered newest-first over (created_at, id); limit defaults to 25,
+        max 100; cursor is the opaque token from nextCursor. An empty
+        scope is a valid empty page.
+      operationId: listCanvases
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/LimitParam"
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque keyset cursor from the previous page's nextCursor.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: One page of visible canvases.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CanvasPage"
+        "400":
+          description: Invalid limit or cursor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/canvases/{id}:
+    get:
+      tags: [canvas]
+      summary: Read one canvas (detail + draft + current version summary)
+      description: >
+        Subject policy on the canvas owner — self/owner/subtree only;
+        admin sees only its own canvases. Missing, foreign and denied ids
+        all return the same 404. The draft carries its working body; the
+        current published version is summarized (its body comes from the
+        versions endpoint).
+      operationId: getCanvas
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CanvasId"
+      responses:
+        "200":
+          description: The canvas detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Canvas"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: No such canvas, or no subject access to its owner.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/canvases/{id}/draft:
+    post:
+      tags: [canvas]
+      summary: Open the canvas's shared draft
+      description: >
+        Creates the single shared draft for this canvas — one draft per
+        canvas, ever present at most once. The draft body is copied from
+        the current published version, or a blank canonical canvas when
+        nothing was published yet; revision starts at 1 and
+        baseVersionId links the published base. A canvas that already has
+        a live draft returns 409 DRAFT_EXISTS — in-progress work is never
+        overwritten. Archived canvases return 409 CANVAS_ARCHIVED. Subject
+        policy applies exactly as for reads.
+      operationId: createCanvasDraft
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CanvasId"
+      responses:
+        "201":
+          description: Draft created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CanvasDraft"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: No such canvas, or no subject access to its owner.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: A draft already exists, or the canvas is archived.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/canvases/{id}/versions/{versionId}:
+    get:
+      tags: [canvas]
+      summary: Read one published version snapshot
+      description: >
+        Immutable snapshot read — there is no update or delete route for
+        versions (the runtime DB role cannot mutate canvas_version at
+        all). Subject access on the canvas owner applies to history the
+        same as to drafts (spec §4); a version id paired with another
+        canvas's id is a uniform 404.
+      operationId: getCanvasVersion
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CanvasId"
+        - $ref: "#/components/parameters/VersionId"
+      responses:
+        "200":
+          description: The published snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CanvasVersion"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: >
+            No such canvas/version pair, or no subject access to the
+            canvas owner.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
 components:
   parameters:
     XCsrfToken:
@@ -1445,6 +1673,22 @@ components:
       in: query
       required: false
       description: Restrict the team list to one department.
+      schema:
+        type: string
+        format: uuid
+    CanvasId:
+      name: id
+      in: path
+      required: true
+      description: Canvas id inside the caller's company.
+      schema:
+        type: string
+        format: uuid
+    VersionId:
+      name: versionId
+      in: path
+      required: true
+      description: Published version id of the canvas.
       schema:
         type: string
         format: uuid
@@ -1989,6 +2233,241 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AuditEvent"
+        nextCursor:
+          type: string
+          nullable: true
+          description: Pass as ?cursor= for the next page; null at the end.
+    CanvasBody:
+      type: object
+      description: >
+        The canonical canvas document (schema_version 1) — meta, goal, kr,
+        outputs (≤3), solution, behaviors (≤5), the six fixed boxes,
+        actions, risks, plan, observed, reviews. The full strict contract
+        is docs/contracts/canvas-payload.md; the server validates it
+        draft-mode on every write and rejects privilege/server fields
+        carried inside it.
+    CanvasCreateRequest:
+      type: object
+      required: [ownerUserId, name, body]
+      additionalProperties: false
+      properties:
+        ownerUserId:
+          type: string
+          format: uuid
+          description: >
+            The subject the canvas belongs to — must be an active user of
+            the caller's company and inside the caller's subject scope.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Display name; stamped into body.meta.title.
+        body:
+          $ref: "#/components/schemas/CanvasBody"
+    CanvasCreateResponse:
+      type: object
+      required: [id, draft]
+      properties:
+        id:
+          type: string
+          format: uuid
+        draft:
+          type: object
+          required: [id, revision]
+          properties:
+            id:
+              type: string
+              format: uuid
+            revision:
+              type: integer
+    CanvasDraft:
+      type: object
+      required:
+        [
+          id,
+          canvasId,
+          baseVersionId,
+          revision,
+          schemaVersion,
+          source,
+          body,
+          createdBy,
+          createdAt,
+          updatedBy,
+          updatedAt,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        canvasId:
+          type: string
+          format: uuid
+        baseVersionId:
+          type: string
+          format: uuid
+          nullable: true
+          description: The published version this draft branched from; null before the first publish.
+        revision:
+          type: integer
+          description: Optimistic-concurrency counter — starts at 1, bumped per save.
+        schemaVersion:
+          type: integer
+          description: Payload version of body (1 today).
+        source:
+          type: string
+          enum: [manual, import, ai]
+        body:
+          $ref: "#/components/schemas/CanvasBody"
+        createdBy:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedBy:
+          type: string
+          format: uuid
+        updatedAt:
+          type: string
+          format: date-time
+    CanvasVersionSummary:
+      type: object
+      required:
+        [id, versionNo, schemaVersion, changeSummary, publishedBy, publishedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        versionNo:
+          type: integer
+          description: Monotonic per canvas — never reused, never reordered.
+        schemaVersion:
+          type: integer
+        changeSummary:
+          type: string
+          nullable: true
+        publishedBy:
+          type: string
+          format: uuid
+        publishedAt:
+          type: string
+          format: date-time
+    CanvasVersion:
+      allOf:
+        - $ref: "#/components/schemas/CanvasVersionSummary"
+        - type: object
+          required: [canvasId, body, provenance]
+          properties:
+            canvasId:
+              type: string
+              format: uuid
+            body:
+              $ref: "#/components/schemas/CanvasBody"
+            provenance:
+              type: object
+              nullable: true
+              description: AI/import provenance when the version came from a tool run.
+    Canvas:
+      type: object
+      required:
+        [
+          id,
+          ownerUserId,
+          ownerName,
+          name,
+          status,
+          currentVersionId,
+          createdAt,
+          archivedAt,
+          archivedBy,
+          draft,
+          currentVersion,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        ownerUserId:
+          type: string
+          format: uuid
+        ownerName:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
+          enum: [active, archived]
+        currentVersionId:
+          type: string
+          format: uuid
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        archivedAt:
+          type: string
+          format: date-time
+          nullable: true
+        archivedBy:
+          type: string
+          format: uuid
+          nullable: true
+        draft:
+          $ref: "#/components/schemas/CanvasDraft"
+          nullable: true
+        currentVersion:
+          $ref: "#/components/schemas/CanvasVersionSummary"
+          nullable: true
+    CanvasListItem:
+      type: object
+      required:
+        [
+          id,
+          ownerUserId,
+          ownerName,
+          name,
+          status,
+          hasDraft,
+          currentVersionId,
+          createdAt,
+          archivedAt,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        ownerUserId:
+          type: string
+          format: uuid
+        ownerName:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
+          enum: [active, archived]
+        hasDraft:
+          type: boolean
+        currentVersionId:
+          type: string
+          format: uuid
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        archivedAt:
+          type: string
+          format: date-time
+          nullable: true
+    CanvasPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CanvasListItem"
         nextCursor:
           type: string
           nullable: true

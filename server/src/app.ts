@@ -14,6 +14,7 @@ import { loadOpenApiSpec } from "./openapi.js";
 import { authRoutes } from "./modules/auth/routes.js";
 import { setupRoutes } from "./modules/auth/setup.routes.js";
 import { auditRoutes } from "./modules/audit/routes.js";
+import { canvasRoutes } from "./modules/canvas/routes.js";
 import { orgRoutes } from "./modules/org/routes.js";
 import { settingsRoutes } from "./modules/settings/routes.js";
 import { userRoutes } from "./modules/users/routes.js";
@@ -98,6 +99,7 @@ export function createApp({ db, clock, config }: AppDeps): Express {
   app.use("/api/v1", userRoutes({ db, clock, config })); // task 1.3
   app.use("/api/v1", settingsRoutes({ db, clock, config })); // task 1.5
   app.use("/api/v1", auditRoutes({ db, clock, config })); // task 1.5
+  app.use("/api/v1", canvasRoutes({ db, clock, config })); // task 2.3
 
   // Public asset boundary (task 0.5, spec §2): serve ONLY the allowlisted
   // build output at config.publicDir (<repo>/public-build) — never the

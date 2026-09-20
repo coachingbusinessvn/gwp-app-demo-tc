@@ -123,6 +123,19 @@ export async function bootstrapDbRoles(
         `GRANT DELETE ON TABLE "${schema}".audit_event TO "gwp_maintenance"`,
       );
     }
+    // Published canvas versions are immutable snapshots (spec §5.2): the
+    // runtime role may INSERT (publish path) and SELECT but never UPDATE or
+    // DELETE — same append-only discipline as audit_event. Guarded by
+    // to_regclass so the script works before migration 0004 exists;
+    // migrate()'s enforceRuntimeRestrictions re-issues it either way.
+    const canvasVersion = await db.raw("SELECT to_regclass(?) AS c", [
+      `${schema}.canvas_version`,
+    ]);
+    if (canvasVersion.rows[0].c !== null) {
+      await db.raw(
+        `REVOKE UPDATE, DELETE ON TABLE "${schema}".canvas_version FROM "gwp_runtime"`,
+      );
+    }
     // Runtime may read migration tracking (readiness probe) but never write it.
     const tracking = await db.raw("SELECT to_regclass(?) AS c", [
       `${schema}.schema_migration`,
