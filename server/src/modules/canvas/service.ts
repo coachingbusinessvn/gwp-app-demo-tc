@@ -503,6 +503,22 @@ export function createCanvasService({ db, policy, clock }: CanvasDeps) {
   }
 
   /**
+   * Lightweight pre-validation access gate for payload-bearing routes:
+   * the uniform 404 must precede body parsing so a denied/foreign canvas
+   * with a malformed envelope answers 404, not a revealing 400. The
+   * service-level check inside each operation still runs (transactional
+   * correctness + TOCTOU) — this only orders the response.
+   */
+  async function assertCanvasAccess(
+    actor: ActorContext,
+    id: Id,
+  ): Promise<void> {
+    const canvas = await findCanvasById(db, actor.companyId, id);
+    if (!canvas) throw notFound();
+    await policy.assertSubjectAccess(actor, canvas.owner_user_id);
+  }
+
+  /**
    * Scoped keyset page: items are the canvases whose owner sits in the
    * actor's subject scope (self | company for owner | current subtree for
    * manager). An empty scope is a valid empty page — no fixture fallback,
@@ -1126,6 +1142,7 @@ export function createCanvasService({ db, policy, clock }: CanvasDeps) {
   return {
     createCanvas,
     getCanvas,
+    assertCanvasAccess,
     listCanvases,
     getVersion,
     listVersions,

@@ -842,3 +842,122 @@ describe("assignee_user_id is content, not a grant", () => {
     }
   });
 });
+
+describe("uniform 404 precedes payload validation", () => {
+  /**
+   * Gate-review regression: canvas-scoped routes that validated the body
+   * (or the export format) before resolving access leaked the canvas's
+   * existence — a denied caller got 400 for malformed input instead of
+   * the uniform 404. Every payload-bearing canvas route must gate first.
+   */
+  it("denied actors get 404 — never a revealing 400 — for malformed draft/publish/restore/transfer/export requests", async () => {
+    const f = await fixture({ seeded: true });
+    try {
+      const { canvasId, versionId } = await seedCanvasWithVersion(
+        f,
+        f.ids.member,
+        clone(canonical),
+      );
+      const malformed = { unexpected: "shape" };
+      for (const p of ["admin", "outsider"] as Persona[]) {
+        expect(
+          (
+            await f
+              .api(p)
+              .put(`/api/v1/canvases/${canvasId}/draft`)
+              .send(malformed)
+          ).status,
+          `${p} PUT draft`,
+        ).toBe(404);
+        expect(
+          (
+            await f
+              .api(p)
+              .post(`/api/v1/canvases/${canvasId}/publish`)
+              .send(malformed)
+          ).status,
+          `${p} publish`,
+        ).toBe(404);
+        expect(
+          (
+            await f
+              .api(p)
+              .post(
+                `/api/v1/canvases/${canvasId}/versions/${versionId}/restore`,
+              )
+              .send(malformed)
+          ).status,
+          `${p} restore`,
+        ).toBe(404);
+        expect(
+          (
+            await f
+              .api(p)
+              .post(`/api/v1/canvases/${canvasId}/transfer`)
+              .send(malformed)
+          ).status,
+          `${p} transfer`,
+        ).toBe(404);
+        // Invalid export format — also gated before format validation.
+        expect(
+          (
+            await f
+              .api(p)
+              .get(
+                `/api/v1/canvases/${canvasId}/versions/${versionId}/export?format=pdf`,
+              )
+          ).status,
+          `${p} export`,
+        ).toBe(404);
+      }
+      // A missing canvas with malformed input is the same 404.
+      const ghost = randomUUID();
+      expect(
+        (
+          await f
+            .api("owner")
+            .put(`/api/v1/canvases/${ghost}/draft`)
+            .send(malformed)
+        ).status,
+      ).toBe(404);
+
+      // Control: the same malformed body from an AUTHORIZED caller is
+      // still a proper 400 — gating order changed, validation didn't.
+      expect(
+        (
+          await f
+            .api("member")
+            .put(`/api/v1/canvases/${canvasId}/draft`)
+            .send(malformed)
+        ).status,
+      ).toBe(400);
+      expect(
+        (
+          await f
+            .api("member")
+            .post(`/api/v1/canvases/${canvasId}/publish`)
+            .send(malformed)
+        ).status,
+      ).toBe(400);
+      expect(
+        (
+          await f
+            .api("member")
+            .post(`/api/v1/canvases/${canvasId}/transfer`)
+            .send(malformed)
+        ).status,
+      ).toBe(400);
+      expect(
+        (
+          await f
+            .api("member")
+            .get(
+              `/api/v1/canvases/${canvasId}/versions/${versionId}/export?format=pdf`,
+            )
+        ).status,
+      ).toBe(400);
+    } finally {
+      await f.close();
+    }
+  });
+});

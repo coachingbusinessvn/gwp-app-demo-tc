@@ -67,16 +67,23 @@ function bodyWithObserved(observed: unknown[]): CanvasBody {
 }
 
 describe("metricKey", () => {
-  it("is the [metricId, definitionRevision, unit] triple — unit and revision discriminate", () => {
-    const m = { metricId: M1, definitionRevision: 1, unit: "%" };
-    expect(metricKey(m)).toBe(JSON.stringify([M1, 1, "%"]));
-    expect(metricKey(m)).not.toBe(
-      metricKey({ ...m, unit: "ngày" }),
-    );
+  it("is the [metricId, definitionRevision, unit, baseline, target] quintuple — every definition field discriminates", () => {
+    const m = {
+      metricId: M1,
+      definitionRevision: 1,
+      unit: "%",
+      baseline: 20,
+      target: 90,
+    };
+    expect(metricKey(m)).toBe(JSON.stringify([M1, 1, "%", 20, 90]));
+    expect(metricKey(m)).not.toBe(metricKey({ ...m, unit: "ngày" }));
     expect(metricKey(m)).not.toBe(
       metricKey({ ...m, definitionRevision: 2 }),
     );
     expect(metricKey(m)).not.toBe(metricKey({ ...m, metricId: M2 }));
+    // A re-baselined metric is a different definition — never joined.
+    expect(metricKey(m)).not.toBe(metricKey({ ...m, baseline: 0 }));
+    expect(metricKey(m)).not.toBe(metricKey({ ...m, target: 200 }));
   });
 });
 
@@ -167,13 +174,31 @@ describe("buildSeries", () => {
         measurement: measurement({ date: "2026-08-05", value: 60, baseline: 58, target: 70 }),
       }),
       observedRow({
-        measurement: measurement({ date: "2026-08-12", value: 66 }),
+        measurement: measurement({ date: "2026-08-12", value: 66, baseline: 58, target: 70 }),
       }),
     ]);
     const [s] = buildSeries(body);
     expect(s.baseline).toBe(58);
     expect(s.target).toBe(70);
     expect(s.progressPct).toBeCloseTo(((66 - 58) / (70 - 58)) * 100);
+  });
+
+  it("a re-baselined metric splits into a second series — a point is never scored on foreign endpoints", () => {
+    // Gate-review repro: (baseline,target) (0,100) then (100,200) on the
+    // same metric — the 150 must read 50%, not 150%.
+    const body = bodyWithObserved([
+      observedRow({
+        measurement: measurement({ date: "2026-08-05", value: 50, baseline: 0, target: 100 }),
+      }),
+      observedRow({
+        measurement: measurement({ date: "2026-08-12", value: 150, baseline: 100, target: 200 }),
+      }),
+    ]);
+    const series = buildSeries(body);
+    expect(series).toHaveLength(2);
+    const rebased = series.find((s) => s.baseline === 100);
+    expect(rebased?.progressPct).toBeCloseTo(50);
+    expect(series.find((s) => s.baseline === 0)?.progressPct).toBeCloseTo(50);
   });
 
   it("keeps the observed row id on each point so the UI can cite evidence", () => {

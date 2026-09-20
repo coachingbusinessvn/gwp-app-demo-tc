@@ -162,8 +162,11 @@ export const STAGE_NOTES = {
 
 export const LIMITS = { outputs: [1, 3], behaviors: [2, 5] };
 
+// Must match the server's strictness — zod's z.string().uuid() enforces
+// the RFC4122 version nibble ([1-8]) and variant ([89ab]) plus nil/max;
+// a looser check would preserve ids the strict save then rejects.
 const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  /^([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/i;
 export const newId = () => crypto.randomUUID();
 const isUuid = (v) => typeof v === "string" && UUID_RE.test(v);
 
@@ -318,66 +321,103 @@ const clean = (v) => str(v);
  * Copy string fields from src onto dst. `fields` is the canonical key
  * list; `aliases[k]` is an optional legacy key consulted when the
  * canonical key is absent (owner→assignee_label, behaviorEv→
- * behavior_evidence, …). Non-string structural values (observed
- * .measurement) pass through verbatim; objects with unknown shapes warn.
+ * behavior_evidence, …). The strict server schema rejects anything the
+ * adapter emits wrong — so a value that can't land in a string field
+ * (objects, bad enums handled by callers) is dropped WITH a warning
+ * rather than passed through to a guaranteed 400.
  */
-function mergeRow(dst, src, aliases, warnings, ctx) {
+function mergeRow(dst, src, aliases, warnings, ctx, versioned) {
+  // Keys this row handled beyond dst's own shape — reported to the caller
+  // so warnDroppedKeys doesn't double-report them.
+  const handled = new Set();
   for (const k of Object.keys(dst)) {
     if (k === "id" || k === "box") continue;
     let v = src[k];
     if (v == null && aliases && aliases[k] != null) v = src[aliases[k]];
     if (v == null) continue;
     if (k === "behavior_id") {
-      dst[k] = isUuid(v) ? v : null; // resolved/name-matched below
+      if (isUuid(v)) dst[k] = v;
+      else if (versioned)
+        warnings.push(`${ctx}: behavior_id không hợp lệ — đã bỏ.`);
+      else dst[k] = null;
       continue;
     }
     if (typeof v === "object") {
-      // e.g. observed[].measurement — a structured extension, kept as-is
-      dst[k] = v;
+      // Structured values belong to schema-declared extensions only
+      // (observed.measurement — handled below). An object in a plain
+      // string field is malformed input; silent passthrough would make
+      // the next strict save fail, so drop it with a warning.
+      warnings.push(`${ctx}.${k}: giá trị không phải chuỗi — đã bỏ.`);
       continue;
     }
     dst[k] = str(v);
   }
-  // assignee_user_id passes through only as a resolvable uuid — server
-  // re-checks it against company users on every save anyway.
+  // assignee_user_id belongs to assignee rows only (boxes + actions —
+  // the row types carrying assignee_label). On other row types the strict
+  // schema rejects it, so a stray value is dropped with a warning.
   const aid = src.assignee_user_id;
-  if (isUuid(aid)) dst.assignee_user_id = aid;
-  else if (aid != null)
-    warnings.push(`${ctx}: assignee_user_id không hợp lệ — đã bỏ.`);
+  if (aid != null) {
+    handled.add("assignee_user_id");
+    if ("assignee_label" in dst) {
+      if (isUuid(aid)) dst.assignee_user_id = aid;
+      else warnings.push(`${ctx}: assignee_user_id không hợp lệ — đã bỏ.`);
+    } else if (versioned) {
+      warnings.push(`${ctx}: assignee_user_id không thuộc loại dòng này — đã bỏ.`);
+    }
+  }
   // Observed rows may carry the strict `measurement` extension — salvage
   // only a schema-shaped object (unknown nested keys would make the
   // strict server reject the whole save); anything else warns + drops.
-  if ("value" in dst && "confidence" in dst && src.measurement != null) {
+  if (src.measurement != null) {
     const m = src.measurement;
-    const ok =
-      m &&
-      typeof m === "object" &&
-      !Array.isArray(m) &&
-      isUuid(m.metricId) &&
-      Number.isInteger(m.definitionRevision) &&
-      m.definitionRevision > 0 &&
-      ENUMS.layer.indexOf(m.layer) >= 0 &&
-      ISO_DATE_RE.test(str(m.date)) &&
-      Number.isFinite(m.value) &&
-      typeof m.unit === "string" &&
-      m.unit !== "" &&
-      Number.isFinite(m.baseline) &&
-      Number.isFinite(m.target);
-    if (ok) {
-      dst.measurement = {
-        metricId: m.metricId,
-        definitionRevision: m.definitionRevision,
-        layer: m.layer,
-        date: m.date,
-        value: m.value,
-        unit: m.unit,
-        baseline: m.baseline,
-        target: m.target,
-      };
-    } else {
-      warnings.push(`${ctx}: measurement không đúng cấu trúc — đã bỏ.`);
+    handled.add("measurement");
+    if ("value" in dst && "confidence" in dst) {
+      const mDate = str(m.date).trim();
+      const ok =
+        m &&
+        typeof m === "object" &&
+        !Array.isArray(m) &&
+        isUuid(m.metricId) &&
+        Number.isInteger(m.definitionRevision) &&
+        m.definitionRevision > 0 &&
+        ENUMS.layer.indexOf(m.layer) >= 0 &&
+        isRealDate(mDate) &&
+        Number.isFinite(m.value) &&
+        typeof m.unit === "string" &&
+        m.unit !== "" &&
+        Number.isFinite(m.baseline) &&
+        Number.isFinite(m.target) &&
+        Object.keys(m).every((k) =>
+          [
+            "metricId",
+            "definitionRevision",
+            "layer",
+            "date",
+            "value",
+            "unit",
+            "baseline",
+            "target",
+          ].includes(k),
+        );
+      if (ok) {
+        dst.measurement = {
+          metricId: m.metricId,
+          definitionRevision: m.definitionRevision,
+          layer: m.layer,
+          date: mDate,
+          value: m.value,
+          unit: m.unit,
+          baseline: m.baseline,
+          target: m.target,
+        };
+      } else {
+        warnings.push(`${ctx}: measurement không đúng cấu trúc — đã bỏ.`);
+      }
+    } else if (versioned) {
+      warnings.push(`${ctx}: measurement không thuộc loại dòng này — đã bỏ.`);
     }
   }
+  return handled;
 }
 
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -386,7 +426,33 @@ function isoDate(v) {
   const m = s.match(/\d{4}-\d{2}-\d{2}/);
   return m ? m[0] : "";
 }
+/** Shape AND real-calendar check — "2026-99-99" matches the regex but
+ * z.iso.date() on the server rejects it, so the adapter must too. */
+function isRealDate(s) {
+  if (!ISO_DATE_RE.test(s)) return false;
+  const t = Date.parse(`${s}T00:00:00Z`);
+  return Number.isFinite(t) && new Date(t).toISOString().slice(0, 10) === s;
+}
+/**
+ * Extract the date candidate, then drop — with a warning — anything that
+ * isn't a real calendar day (the strict server would reject the save).
+ */
+function checkedDate(v, warnings, ctx) {
+  const s = isoDate(v);
+  if (s && !isRealDate(s)) {
+    warnings.push(`${ctx}: ngày "${s}" không tồn tại — đã bỏ.`);
+    return "";
+  }
+  return s;
+}
 const enumOr = (v, opts, dft) => (opts.indexOf(v) >= 0 ? v : dft);
+/** enumOr + a warning when a non-empty value is coerced to the default. */
+function enumCheck(v, opts, dft, warnings, ctx) {
+  const out = enumOr(v, opts, dft);
+  if (v && typeof v === "string" && out !== v)
+    warnings.push(`${ctx}: giá trị "${v}" không hợp lệ — đã để mặc định.`);
+  return out;
+}
 
 /**
  * The six boxes matched by NAME — every supplied row keeps its data no
@@ -396,6 +462,8 @@ const enumOr = (v, opts, dft) => (opts.indexOf(v) >= 0 ? v : dft);
  */
 function mergeBoxes(rawBoxes, warnings, versioned = false) {
   const raw = Array.isArray(rawBoxes) ? rawBoxes : [];
+  if (versioned && rawBoxes != null && !Array.isArray(rawBoxes))
+    warnings.push("boxes: không phải danh sách — đã bỏ, 6 ô để trống.");
   return SIX_BOXES.map((name) => {
     const vn = name.split(" | ")[0].toLowerCase();
     const en = name.split(" | ")[1].toLowerCase();
@@ -407,15 +475,27 @@ function mergeBoxes(rawBoxes, warnings, versioned = false) {
     const b = blankBox(name);
     if (hit) {
       if (isUuid(hit.id)) b.id = hit.id;
-      mergeRow(
+      else if (hit.id != null && versioned)
+        warnings.push(
+          `boxes "${name.split(" | ")[0]}": id không hợp lệ — đã cấp id mới.`,
+        );
+      const handled = mergeRow(
         b,
         hit,
         { assignee_label: "owner" },
         warnings,
         `boxes "${name.split(" | ")[0]}"`,
+        versioned,
       );
       b.box = name;
-      if (versioned) warnDroppedKeys(hit, b, warnings, `boxes "${name.split(" | ")[0]}"`);
+      if (versioned)
+        warnDroppedKeys(
+          hit,
+          b,
+          warnings,
+          `boxes "${name.split(" | ")[0]}"`,
+          handled,
+        );
       // Legacy rows carry the behavior NAME (never an id).
       if (!b.behavior_id && typeof hit.behavior === "string") {
         b._legacyBehaviorName = hit.behavior;
@@ -426,13 +506,10 @@ function mergeBoxes(rawBoxes, warnings, versioned = false) {
 }
 
 /** Keys a versioned row may legitimately carry beyond the blank row's —
- * extensions, identity, and the legacy behavior-name shim. */
-const ROW_EXTRA_KEYS = new Set([
-  "assignee_user_id",
-  "measurement",
-  "behavior",
-  "_legacyBehaviorName",
-]);
+ * the legacy behavior-name shim only; absorbed extensions
+ * (assignee_user_id, measurement) land IN dst and so never reach the
+ * dropped-key check. */
+const ROW_EXTRA_KEYS = new Set(["behavior", "_legacyBehaviorName"]);
 
 /**
  * Versioned input claims canonical shape — warn when a source row carries
@@ -440,10 +517,11 @@ const ROW_EXTRA_KEYS = new Set([
  * would reject them anyway). Legacy inputs skip this: their key names are
  * intentionally different and handled by aliases.
  */
-function warnDroppedKeys(src, dst, warnings, ctx) {
+function warnDroppedKeys(src, dst, warnings, ctx, handled) {
   const known = new Set(Object.keys(dst));
   const dropped = Object.keys(src).filter(
-    (k) => !known.has(k) && !ROW_EXTRA_KEYS.has(k),
+    (k) =>
+      !known.has(k) && !ROW_EXTRA_KEYS.has(k) && !(handled && handled.has(k)),
   );
   if (dropped.length)
     warnings.push(`${ctx}: trường không thuộc schema đã bỏ: ${dropped.join(", ")}.`);
@@ -521,36 +599,85 @@ export function sanitizeBody(input, warnings = [], trusted = false) {
   // the coercing adapter so the strict server never rejects the next save.
   if (versioned && trusted) return canonicalBody(p, warnings);
   const st = blankBody();
-  const mergeObj = (dst, src) => {
+  const mergeObj = (dst, src, name) => {
     if (src && typeof src === "object") {
       for (const k of Object.keys(dst)) {
-        if (src[k] != null && typeof src[k] !== "object") dst[k] = str(src[k]);
+        if (src[k] != null && typeof src[k] === "object") {
+          if (versioned)
+            warnings.push(`${name}.${k}: giá trị không phải chuỗi — đã bỏ.`);
+          continue;
+        }
+        if (src[k] != null) dst[k] = str(src[k]);
       }
+      if (versioned) {
+        const dropped = Object.keys(src).filter(
+          (k) => !(k in dst) && src[k] != null,
+        );
+        if (dropped.length)
+          warnings.push(
+            `${name}: trường không thuộc schema đã bỏ: ${dropped.join(", ")}.`,
+          );
+      }
+    } else if (src != null && versioned) {
+      warnings.push(`${name}: không phải đối tượng — đã bỏ.`);
     }
   };
-  mergeObj(st.meta, p.meta);
-  mergeObj(st.goal, p.goal);
-  mergeObj(st.kr, p.kr);
-  mergeObj(st.solution, p.solution);
+  mergeObj(st.meta, p.meta, "meta");
+  mergeObj(st.goal, p.goal, "goal");
+  mergeObj(st.kr, p.kr, "kr");
+  mergeObj(st.solution, p.solution, "solution");
   if (p.risks != null) {
-    st.risks = Array.isArray(p.risks)
-      ? p.risks.map((x) => str(x)).join("\n")
-      : str(p.risks);
+    if (Array.isArray(p.risks)) {
+      // Legacy risks[] joins newline-separated; versioned input declaring
+      // an array is off-schema but joins losslessly — warn anyway.
+      if (versioned)
+        warnings.push("risks: schema yêu cầu chuỗi — đã nối danh sách.");
+      st.risks = p.risks.map((x) => str(x)).join("\n");
+    } else if (typeof p.risks === "object") {
+      if (versioned)
+        warnings.push("risks: giá trị không phải chuỗi — đã bỏ.");
+    } else {
+      st.risks = str(p.risks);
+    }
   }
-  st.meta.stage = enumOr(st.meta.stage, ENUMS.stages, "DRAFT");
-  st.meta.mode = enumOr(st.meta.mode, ENUMS.modes, "GUIDED");
-  if (!ISO_DATE_RE.test(st.meta.updated)) st.meta.updated = today();
+  st.meta.stage = enumCheck(st.meta.stage, ENUMS.stages, "DRAFT", warnings, "meta.stage");
+  st.meta.mode = enumCheck(st.meta.mode, ENUMS.modes, "GUIDED", warnings, "meta.mode");
+  if (!isRealDate(st.meta.updated)) {
+    if (st.meta.updated && versioned)
+      warnings.push("meta.updated: ngày không hợp lệ — đã đặt hôm nay.");
+    st.meta.updated = today();
+  }
+  if (
+    versioned &&
+    p.meta &&
+    typeof p.meta === "object" &&
+    p.meta.schema != null &&
+    str(p.meta.schema) !== CANVAS_BUSINESS_SCHEMA
+  ) {
+    warnings.push(
+      `meta.schema "${str(p.meta.schema)}" không phải ${CANVAS_BUSINESS_SCHEMA} — đã đặt lại.`,
+    );
+  }
   st.meta.schema = CANVAS_BUSINESS_SCHEMA;
 
   const mergeList = (name, maker, aliases, min, max, label, ctx) => {
-    if (!Array.isArray(p[name]) || !p[name].length) return st[name];
+    if (!Array.isArray(p[name])) {
+      if (versioned && p[name] != null)
+        warnings.push(`${label}: không phải danh sách — đã bỏ.`);
+      return st[name];
+    }
+    if (!p[name].length) return st[name];
     let arr = p[name].map((row, i) => {
       const b = maker();
       if (row && typeof row === "object") {
         if (isUuid(row.id)) b.id = row.id;
+        else if (row.id != null && versioned)
+          warnings.push(`${ctx || label}[${i}]: id không hợp lệ — đã cấp id mới.`);
         const rowCtx = `${ctx || label}[${i}]`;
-        mergeRow(b, row, aliases, warnings, rowCtx);
-        if (versioned) warnDroppedKeys(row, b, warnings, rowCtx);
+        const handled = mergeRow(b, row, aliases, warnings, rowCtx, versioned);
+        if (versioned) warnDroppedKeys(row, b, warnings, rowCtx, handled);
+      } else if (versioned) {
+        warnings.push(`${ctx || label}[${i}]: dòng không phải đối tượng — đã bỏ.`);
       }
       return b;
     });
@@ -659,27 +786,27 @@ export function sanitizeBody(input, warnings = [], trusted = false) {
       );
   });
 
-  st.actions.forEach((a) => {
-    a.status = enumOr(a.status, ENUMS.status, "Chưa bắt đầu");
-    a.start = isoDate(a.start);
-    a.deadline = isoDate(a.deadline);
+  st.actions.forEach((a, i) => {
+    a.status = enumCheck(a.status, ENUMS.status, "Chưa bắt đầu", warnings, `actions[${i}].status`);
+    a.start = checkedDate(a.start, warnings, `actions[${i}].start`);
+    a.deadline = checkedDate(a.deadline, warnings, `actions[${i}].deadline`);
   });
-  st.boxes.forEach((b) => {
-    b.gap = enumOr(b.gap, ENUMS.gap, "");
-    b.priority = enumOr(b.priority, ENUMS.priority, "");
+  st.boxes.forEach((b, i) => {
+    b.gap = enumCheck(b.gap, ENUMS.gap, "", warnings, `boxes[${i}].gap`);
+    b.priority = enumCheck(b.priority, ENUMS.priority, "", warnings, `boxes[${i}].priority`);
   });
-  st.plan.forEach((r) => {
-    r.layer = enumOr(r.layer, ENUMS.layer, "");
-    r.date = isoDate(r.date);
+  st.plan.forEach((r, i) => {
+    r.layer = enumCheck(r.layer, ENUMS.layer, "", warnings, `plan[${i}].layer`);
+    r.date = checkedDate(r.date, warnings, `plan[${i}].date`);
   });
-  st.observed.forEach((r) => {
-    r.layer = enumOr(r.layer, ENUMS.layer, "");
-    r.confidence = enumOr(r.confidence, ENUMS.confidence, "");
-    r.decision = enumOr(r.decision, ENUMS.decision, "");
-    r.date = isoDate(r.date);
+  st.observed.forEach((r, i) => {
+    r.layer = enumCheck(r.layer, ENUMS.layer, "", warnings, `observed[${i}].layer`);
+    r.confidence = enumCheck(r.confidence, ENUMS.confidence, "", warnings, `observed[${i}].confidence`);
+    r.decision = enumCheck(r.decision, ENUMS.decision, "", warnings, `observed[${i}].decision`);
+    r.date = checkedDate(r.date, warnings, `observed[${i}].date`);
   });
-  st.reviews.forEach((r) => {
-    r.date = isoDate(r.date);
+  st.reviews.forEach((r, i) => {
+    r.date = checkedDate(r.date, warnings, `reviews[${i}].date`);
   });
   if (versioned) {
     // Canonical input carrying foreign keys would 400 on the next strict

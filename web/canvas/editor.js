@@ -930,30 +930,37 @@ function bindToolbar() {
 function bindUnload() {
   window.addEventListener("beforeunload", (e) => {
     if (!isDirtyish()) return;
+    // Does the wire's last body differ from what's on screen? Check BEFORE
+    // serializeDraft() — it stamps lastSentBody with the outgoing payload.
+    const unsent = !lastSentBody || !deepEqual(state, lastSentBody);
+    const payload = serializeDraft();
     // keepalive bodies are capped ~64KiB by the browser — over that the
     // request is rejected synchronously, so only the warning applies.
-    const fitsKeepalive = JSON.stringify(state).length < 60000;
-    if (saveState === "saving") {
-      // An older save is already on the wire with expectedRevision N. A
-      // queued autosave follow-up would only START from a .then()
-      // continuation the page may not live to run — so the newest body is
-      // dispatched synchronously here, chained on top of that write
-      // (expectedRevision N+1): when the in-flight save lands this applies
-      // cleanly as the next revision; when it failed this 409s harmlessly
-      // and nothing is corrupted. Skipped entirely when the in-flight
-      // request already carries this exact content (no newer edit).
-      const unsent = !lastSentBody || !deepEqual(state, lastSentBody);
-      if (unsent && fitsKeepalive) {
-        putDraft(serializeDraft(revision + 1), true).catch(() => {});
-      }
-    } else {
-      // Idle or timer-armed: flush dispatches its send() within a
-      // microtask — which still runs during beforeunload — and keepalive
-      // keeps that PUT alive through teardown.
-      autosave
-        .flush(() => state, fitsKeepalive ? { keepalive: true } : undefined)
-        .catch(() => {});
+    // TextEncoder measures BYTES, not JS chars: Vietnamese/emoji-heavy
+    // bodies can exceed the cap well under 60k chars.
+    const fitsKeepalive = new TextEncoder().encode(payload).length < 60000;
+    if (unsent && fitsKeepalive) {
+      // Dispatch the newest body SYNCHRONOUSLY at the current revision —
+      // never a speculative N+1, and never through flush(): a queued send
+      // starts only from a .then() continuation the teardown may not run
+      // (and a post-send edit leaves saveState "dirty", not "saving", so a
+      // state-label gate would skip this path exactly when it matters).
+      //
+      // expectedRevision N is CAS-safe in every outcome: the server
+      // serializes writers on the company lock + FOR UPDATE + the revision
+      // predicate, so whoever commits first takes the N→N+1 slot and every
+      // other expectedRevision-N request 409s — this tab's in-flight save,
+      // another writer's save, or a lost-ack recommit alike. This request
+      // can only land while the server still sits at N, i.e. when nothing
+      // else committed — it can never overwrite a concurrent writer.
+      putDraft(payload, true).catch(() => {});
     }
+    // Keep the serialized pipeline coherent for a CANCELED unload: flush
+    // no-ops while frozen, queues behind an in-flight save, and sends
+    // immediately when only the debounce timer was armed.
+    autosave
+      .flush(() => state, fitsKeepalive ? { keepalive: true } : undefined)
+      .catch(() => {});
     // The warning stays up whenever the newest body hasn't actually been
     // acknowledged — the unload write is best-effort, never guaranteed.
     e.preventDefault();

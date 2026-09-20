@@ -11,6 +11,11 @@ import type { CanvasBody, EvidenceLayer } from "./schema.js";
  * definitionRevision or unit starts a NEW series — points of different
  * definitions are never joined into one trend. Duplicate observed row
  * ids are deduplicated so a repeated import can't double-count.
+ * baseline/target are part of the identity too: a re-baselined metric
+ * (same metricId/revision/unit, different endpoints) is a different
+ * measurement definition — joining them would report a point against
+ * endpoints it was never measured on (a 150 inside a 100→200 series is
+ * 50%, not 150%).
  */
 
 export interface SeriesPoint {
@@ -28,7 +33,7 @@ export interface Series {
   metricId: string;
   definitionRevision: number;
   unit: string;
-  /** baseline/target of the series' earliest point — the definition. */
+  /** baseline/target shared by every point in this series. */
   baseline: number;
   target: number;
   /** Chronological points (measurement.date ascending). */
@@ -39,13 +44,21 @@ export interface Series {
   progressPct: number | null;
 }
 
-/** Series identity: [metricId, definitionRevision, unit]. */
+/** Series identity: [metricId, definitionRevision, unit, baseline, target]. */
 export function metricKey(m: {
   metricId: string;
   definitionRevision: number;
   unit: string;
+  baseline: number;
+  target: number;
 }): string {
-  return JSON.stringify([m.metricId, m.definitionRevision, m.unit]);
+  return JSON.stringify([
+    m.metricId,
+    m.definitionRevision,
+    m.unit,
+    m.baseline,
+    m.target,
+  ]);
 }
 
 /**
@@ -64,7 +77,7 @@ export function progress(
 }
 
 /**
- * All series in one body, one per metric triple. Points sort by the
+ * All series in one body, one per metric quintuple. Points sort by the
  * measurement's own ISO date (string compare is correct for YYYY-MM-DD);
  * ties keep observed order. Series appear in first-point order.
  */

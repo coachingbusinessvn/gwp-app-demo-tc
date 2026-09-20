@@ -816,15 +816,20 @@ describe("POST /api/v1/canvases/:id/transfer", () => {
     try {
       const canvasId = await mustCreate(f, "member", f.ids.member);
       // member has subject access (own canvas) but not the owner role;
-      // manager has access via the subtree; admin has neither. All are
-      // denied — the role check is what makes this "owner-only".
-      for (const p of ["member", "manager", "admin"] as Persona[]) {
+      // manager has access via the subtree — both reach the role gate.
+      for (const p of ["member", "manager"] as Persona[]) {
         const res = await transfer(f, p, canvasId, {
           newOwnerId: f.ids.outsider,
         });
         expect(res.status, p).toBe(403);
         expect(res.body.code).toBe("FORBIDDEN");
       }
+      // admin has NO subject access to the canvas at all — the uniform
+      // 404 applies (a 403 here would leak the canvas's existence).
+      const res = await transfer(f, "admin", canvasId, {
+        newOwnerId: f.ids.outsider,
+      });
+      expect(res.status).toBe(404);
       // Nothing moved.
       const row = await f.db("canvas").where({ id: canvasId }).first();
       expect(row.owner_user_id).toBe(f.ids.member);

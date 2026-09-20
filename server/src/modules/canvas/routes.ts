@@ -134,10 +134,12 @@ export function canvasRoutes(deps: {
     "/canvases/:id/draft",
     requireAuth(auth),
     async (req: Request, res: Response) => {
+      const id = pathId(req.params.id);
+      // Access gate precedes body parsing: a denied/foreign canvas with a
+      // malformed envelope must answer the uniform 404, never a 400.
+      await canvas.assertCanvasAccess(actorOf(res), id);
       const body = parseBody(saveDraftBodySchema, req.body);
-      res.json(
-        await canvas.saveDraft(actorOf(res), pathId(req.params.id), body),
-      );
+      res.json(await canvas.saveDraft(actorOf(res), id, body));
     },
   );
 
@@ -145,10 +147,10 @@ export function canvasRoutes(deps: {
     "/canvases/:id/publish",
     requireAuth(auth),
     async (req: Request, res: Response) => {
+      const id = pathId(req.params.id);
+      await canvas.assertCanvasAccess(actorOf(res), id);
       const body = parseBody(publishBodySchema, req.body);
-      res.json(
-        await canvas.publish(actorOf(res), pathId(req.params.id), body),
-      );
+      res.json(await canvas.publish(actorOf(res), id, body));
     },
   );
 
@@ -181,6 +183,10 @@ export function canvasRoutes(deps: {
     "/canvases/:id/versions/:versionId/export",
     requireAuth(auth),
     async (req: Request, res: Response) => {
+      const id = pathId(req.params.id);
+      const versionId = pathId(req.params.versionId);
+      // Access gate precedes format validation — same uniform-404 rule.
+      await canvas.assertCanvasAccess(actorOf(res), id);
       const format = String(req.query.format ?? "json");
       if (format !== "json" && format !== "markdown") {
         throw new AppError(
@@ -190,12 +196,7 @@ export function canvasRoutes(deps: {
         );
       }
       res.json(
-        await canvas.exportVersion(
-          actorOf(res),
-          pathId(req.params.id),
-          pathId(req.params.versionId),
-          format,
-        ),
+        await canvas.exportVersion(actorOf(res), id, versionId, format),
       );
     },
   );
@@ -214,15 +215,13 @@ export function canvasRoutes(deps: {
     "/canvases/:id/versions/:versionId/restore",
     requireAuth(auth),
     async (req: Request, res: Response) => {
+      const id = pathId(req.params.id);
+      const versionId = pathId(req.params.versionId);
+      await canvas.assertCanvasAccess(actorOf(res), id);
       // The body is optional — restoring onto an empty canvas needs none.
       const body = parseBody(restoreBodySchema, req.body ?? {});
       res.json(
-        await canvas.restore(
-          actorOf(res),
-          pathId(req.params.id),
-          pathId(req.params.versionId),
-          body,
-        ),
+        await canvas.restore(actorOf(res), id, versionId, body),
       );
     },
   );
@@ -239,13 +238,11 @@ export function canvasRoutes(deps: {
     "/canvases/:id/transfer",
     requireAuth(auth),
     async (req: Request, res: Response) => {
+      const id = pathId(req.params.id);
+      await canvas.assertCanvasAccess(actorOf(res), id);
       const body = parseBody(transferBodySchema, req.body);
       res.json(
-        await canvas.transferOwner(
-          actorOf(res),
-          pathId(req.params.id),
-          body.newOwnerId,
-        ),
+        await canvas.transferOwner(actorOf(res), id, body.newOwnerId),
       );
     },
   );
