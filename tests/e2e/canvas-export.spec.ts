@@ -81,6 +81,36 @@ test.describe("Audited canvas exports (task 2.7)", () => {
     expect(exported.goal.statement).toBe("Mục tiêu vừa sửa tức thì");
   });
 
+  test("a failed save aborts the export — no audited artifact of stale state", async ({
+    page,
+  }) => {
+    await loginAs(page, "member");
+    const canvasId = await createCanvas(page, "Canvas e2e — lỗi lưu");
+    const goal = await openEditor(page, canvasId);
+
+    // Kill the draft-save channel: the flush inside exportableDraft()
+    // must land in "error", and the export must abort rather than ship a
+    // stale server draft as if it were current.
+    await page.route(`**/canvases/${canvasId}/draft`, (route) =>
+      route.abort(),
+    );
+    await goal.fill("Nội dung chưa lưu được");
+    let previewCalled = false;
+    page.on("request", (req) => {
+      if (req.url().includes("export-preview")) previewCalled = true;
+    });
+    // Accept the alert — a lingering native dialog blocks page.evaluate.
+    const dialogs: string[] = [];
+    page.on("dialog", (d) => {
+      dialogs.push(d.message());
+      void d.accept();
+    });
+    await page.locator("#btnJson").click();
+    await expect.poll(() => dialogs.join("|")).toContain("chưa lưu được");
+    expect(previewCalled).toBe(false);
+    await expect(page.getByTestId("save-state")).toHaveText(/Lỗi/);
+  });
+
   test("published version exports: JSON byte-faithful, Markdown flagged when extensions drop", async ({
     page,
   }) => {

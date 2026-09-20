@@ -26,6 +26,7 @@ export function createAutosave({ debounceMs = 800, send, setState }) {
   let frozen = false;
   let running = null;
   let getBody = null;
+  let sendOpts = null; // per-flush transport opts (e.g. keepalive on unload)
 
   function run() {
     if (inFlight) {
@@ -35,7 +36,7 @@ export function createAutosave({ debounceMs = 800, send, setState }) {
     inFlight = true;
     setState("saving");
     running = Promise.resolve()
-      .then(() => send(getBody ? getBody() : null))
+      .then(() => send(getBody ? getBody() : null, sendOpts))
       .then((r) => {
         const status = r && r.status;
         if (status === 409) {
@@ -69,6 +70,7 @@ export function createAutosave({ debounceMs = 800, send, setState }) {
     schedule(bodyGetter) {
       if (frozen) return;
       if (bodyGetter) getBody = bodyGetter;
+      sendOpts = null; // a fresh user edit is an ordinary save
       setState("dirty");
       clearTimeout(timer);
       timerArmed = true;
@@ -81,11 +83,15 @@ export function createAutosave({ debounceMs = 800, send, setState }) {
     },
     /**
      * Save NOW and resolve after the queue drains (retry button,
-     * publish's settle step, beforeunload's best-effort flush).
+     * publish's settle step, beforeunload's best-effort flush). `opts`
+     * is forwarded to send() for every request this flush starts —
+     * including a queued follow-up, which is exactly what carries the
+     * newest body on unload.
      */
-    flush(bodyGetter) {
+    flush(bodyGetter, opts) {
       if (frozen) return Promise.resolve();
       if (bodyGetter) getBody = bodyGetter;
+      sendOpts = opts || null;
       timerArmed = false;
       clearTimeout(timer);
       return Promise.resolve(run());

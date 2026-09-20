@@ -3,10 +3,10 @@
  *
  * Exports are server-mediated so every artifact that leaves the system is
  * authorized by the subject policy AND audited (canvas.export, format/id
- * metadata only — never content). Rendering stays client-side: the XLSX
- * writer and preview printer live in model.js; Markdown for published
- * versions is rendered server-side so the response can carry the exact
- * loss warnings.
+ * metadata only — never content). Markdown is rendered by the shared
+ * server-side renderer for BOTH draft previews and published versions —
+ * the downloaded text is the exact artifact the warnings describe. The
+ * XLSX writer and preview printer still live client-side in model.js.
  *
  *   exportDraftPreview(canvasId) → {body, revision, markdown, warnings}|null
  *   exportPublished(canvasId, versionId, format) → {body|markdown, warnings}|null

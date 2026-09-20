@@ -105,23 +105,24 @@ function deepEqual(a, b) {
   return ka.every((k) => k in b && deepEqual(a[k], b[k]));
 }
 
-function serializeDraft() {
+function serializeDraft(rev = revision) {
   lastSentBody = JSON.parse(JSON.stringify(state));
   return JSON.stringify({
-    expectedRevision: revision,
+    expectedRevision: rev,
     baseVersionId,
     body: state,
   });
 }
 
-async function putDraft(payload) {
+async function putDraft(payload, keepalive = false) {
   return apiFetch(`/canvases/${canvasId}/draft`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: payload,
-    // keepalive lets a save outlive page unload — that's what makes the
-    // serialized autosave.flush() in beforeunload actually durable.
-    keepalive: true,
+    // keepalive only for the unload path — browsers cap keepalive bodies
+    // at ~64KiB, so ordinary saves must NOT set it (a large valid canvas
+    // would fail with TypeError before a byte reaches the server).
+    ...(keepalive ? { keepalive: true } : {}),
   });
 }
 
@@ -155,13 +156,14 @@ async function resolveConflict() {
  * consumes it) — reopen it once, adopt the fresh pointers and retry;
  * never repopulate the form from it (the user's text is authoritative).
  */
-async function sendSave() {
-  const res = await putDraft(serializeDraft());
+async function sendSave(_body, opts) {
+  const ka = !!(opts && opts.keepalive);
+  const res = await putDraft(serializeDraft(), ka);
   if (res.status === 200) return applySavedDto(await res.json());
   if (res.status === 409) return resolveConflict();
   if (res.status === 404) {
     if (await reopenDraft()) {
-      const again = await putDraft(serializeDraft());
+      const again = await putDraft(serializeDraft(), ka);
       if (again.status === 200) return applySavedDto(await again.json());
       if (again.status === 409) return resolveConflict();
       return { status: again.status };
@@ -307,7 +309,7 @@ function bindConflictUI() {
       return;
     }
     adoptDraftPointers(draft);
-    state = sanitizeBody(draft.body);
+    state = sanitizeBody(draft.body, [], true);
     populateForm();
     serverSnapshot = undefined;
     autosave.thaw();
@@ -833,6 +835,12 @@ async function exportableDraft() {
       "Đang có xung đột chưa xử lý — bản xuất là bản đã lưu trên máy chủ.",
     );
   }
+  // A failed flush means the server draft is stale — exporting it would
+  // silently omit the user's current edits. Abort like publish does.
+  if (saveState === "error" || saveState === "dirty" || saveState === "saving") {
+    window.alert("Bản nháp chưa lưu được — bấm “Thử lại” trước khi xuất.");
+    return null;
+  }
   const out = await exportDraftPreview(canvasId);
   if (!out) {
     window.alert(
@@ -922,13 +930,32 @@ function bindToolbar() {
 function bindUnload() {
   window.addEventListener("beforeunload", (e) => {
     if (!isDirtyish()) return;
-    // Best-effort last save THROUGH the serialized autosave pipeline —
-    // a parallel keepalive PUT would race an in-flight save with the same
-    // expectedRevision and whichever lands second is discarded as 409.
-    // putDraft carries keepalive, so the flushed request survives unload.
-    // serializeDraft also records lastSentBody so a landed-but-lost write
-    // resolves as a self-save on the next attempt, never a false 409.
-    autosave.flush(() => state).catch(() => {});
+    // keepalive bodies are capped ~64KiB by the browser — over that the
+    // request is rejected synchronously, so only the warning applies.
+    const fitsKeepalive = JSON.stringify(state).length < 60000;
+    if (saveState === "saving") {
+      // An older save is already on the wire with expectedRevision N. A
+      // queued autosave follow-up would only START from a .then()
+      // continuation the page may not live to run — so the newest body is
+      // dispatched synchronously here, chained on top of that write
+      // (expectedRevision N+1): when the in-flight save lands this applies
+      // cleanly as the next revision; when it failed this 409s harmlessly
+      // and nothing is corrupted. Skipped entirely when the in-flight
+      // request already carries this exact content (no newer edit).
+      const unsent = !lastSentBody || !deepEqual(state, lastSentBody);
+      if (unsent && fitsKeepalive) {
+        putDraft(serializeDraft(revision + 1), true).catch(() => {});
+      }
+    } else {
+      // Idle or timer-armed: flush dispatches its send() within a
+      // microtask — which still runs during beforeunload — and keepalive
+      // keeps that PUT alive through teardown.
+      autosave
+        .flush(() => state, fitsKeepalive ? { keepalive: true } : undefined)
+        .catch(() => {});
+    }
+    // The warning stays up whenever the newest body hasn't actually been
+    // acknowledged — the unload write is best-effort, never guaranteed.
     e.preventDefault();
     e.returnValue = "";
   });
@@ -1086,7 +1113,7 @@ async function init() {
 
   revision = draft.revision;
   baseVersionId = draft.baseVersionId;
-  state = sanitizeBody(draft.body);
+  state = sanitizeBody(draft.body, [], true);
 
   setVersionChip(detail.currentVersion);
   renderSteps();
@@ -1103,7 +1130,7 @@ async function init() {
     getDraftRevision: () => revision,
     onRestored: (d) => {
       adoptDraftPointers(d);
-      state = sanitizeBody(d.body);
+      state = sanitizeBody(d.body, [], true);
       populateForm();
       setSaveState("saved");
     },

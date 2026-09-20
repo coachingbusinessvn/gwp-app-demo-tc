@@ -49,7 +49,7 @@ function canonicalWithMeasurement(): CanvasBody {
 describe("sanitizeBody — canonical bodies are lossless", () => {
   it("passes observed[].measurement and every field through verbatim", () => {
     const src = canonicalWithMeasurement();
-    const out = sanitizeBody(src);
+    const out = sanitizeBody(src, [], true);
     expect(out).toEqual(src);
     expect(out.observed[0].measurement).toEqual(
       src.observed[0].measurement,
@@ -70,13 +70,13 @@ describe("sanitizeBody — canonical bodies are lossless", () => {
       decision: "",
       verifier: "",
     });
-    const out = sanitizeBody(src);
+    const out = sanitizeBody(src, [], true);
     expect(out.observed.map((r: { id?: string }) => r.id)).toContain(emptyId);
   });
 
   it("returns a deep copy — mutating the result never touches the source", () => {
     const src = canonicalWithMeasurement();
-    const out = sanitizeBody(src);
+    const out = sanitizeBody(src, [], true);
     out.observed[0].value = "MUTATED";
     out.meta.title = "MUTATED";
     expect(src.observed[0].value).not.toBe("MUTATED");
@@ -85,8 +85,71 @@ describe("sanitizeBody — canonical bodies are lossless", () => {
 
   it("still unwraps a saved DTO envelope and keeps the canonical body intact", () => {
     const src = canonicalWithMeasurement();
-    const out = sanitizeBody({ body: src } as unknown as CanvasBody);
+    const out = sanitizeBody({ body: src } as unknown as CanvasBody, [], true);
     expect(out.observed[0].measurement).toBeTruthy();
+  });
+});
+
+describe("sanitizeBody — untrusted versioned input is validated, not trusted", () => {
+  it("a schema_version:1 payload with malformed boxes salvages by name — never resets", () => {
+    const warnings: string[] = [];
+    const src = canonicalWithMeasurement() as unknown as Record<string, unknown>;
+    // Five boxes, one carrying data a wholesale reset would destroy.
+    const boxes = (canonical.boxes as Array<Record<string, unknown>>).slice(0, 5).map((b) => ({
+      ...b,
+      condition: "KEEP-ME",
+    }));
+    src.boxes = boxes;
+    const out = sanitizeBody(src, warnings);
+    expect(out.boxes).toHaveLength(6);
+    expect(out.boxes.filter((b: { condition?: string }) => b.condition === "KEEP-ME")).toHaveLength(5);
+  });
+
+  it("salvages a schema-shaped measurement through the coercing path", () => {
+    const warnings: string[] = [];
+    const src = canonicalWithMeasurement();
+    const out = sanitizeBody(src, warnings);
+    expect(out.observed[0].measurement).toEqual(
+      src.observed[0].measurement,
+    );
+  });
+
+  it("drops a malformed measurement with a warning instead of risking a 400 save", () => {
+    const warnings: string[] = [];
+    const src = canonicalWithMeasurement();
+    (src.observed[0] as Record<string, unknown>).measurement = {
+      metricId: "not-a-uuid",
+      value: "abc",
+    };
+    const out = sanitizeBody(src, warnings);
+    expect(out.observed[0].measurement).toBeUndefined();
+    expect(warnings.some((w) => w.includes("measurement"))).toBe(true);
+  });
+
+  it("warns on unknown top-level keys that the strict server would reject", () => {
+    const warnings: string[] = [];
+    const src = canonicalWithMeasurement() as unknown as Record<string, unknown>;
+    src.foreignField = { anything: true };
+    const out = sanitizeBody(src, warnings);
+    expect((out as Record<string, unknown>).foreignField).toBeUndefined();
+    expect(warnings.some((w) => w.includes("foreignField"))).toBe(true);
+  });
+
+  it("warns on unknown row-level keys that would break the strict save", () => {
+    const warnings: string[] = [];
+    const src = canonicalWithMeasurement();
+    (src.observed[0] as Record<string, unknown>).rogue = "x";
+    const out = sanitizeBody(src, warnings);
+    expect((out.observed[0] as Record<string, unknown>).rogue).toBeUndefined();
+    expect(warnings.some((w) => w.includes("rogue"))).toBe(true);
+  });
+
+  it("drops non-object rows instead of letting them break rendering", () => {
+    const warnings: string[] = [];
+    const src = canonicalWithMeasurement() as unknown as Record<string, unknown>;
+    (src.observed as unknown[]).push("not-a-row");
+    const out = sanitizeBody(src, warnings);
+    expect(out.observed.every((r: unknown) => r && typeof r === "object")).toBe(true);
   });
 });
 
@@ -103,8 +166,8 @@ describe("sanitizeBody — legacy/editor shapes still coerce", () => {
     expect(out.schema_version).toBe(1);
   });
 
-  it("blankBody round-trips through the canonical path unchanged", () => {
+  it("blankBody round-trips through the trusted canonical path unchanged", () => {
     const b = blankBody();
-    expect(sanitizeBody(b)).toEqual(b);
+    expect(sanitizeBody(b, [], true)).toEqual(b);
   });
 });

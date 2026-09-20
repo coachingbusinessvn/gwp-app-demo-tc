@@ -344,6 +344,40 @@ function mergeRow(dst, src, aliases, warnings, ctx) {
   if (isUuid(aid)) dst.assignee_user_id = aid;
   else if (aid != null)
     warnings.push(`${ctx}: assignee_user_id không hợp lệ — đã bỏ.`);
+  // Observed rows may carry the strict `measurement` extension — salvage
+  // only a schema-shaped object (unknown nested keys would make the
+  // strict server reject the whole save); anything else warns + drops.
+  if ("value" in dst && "confidence" in dst && src.measurement != null) {
+    const m = src.measurement;
+    const ok =
+      m &&
+      typeof m === "object" &&
+      !Array.isArray(m) &&
+      isUuid(m.metricId) &&
+      Number.isInteger(m.definitionRevision) &&
+      m.definitionRevision > 0 &&
+      ENUMS.layer.indexOf(m.layer) >= 0 &&
+      ISO_DATE_RE.test(str(m.date)) &&
+      Number.isFinite(m.value) &&
+      typeof m.unit === "string" &&
+      m.unit !== "" &&
+      Number.isFinite(m.baseline) &&
+      Number.isFinite(m.target);
+    if (ok) {
+      dst.measurement = {
+        metricId: m.metricId,
+        definitionRevision: m.definitionRevision,
+        layer: m.layer,
+        date: m.date,
+        value: m.value,
+        unit: m.unit,
+        baseline: m.baseline,
+        target: m.target,
+      };
+    } else {
+      warnings.push(`${ctx}: measurement không đúng cấu trúc — đã bỏ.`);
+    }
+  }
 }
 
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -355,24 +389,79 @@ function isoDate(v) {
 const enumOr = (v, opts, dft) => (opts.indexOf(v) >= 0 ? v : dft);
 
 /**
- * Coerce an arbitrary parsed object into a canonical body. Canonical
- * input (schema_version + row ids) round-trips verbatim; legacy editor
- * shapes are mapped like shared/canvas/legacy.ts (ids generated, name
- * refs resolved by first exact match, dangling refs → null + warning).
- * Returns a fresh blankBody() when input is not an object.
+ * The six boxes matched by NAME — every supplied row keeps its data no
+ * matter the count or order; boxes with no match stay blank. Never
+ * discards a supplied box row just because the array length is off.
+ * Shared by the trusted repair path and the lossy import adapter.
  */
+function mergeBoxes(rawBoxes, warnings, versioned = false) {
+  const raw = Array.isArray(rawBoxes) ? rawBoxes : [];
+  return SIX_BOXES.map((name) => {
+    const vn = name.split(" | ")[0].toLowerCase();
+    const en = name.split(" | ")[1].toLowerCase();
+    const hit = raw.find((b) => {
+      if (!b || typeof b !== "object") return false;
+      const s = str(b.box).toLowerCase();
+      return s.indexOf(vn) >= 0 || s.indexOf(en) >= 0;
+    });
+    const b = blankBox(name);
+    if (hit) {
+      if (isUuid(hit.id)) b.id = hit.id;
+      mergeRow(
+        b,
+        hit,
+        { assignee_label: "owner" },
+        warnings,
+        `boxes "${name.split(" | ")[0]}"`,
+      );
+      b.box = name;
+      if (versioned) warnDroppedKeys(hit, b, warnings, `boxes "${name.split(" | ")[0]}"`);
+      // Legacy rows carry the behavior NAME (never an id).
+      if (!b.behavior_id && typeof hit.behavior === "string") {
+        b._legacyBehaviorName = hit.behavior;
+      }
+    }
+    return b;
+  });
+}
+
+/** Keys a versioned row may legitimately carry beyond the blank row's —
+ * extensions, identity, and the legacy behavior-name shim. */
+const ROW_EXTRA_KEYS = new Set([
+  "assignee_user_id",
+  "measurement",
+  "behavior",
+  "_legacyBehaviorName",
+]);
+
 /**
- * A canonical body (schema_version === CANVAS_PAYLOAD_VERSION) is already
- * server-validated — the editor must not reinterpret it: every field
- * (including non-editable extensions like observed[].measurement and
- * assignee_user_id) and every row id round-trips verbatim, and content-
- * empty rows keep their ids. This path only deep-clones and tops up
- * missing structural containers so renderers never crash on a partial
- * payload; it never drops, filters, or regenerates anything. Anything
- * else takes the lossy adapter below — that path exists for explicitly
- * imported legacy/editor shapes ONLY.
+ * Versioned input claims canonical shape — warn when a source row carries
+ * keys the schema doesn't know (they're dropped, and the strict server
+ * would reject them anyway). Legacy inputs skip this: their key names are
+ * intentionally different and handled by aliases.
  */
-function canonicalBody(input) {
+function warnDroppedKeys(src, dst, warnings, ctx) {
+  const known = new Set(Object.keys(dst));
+  const dropped = Object.keys(src).filter(
+    (k) => !known.has(k) && !ROW_EXTRA_KEYS.has(k),
+  );
+  if (dropped.length)
+    warnings.push(`${ctx}: trường không thuộc schema đã bỏ: ${dropped.join(", ")}.`);
+}
+
+/**
+ * A canonical body (schema_version === CANVAS_PAYLOAD_VERSION) loaded
+ * from the server is already strict-validated — the editor must not
+ * reinterpret it: every field (including non-editable extensions like
+ * observed[].measurement and assignee_user_id) and every row id
+ * round-trips verbatim. This path only deep-clones and repairs the
+ * structural minimum renderers need: non-object rows are dropped, absent
+ * containers become [], a malformed boxes array is salvaged by name —
+ * nothing is topped up with phantom rows and no supplied data is reset.
+ * Callers must opt in via sanitizeBody's `trusted` flag; anything else
+ * takes the lossy adapter below.
+ */
+function canonicalBody(input, warnings) {
   const st = clone(input);
   const blank = blankBody();
   for (const k of ["meta", "goal", "kr", "solution"]) {
@@ -390,33 +479,47 @@ function canonicalBody(input) {
     // Lossless: an absent/non-array container becomes [] — never topped
     // up with blank rows (that would write phantom rows back on save).
     if (!Array.isArray(st[k])) st[k] = [];
+    else st[k] = st[k].filter((row) => row && typeof row === "object");
     for (const row of st[k]) {
       // Row ids are required by the editor's keyed rendering — assign
       // one only when genuinely absent/invalid; never regenerate.
-      if (row && typeof row === "object" && !isUuid(row.id))
-        row.id = newId();
+      if (!isUuid(row.id)) row.id = newId();
     }
   }
-  // The renderer needs the six boxes — repair only when the count is off.
-  if (!Array.isArray(st.boxes) || st.boxes.length !== 6)
-    st.boxes = clone(blank.boxes);
-  else
+  // The renderer needs exactly six boxes — salvage by name, never reset.
+  if (!Array.isArray(st.boxes) || st.boxes.length !== 6) {
+    st.boxes = mergeBoxes(st.boxes, warnings, true);
+    for (const b of st.boxes) delete b._legacyBehaviorName;
+  } else {
     for (const row of st.boxes) {
       if (row && typeof row === "object" && !isUuid(row.id))
         row.id = newId();
     }
+  }
   if (typeof st.risks !== "string") st.risks = str(st.risks);
   st.schema_version = CANVAS_PAYLOAD_VERSION;
   return st;
 }
 
-export function sanitizeBody(input, warnings = []) {
+/**
+ * Coerce an arbitrary parsed object into a canonical body. Server-loaded
+ * canonical bodies (trusted=true) round-trips verbatim; imports — even
+ * ones claiming schema_version — are coerced: ids preserved when valid,
+ * legacy aliases resolved, malformed shapes salvaged or dropped WITH a
+ * warning, so the strict server never rejects the next save. Returns a
+ * fresh blankBody() when input is not an object.
+ */
+export function sanitizeBody(input, warnings = [], trusted = false) {
   const p = input && typeof input === "object" ? input : {};
   // A saved DTO (draft/version) wraps the body — unwrap it transparently.
   if (p.body && typeof p.body === "object" && p.body.meta) {
-    return sanitizeBody(p.body, warnings);
+    return sanitizeBody(p.body, warnings, trusted);
   }
-  if (p.schema_version === CANVAS_PAYLOAD_VERSION) return canonicalBody(p);
+  const versioned = p.schema_version === CANVAS_PAYLOAD_VERSION;
+  // Only server-loaded bodies are trusted — a pasted/imported payload can
+  // carry schema_version:1 while being malformed; those must flow through
+  // the coercing adapter so the strict server never rejects the next save.
+  if (versioned && trusted) return canonicalBody(p, warnings);
   const st = blankBody();
   const mergeObj = (dst, src) => {
     if (src && typeof src === "object") {
@@ -445,7 +548,9 @@ export function sanitizeBody(input, warnings = []) {
       const b = maker();
       if (row && typeof row === "object") {
         if (isUuid(row.id)) b.id = row.id;
-        mergeRow(b, row, aliases, warnings, `${ctx || label}[${i}]`);
+        const rowCtx = `${ctx || label}[${i}]`;
+        mergeRow(b, row, aliases, warnings, rowCtx);
+        if (versioned) warnDroppedKeys(row, b, warnings, rowCtx);
       }
       return b;
     });
@@ -520,28 +625,9 @@ export function sanitizeBody(input, warnings = []) {
     "Lịch Review",
   );
 
-  // 6 Boxes: always exactly the six canonical rows, matched by box name.
-  const rawBoxes = Array.isArray(p.boxes) ? p.boxes : [];
-  st.boxes = SIX_BOXES.map((name) => {
-    const vn = name.split(" | ")[0].toLowerCase();
-    const en = name.split(" | ")[1].toLowerCase();
-    const hit = rawBoxes.find((b) => {
-      if (!b || typeof b !== "object") return false;
-      const raw = str(b.box).toLowerCase();
-      return raw.indexOf(vn) >= 0 || raw.indexOf(en) >= 0;
-    });
-    const b = blankBox(name);
-    if (hit) {
-      if (isUuid(hit.id)) b.id = hit.id;
-      mergeRow(b, hit, { assignee_label: "owner" }, warnings, `boxes "${name.split(" | ")[0]}"`);
-      b.box = name;
-      // Legacy rows carry the behavior NAME (never an id).
-      if (!b.behavior_id && typeof hit.behavior === "string") {
-        b._legacyBehaviorName = hit.behavior;
-      }
-    }
-    return b;
-  });
+  // 6 Boxes: always exactly the six canonical rows, matched by box name —
+  // count/order anomalies salvage rather than reset supplied data.
+  st.boxes = mergeBoxes(p.boxes, warnings, versioned);
 
   // Resolve boxes[].behavior_id: canonical uuid → must exist in
   // behaviors[]; legacy name → first exact match wins; anything else →
@@ -595,6 +681,16 @@ export function sanitizeBody(input, warnings = []) {
   st.reviews.forEach((r) => {
     r.date = isoDate(r.date);
   });
+  if (versioned) {
+    // Canonical input carrying foreign keys would 400 on the next strict
+    // save — they're dropped by the adapter, so say so explicitly.
+    const known = new Set([...Object.keys(st), "schema_version"]);
+    const dropped = Object.keys(p).filter((k) => !known.has(k));
+    if (dropped.length)
+      warnings.push(
+        `Trường không thuộc schema đã bỏ: ${dropped.join(", ")}.`,
+      );
+  }
   return st;
 }
 
