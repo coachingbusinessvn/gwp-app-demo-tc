@@ -205,6 +205,11 @@ export async function fixture(options?: {
       await maintenanceDb.raw(
         `REVOKE UPDATE, DELETE ON TABLE "${schema}".canvas_version FROM "${runtimeRole}"`,
       );
+      // write_receipt: INSERT/DELETE allowed (stale-slot reclaim); UPDATE
+      // revoked — it could rewrite request_hash/result_id and forge replays.
+      await maintenanceDb.raw(
+        `REVOKE UPDATE ON TABLE "${schema}".write_receipt FROM "${runtimeRole}"`,
+      );
       await maintenanceDb.raw(
         `REVOKE INSERT, UPDATE, DELETE ON TABLE "${schema}".schema_migration FROM "${runtimeRole}"`,
       );

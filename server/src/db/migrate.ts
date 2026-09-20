@@ -159,6 +159,17 @@ async function enforceRuntimeRestrictions(db: Knex): Promise<void> {
       `REVOKE UPDATE, DELETE ON TABLE "canvas_version" FROM "${RUNTIME_ROLE}"`,
     );
   }
+  // write_receipt is insert/delete-only for the runtime role: expired rows
+  // are reclaimed by DELETE, but UPDATE could rewrite request_hash /
+  // result_id and forge a replay — revoke it.
+  const receipts = await db.raw("SELECT to_regclass(?) AS c", [
+    "write_receipt",
+  ]);
+  if (receipts.rows[0].c !== null) {
+    await db.raw(
+      `REVOKE UPDATE ON TABLE "write_receipt" FROM "${RUNTIME_ROLE}"`,
+    );
+  }
   const tracking = await db.raw("SELECT to_regclass(?) AS c", [TRACKING_TABLE]);
   if (tracking.rows[0].c !== null) {
     await db.raw(

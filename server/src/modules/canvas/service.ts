@@ -392,18 +392,24 @@ export function createCanvasService({ db, policy, clock }: CanvasDeps) {
     actor: ActorContext,
     canvas: CanvasRow,
   ): Promise<CanvasDto> {
-    const [ownerName, draft, version] = await Promise.all([
-      findUserDisplayName(qb, actor.companyId, canvas.owner_user_id),
-      findDraftByCanvas(qb, actor.companyId, canvas.id),
+    // Sequential on purpose: a Knex.Transaction is one connection, so
+    // Promise.all here would pile concurrent queries onto it (pg warns
+    // "client.query() when already executing", removed in pg@9).
+    const ownerName = await findUserDisplayName(
+      qb,
+      actor.companyId,
+      canvas.owner_user_id,
+    );
+    const draft = await findDraftByCanvas(qb, actor.companyId, canvas.id);
+    const version =
       canvas.current_version_id === null
-        ? Promise.resolve(undefined)
-        : findVersionById(
+        ? undefined
+        : await findVersionById(
             qb,
             actor.companyId,
             canvas.id,
             canvas.current_version_id,
-          ),
-    ]);
+          );
     return {
       id: canvas.id,
       ownerUserId: canvas.owner_user_id,
@@ -951,8 +957,10 @@ export function createCanvasService({ db, policy, clock }: CanvasDeps) {
         targetId: canvasId,
         outcome: "success",
         requestId: actor.requestId,
-        // Metadata only: the changed FIELD name, never the user id value.
-        metadata: { field: "owner_user_id" },
+        // Metadata only: which field changed and to whom — a transfer
+        // audit without the destination is useless. User ids are opaque
+        // UUIDs already visible to audit readers (owner/admin).
+        metadata: { field: "owner_user_id", to: newOwnerId },
       });
       const updated = await findCanvasById(tx, actor.companyId, canvasId);
       return canvasDto(tx, actor, updated ?? canvas);

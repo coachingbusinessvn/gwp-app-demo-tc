@@ -136,6 +136,16 @@ export async function bootstrapDbRoles(
         `REVOKE UPDATE, DELETE ON TABLE "${schema}".canvas_version FROM "gwp_runtime"`,
       );
     }
+    // write_receipt keeps INSERT/DELETE (stale-slot reclaim) but UPDATE
+    // could rewrite request_hash/result_id and forge a replay — revoke it.
+    const writeReceipt = await db.raw("SELECT to_regclass(?) AS c", [
+      `${schema}.write_receipt`,
+    ]);
+    if (writeReceipt.rows[0].c !== null) {
+      await db.raw(
+        `REVOKE UPDATE ON TABLE "${schema}".write_receipt FROM "gwp_runtime"`,
+      );
+    }
     // Runtime may read migration tracking (readiness probe) but never write it.
     const tracking = await db.raw("SELECT to_regclass(?) AS c", [
       `${schema}.schema_migration`,

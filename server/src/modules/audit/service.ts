@@ -35,6 +35,7 @@ export const AUDIT_METADATA_ALLOWLIST: ReadonlySet<string> = new Set([
   "result", // coarse result label
   "role", // role key granted/revoked
   "status", // resulting status string
+  "to", // destination id for transfer/move events — an opaque UUID
   "version", // version number (canvas/report/rubric/prompt)
 ]);
 
