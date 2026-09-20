@@ -8,6 +8,7 @@ import type {
 import { AppError } from "../../shared/errors.js";
 import { lockCompany } from "../../shared/company-lock.js";
 import { appendAudit } from "../audit/service.js";
+import { assertActiveActor } from "../authorization/repository.js";
 import {
   departmentHasActiveTeams,
   departmentHasUsers,
@@ -114,7 +115,9 @@ export function createOrgService({ db, clock }: OrgDeps) {
   /**
    * owner+admin gate for org mutations. Runs inside the mutation's
    * transaction (after lockCompany) so the role read is current and the
-   * whole decision serializes with the write.
+   * whole decision serializes with the write. The actor-status re-check
+   * rides the same lock: role rows survive deactivation, so without it a
+   * deactivated admin could still complete an in-flight mutation.
    */
   async function requireOrgAdmin(
     tx: Knex.Transaction,
@@ -128,6 +131,7 @@ export function createOrgService({ db, clock }: OrgDeps) {
         "Chỉ owner hoặc admin được quản trị tổ chức",
       );
     }
+    await assertActiveActor(tx, actor.companyId, actor.userId);
   }
 
   async function getCompany(actor: ActorContext): Promise<CompanyDto> {

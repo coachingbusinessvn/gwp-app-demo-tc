@@ -1,7 +1,10 @@
 import type { Knex } from "knex";
 import type { ActorContext, Page } from "../../shared/contracts.js";
 import { AppError } from "../../shared/errors.js";
-import { loadActorRoles } from "../authorization/repository.js";
+import {
+  assertActiveActor,
+  loadActorRoles,
+} from "../authorization/repository.js";
 
 /**
  * Append-only audit writer (spec §9). Rows are inserted inside the caller's
@@ -169,7 +172,10 @@ const AUDIT_EVENT_COLUMNS = [
 
 /**
  * Owner/admin only (spec §4: "Xem audit quản trị"). Roles are re-read
- * from the DB per request — never the JWT. Newest-first keyset over
+ * from the DB per request — never the JWT — and so is the actor's status:
+ * role rows survive deactivation, so without the second read an in-flight
+ * request from a just-deactivated admin could still read the audit trail
+ * behind authenticate()'s per-request check. Newest-first keyset over
  * (created_at, id): the cursor is the composite position of the last row
  * of the previous page, so no row is skipped or repeated.
  */
@@ -186,6 +192,7 @@ export async function listAuditEvents(
       "Chỉ owner hoặc admin được xem nhật ký kiểm toán",
     );
   }
+  await assertActiveActor(db, actor.companyId, actor.userId);
   let q = db("audit_event")
     .where({ company_id: actor.companyId })
     .orderBy([

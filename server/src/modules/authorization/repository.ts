@@ -1,10 +1,13 @@
 import type { Knex } from "knex";
+import { AppError } from "../../shared/errors.js";
 
 /**
  * Authorization module row access (task 1.2) — thin typed wrappers over
- * Knex. No business rules live here; the subject policy and the reporting
- * service own every decision. All queries are scoped by company_id so a row
- * outside the actor's company is invisible.
+ * Knex. No business rules live here; the subject policy and the module
+ * services own every decision. The single exception is assertActiveActor:
+ * one shared guard with a fixed 403, kept next to loadActorRoles so every
+ * privileged gate performs the identical status re-check. All queries are
+ * scoped by company_id so a row outside the actor's company is invisible.
  */
 
 export interface SubjectUserRow {
@@ -43,6 +46,26 @@ export async function loadActorRoles(
     .where({ "user_role.company_id": companyId, "user_role.user_id": userId })
     .select("role.key");
   return rows.map((r: { key: string }) => r.key);
+}
+
+/**
+ * Shared privileged-gate guard: re-read the actor's own row and require
+ * status='active' — 403 FORBIDDEN otherwise. authenticate() already rejects
+ * inactive users per request; this re-read runs INSIDE the caller's
+ * transaction after lockCompany (or on the read path's connection) so an
+ * actor deactivated mid-flight cannot complete an in-flight privileged
+ * operation on a stale context. Role rows survive deactivation, so a role
+ * check alone would still pass — the status read is what closes the window.
+ */
+export async function assertActiveActor(
+  db: Qb,
+  companyId: string,
+  userId: string,
+): Promise<void> {
+  const me = await findCompanyUser(db, companyId, userId);
+  if (!me || me.status !== "active") {
+    throw new AppError(403, "FORBIDDEN", "Tài khoản không hoạt động");
+  }
 }
 
 /**

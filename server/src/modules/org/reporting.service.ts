@@ -4,6 +4,7 @@ import { AppError } from "../../shared/errors.js";
 import { lockCompany } from "../../shared/company-lock.js";
 import { appendAudit } from "../audit/service.js";
 import {
+  assertActiveActor,
   findCompanyUser,
   listSubtreeUserIds,
   loadActorRoles,
@@ -59,10 +60,7 @@ export function createReportingService({ db }: { db: Knex }) {
       }
       // Defense in depth: authenticate() already rejects inactive users;
       // re-check here so a stale context can never mutate the tree.
-      const me = await findCompanyUser(tx, actor.companyId, actor.userId);
-      if (!me || me.status !== "active") {
-        throw new AppError(403, "FORBIDDEN", "Tài khoản không hoạt động");
-      }
+      await assertActiveActor(tx, actor.companyId, actor.userId);
 
       if (!UUID_RE.test(userId)) throw notFound();
       const subject = await findCompanyUser(tx, actor.companyId, userId);

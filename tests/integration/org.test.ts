@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import { createOrgService } from "../../server/src/modules/org/service.js";
 import { fixture } from "../helpers/fixture.js";
 
 /**
@@ -835,6 +836,35 @@ describe("audit (spec §9)", () => {
         actor_id: f.ids.admin,
         target_type: "company",
         outcome: "success",
+      });
+    } finally {
+      await f.close();
+    }
+  });
+});
+
+describe("deactivated-actor gate (TOCTOU regression)", () => {
+  it("an admin deactivated mid-flight cannot complete an org mutation — 403 FORBIDDEN", async () => {
+    const f = await fixture({ seeded: true });
+    try {
+      const org = createOrgService({ db: f.db, clock: () => new Date() });
+      // Control: the privileged actor passes while still active.
+      await org.createDepartment(f.actor("admin"), { name: "Trước" });
+
+      // Role rows survive deactivation — only status flips. This is the
+      // residual window authenticate() cannot cover: the request was
+      // already authenticated when the deactivation committed.
+      await f
+        .db("app_user")
+        .where({ id: f.ids.admin })
+        .update({ status: "inactive" });
+
+      await expect(
+        org.createDepartment(f.actor("admin"), { name: "Sau" }),
+      ).rejects.toMatchObject({
+        status: 403,
+        code: "FORBIDDEN",
+        message: "Tài khoản không hoạt động",
       });
     } finally {
       await f.close();

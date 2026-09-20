@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { listAuditEvents } from "../../server/src/modules/audit/service.js";
 import { fixture } from "../helpers/fixture.js";
 
 /**
@@ -50,6 +51,32 @@ describe("GET /api/v1/audit", () => {
         expect(res.status).toBe(200);
         expect(Array.isArray(res.body.items)).toBe(true);
       }
+    } finally {
+      await f.close();
+    }
+  });
+
+  it("a deactivated admin cannot read the trail — 403 FORBIDDEN (service level)", async () => {
+    const f = await fixture({ seeded: true });
+    try {
+      // Control: the privileged actor reads while still active.
+      const ok = await listAuditEvents(f.db, f.actor("admin"), { limit: 1 });
+      expect(Array.isArray(ok.items)).toBe(true);
+
+      // Role rows survive deactivation — only status flips. authenticate()
+      // blocks NEW requests; the in-flight read is the residual window.
+      await f
+        .db("app_user")
+        .where({ id: f.ids.admin })
+        .update({ status: "inactive" });
+
+      await expect(
+        listAuditEvents(f.db, f.actor("admin"), { limit: 1 }),
+      ).rejects.toMatchObject({
+        status: 403,
+        code: "FORBIDDEN",
+        message: "Tài khoản không hoạt động",
+      });
     } finally {
       await f.close();
     }

@@ -4,7 +4,10 @@ import type { ActorContext, Clock } from "../../shared/contracts.js";
 import { AppError } from "../../shared/errors.js";
 import { lockCompany } from "../../shared/company-lock.js";
 import { appendAudit } from "../audit/service.js";
-import { loadActorRoles } from "../authorization/repository.js";
+import {
+  assertActiveActor,
+  loadActorRoles,
+} from "../authorization/repository.js";
 
 /**
  * Company settings (task 1.5, spec §4/§9): the branding record is the only
@@ -64,7 +67,9 @@ export function createSettingsService({ db, clock }: { db: Knex; clock: Clock })
   /**
    * PATCH is a full replace of the branding document (the strict schema
    * requires both fields). Owner/admin only — roles re-read inside the
-   * transaction, never from the JWT (spec §4).
+   * transaction, never from the JWT (spec §4). The actor's status is
+   * re-read under the same lock: role rows survive deactivation, so an
+   * in-flight PATCH from a just-deactivated admin must still 403.
    */
   async function updateBranding(
     actor: ActorContext,
@@ -80,6 +85,7 @@ export function createSettingsService({ db, clock }: { db: Knex; clock: Clock })
           "Chỉ owner hoặc admin được đổi nhận diện",
         );
       }
+      await assertActiveActor(tx, actor.companyId, actor.userId);
       await tx("setting")
         .insert({
           company_id: actor.companyId,

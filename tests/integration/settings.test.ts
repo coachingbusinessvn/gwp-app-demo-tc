@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createSettingsService } from "../../server/src/modules/settings/service.js";
 import { fixture } from "../helpers/fixture.js";
 
 /**
@@ -144,6 +145,49 @@ describe("PATCH /api/v1/settings/branding", () => {
       expect(audit).toBeDefined();
       expect(audit.actor_id).toBe(f.ids.owner);
       expect(audit.safe_metadata).toEqual({ key: "branding" });
+    } finally {
+      await f.close();
+    }
+  });
+
+  it("an admin deactivated mid-flight cannot save branding — 403 FORBIDDEN (service level)", async () => {
+    const f = await fixture({ seeded: true });
+    try {
+      const settings = createSettingsService({
+        db: f.db,
+        clock: () => new Date(),
+      });
+      // Control: the privileged actor passes while still active.
+      await settings.updateBranding(f.actor("admin"), {
+        displayName: "Trước",
+        accentColor: "#0f4C81",
+      });
+
+      // Role rows survive deactivation — only status flips, so the role
+      // check alone would still pass. authenticate() blocks NEW requests;
+      // the in-flight service call is the residual window.
+      await f
+        .db("app_user")
+        .where({ id: f.ids.admin })
+        .update({ status: "inactive" });
+
+      await expect(
+        settings.updateBranding(f.actor("admin"), {
+          displayName: "Sau",
+          accentColor: "#123456",
+        }),
+      ).rejects.toMatchObject({
+        status: 403,
+        code: "FORBIDDEN",
+        message: "Tài khoản không hoạt động",
+      });
+
+      // The rejected write rolled back — the control document survives.
+      const read = await settings.getBranding(f.actor("admin"));
+      expect(read).toEqual({
+        displayName: "Trước",
+        accentColor: "#0f4C81",
+      });
     } finally {
       await f.close();
     }
