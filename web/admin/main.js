@@ -127,7 +127,6 @@ async function init() {
   }
   const me = identity.user;
   renderHeader(me);
-  wireTabs();
 
   const branding = await reqJson("GET", "/settings/branding").catch(
     () => null,
@@ -145,4 +144,9 @@ async function init() {
   renderFooter();
 }
 
+// Tabs are wired at module load, not inside init(): module scripts run
+// after DOM parsing, while init()'s requireAuth() round-trip leaves a
+// window where a visible tab's click would be silently dropped (the
+// admin e2e flake — panel stays hidden, "Tạo người dùng" never mounts).
+wireTabs();
 init();

@@ -78,6 +78,26 @@ test.describe("Canvas editor on the revision-aware API (task 2.5)", () => {
     await expect(page).toHaveURL(/\/index\.html/);
   });
 
+  test("no-param URL opens the creation flow — new canvas lands in the editor", async ({
+    page,
+  }) => {
+    await loginAs(page, "member");
+    await page.goto("/canvas-online/");
+    const create = page.getByTestId("canvas-create");
+    await expect(create).toBeVisible();
+    await create.getByLabel("Tên canvas").fill("Canvas e2e — tạo mới");
+    await create.getByRole("button", { name: "Tạo canvas" }).click();
+    // Lands on the real editor with a canvas id — the created draft renders.
+    await expect(page).toHaveURL(/\/canvas-online\/\?canvas=/);
+    const goal = page.getByLabel("Mục tiêu (Goal)");
+    await expect(goal).toBeVisible({ timeout: 20_000 });
+    // …and the shared draft autosaves like any other canvas.
+    await goal.fill("Mục tiêu từ canvas vừa tạo");
+    await expect(page.getByTestId("save-state")).toHaveText(/Đã lưu/, {
+      timeout: 15_000,
+    });
+  });
+
   test("editor loads the shared draft, autosaves and reloads it from the API", async ({
     page,
   }) => {

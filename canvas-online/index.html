@@ -290,6 +290,21 @@ footer.app .gold{color:var(--gp-gold-500)}
     <p class="note"><a href="/dashboard.html" style="color:var(--gp-gold-600)">← Về bảng theo dõi</a></p>
   </section>
 
+  <!-- Mở /canvas-online/ không tham số → tạo canvas mới (task 2.7 gate fix) -->
+  <section class="card denied-card" id="canvasCreate" data-testid="canvas-create" hidden>
+    <h2>Tạo canvas mới</h2>
+    <p>Đặt tên và chọn chủ sở hữu — bản nháp dùng chung sẽ được tạo và tự lưu trên máy chủ.</p>
+    <form id="createForm" style="max-width:420px;margin:0 auto;text-align:left">
+      <label for="createName" style="display:block;font-size:11.5px;font-weight:600;margin:10px 0 4px">Tên canvas</label>
+      <input id="createName" type="text" required maxlength="200" placeholder="VD: Canvas Q4 — An" style="width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:var(--gp-radius-sm);font:inherit">
+      <label for="createOwner" style="display:block;font-size:11.5px;font-weight:600;margin:10px 0 4px">Chủ sở hữu</label>
+      <select id="createOwner" style="width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:var(--gp-radius-sm);font:inherit;background:var(--gp-white)"></select>
+      <p class="note" id="createErr" role="alert" hidden></p>
+      <p style="margin-top:14px"><button type="submit" class="btn" id="createSubmit">Tạo canvas</button></p>
+    </form>
+    <p class="note"><a href="/dashboard.html" style="color:var(--gp-gold-600)">← Về bảng theo dõi</a></p>
+  </section>
+
   <div id="editorMain" hidden>
     <div class="toolbar" id="toolbar">
       <button id="btnPreview">👁 Xem trước</button>

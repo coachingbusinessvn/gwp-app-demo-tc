@@ -7,4 +7,21 @@ declare module "*/web/canvas/model.js" {
   import type { CanvasBody } from "../../shared/canvas/schema.js";
   export function blankBody(): CanvasBody;
   export function buildXlsx(body: CanvasBody): Blob;
+  export function sanitizeBody(input: unknown, warnings?: string[]): CanvasBody;
+}
+declare module "*/web/canvas/autosave.js" {
+  export interface AutosaveDeps {
+    debounceMs?: number;
+    send: (body: unknown) => Promise<{ status: number }>;
+    setState: (state: string) => void;
+  }
+  export function createAutosave(deps: AutosaveDeps): {
+    schedule(bodyGetter?: () => unknown): void;
+    flush(bodyGetter?: () => unknown): Promise<void>;
+    retry(): Promise<void>;
+    freeze(): void;
+    thaw(): void;
+    isFrozen(): boolean;
+    dispose(): void;
+  };
 }

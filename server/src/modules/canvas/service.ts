@@ -133,7 +133,11 @@ export interface DraftExportDto {
   body: CanvasBody;
   /** Draft revision exported — the client's CAS pointer sanity check. */
   revision: number;
-  /** What a Markdown export of this draft would lose. */
+  /** The shared-renderer Markdown of THIS draft — the audited artifact the
+   * warnings describe. Clients download/copy this verbatim rather than
+   * rendering their own (which could silently lose different fields). */
+  markdown: string;
+  /** What the Markdown render lost — matches `markdown` exactly. */
   warnings: string[];
 }
 
@@ -1108,11 +1112,13 @@ export function createCanvasService({ db, policy, clock }: CanvasDeps) {
         requestId: actor.requestId,
         metadata: { mode: "preview", version: draft.revision },
       });
+      const md = toMarkdown(draft.body);
       return {
         schema_version: draft.body.schema_version,
         body: draft.body,
         revision: draft.revision,
-        warnings: toMarkdown(draft.body).warnings,
+        markdown: md.text,
+        warnings: md.warnings,
       };
     });
   }

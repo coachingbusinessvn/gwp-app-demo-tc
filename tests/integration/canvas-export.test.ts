@@ -22,6 +22,7 @@ import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { fixture, type Persona } from "../helpers/fixture.js";
+import { toMarkdown } from "../../shared/canvas/markdown.js";
 import type { CanvasBody } from "../../shared/canvas/schema.js";
 
 type Fixture = Awaited<ReturnType<typeof fixture>>;
@@ -281,6 +282,36 @@ describe("canvas export boundary (task 2.7)", () => {
       // Publish consumes the draft — preview on the consumed draft is 404.
       await mustPublish(f, "member", canvasId, 2);
       expect((await exportPreview(f, "member", canvasId)).status).toBe(404);
+    } finally {
+      await f.close();
+    }
+  });
+
+  it("export-preview returns the SHARED markdown — the artifact its warnings describe", async () => {
+    const f = await fixture({ seeded: true });
+    try {
+      // "*literal*" emphasis is what the browser buildMarkdown used to
+      // silently strip — the preview must carry the shared render verbatim.
+      const body = publishable({
+        outputs: [
+          {
+            id: randomUUID(),
+            name: "*literal* output name",
+            current: "",
+            target: "",
+            deadline: "",
+            cs: "",
+          },
+        ],
+      });
+      const canvasId = await mustCreate(f, "member", f.ids.member, body);
+      const out = await exportPreview(f, "member", canvasId);
+      expect(out.status).toBe(200);
+      expect(out.body.markdown).toBe(toMarkdown(body).text);
+      // Shared renderer escapes emphasis: \*literal\* round-trips back to
+      // "*literal*" — the browser buildMarkdown stripped it silently.
+      expect(out.body.markdown).toContain("\\*literal\\*");
+      expect(out.body.warnings).toEqual(toMarkdown(body).warnings);
     } finally {
       await f.close();
     }

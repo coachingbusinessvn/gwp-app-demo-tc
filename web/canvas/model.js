@@ -361,12 +361,62 @@ const enumOr = (v, opts, dft) => (opts.indexOf(v) >= 0 ? v : dft);
  * refs resolved by first exact match, dangling refs → null + warning).
  * Returns a fresh blankBody() when input is not an object.
  */
+/**
+ * A canonical body (schema_version === CANVAS_PAYLOAD_VERSION) is already
+ * server-validated — the editor must not reinterpret it: every field
+ * (including non-editable extensions like observed[].measurement and
+ * assignee_user_id) and every row id round-trips verbatim, and content-
+ * empty rows keep their ids. This path only deep-clones and tops up
+ * missing structural containers so renderers never crash on a partial
+ * payload; it never drops, filters, or regenerates anything. Anything
+ * else takes the lossy adapter below — that path exists for explicitly
+ * imported legacy/editor shapes ONLY.
+ */
+function canonicalBody(input) {
+  const st = clone(input);
+  const blank = blankBody();
+  for (const k of ["meta", "goal", "kr", "solution"]) {
+    if (!st[k] || typeof st[k] !== "object") st[k] = blank[k];
+    else st[k] = { ...blank[k], ...st[k] };
+  }
+  for (const k of [
+    "outputs",
+    "behaviors",
+    "actions",
+    "plan",
+    "observed",
+    "reviews",
+  ]) {
+    // Lossless: an absent/non-array container becomes [] — never topped
+    // up with blank rows (that would write phantom rows back on save).
+    if (!Array.isArray(st[k])) st[k] = [];
+    for (const row of st[k]) {
+      // Row ids are required by the editor's keyed rendering — assign
+      // one only when genuinely absent/invalid; never regenerate.
+      if (row && typeof row === "object" && !isUuid(row.id))
+        row.id = newId();
+    }
+  }
+  // The renderer needs the six boxes — repair only when the count is off.
+  if (!Array.isArray(st.boxes) || st.boxes.length !== 6)
+    st.boxes = clone(blank.boxes);
+  else
+    for (const row of st.boxes) {
+      if (row && typeof row === "object" && !isUuid(row.id))
+        row.id = newId();
+    }
+  if (typeof st.risks !== "string") st.risks = str(st.risks);
+  st.schema_version = CANVAS_PAYLOAD_VERSION;
+  return st;
+}
+
 export function sanitizeBody(input, warnings = []) {
   const p = input && typeof input === "object" ? input : {};
   // A saved DTO (draft/version) wraps the body — unwrap it transparently.
   if (p.body && typeof p.body === "object" && p.body.meta) {
     return sanitizeBody(p.body, warnings);
   }
+  if (p.schema_version === CANVAS_PAYLOAD_VERSION) return canonicalBody(p);
   const st = blankBody();
   const mergeObj = (dst, src) => {
     if (src && typeof src === "object") {

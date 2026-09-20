@@ -2890,7 +2890,7 @@ components:
             Markdown renderer (JSON_REQUIRED_FOR_EXTENSIONS, …).
     CanvasDraftExport:
       type: object
-      required: [schema_version, body, revision, warnings]
+      required: [schema_version, body, revision, markdown, warnings]
       properties:
         schema_version:
           type: integer
@@ -2901,6 +2901,12 @@ components:
         revision:
           type: integer
           description: Draft revision at preview time — changes under CAS on every save.
+        markdown:
+          type: string
+          description: >
+            The shared-renderer Markdown of this draft — the artifact the
+            `warnings` describe. Clients download/copy THIS text verbatim;
+            rendering their own could silently lose different fields.
         warnings:
           type: array
           items:

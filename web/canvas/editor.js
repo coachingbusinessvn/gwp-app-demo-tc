@@ -29,7 +29,6 @@ import {
   blankPlanRow,
   blankReview,
   behaviorName,
-  buildMarkdown,
   buildXlsx,
   download,
   esc,
@@ -120,6 +119,9 @@ async function putDraft(payload) {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: payload,
+    // keepalive lets a save outlive page unload — that's what makes the
+    // serialized autosave.flush() in beforeunload actually durable.
+    keepalive: true,
   });
 }
 
@@ -859,8 +861,10 @@ function bindToolbar() {
     if (out.warnings?.length) {
       window.alert("Lưu ý khi xuất Markdown:\n- " + out.warnings.join("\n- "));
     }
+    // Download the SERVER-rendered Markdown — the artifact the audited
+    // warnings actually describe (browser buildMarkdown would diverge).
     download(
-      new Blob([buildMarkdown(out.body)], { type: "text/markdown" }),
+      new Blob([out.markdown], { type: "text/markdown" }),
       slug(out.body) + ".md",
     );
   });
@@ -868,7 +872,7 @@ function bindToolbar() {
     const out = await exportableDraft();
     if (!out) return;
     try {
-      await navigator.clipboard.writeText(buildMarkdown(out.body));
+      await navigator.clipboard.writeText(out.markdown);
       $("btnCopyMd").textContent = "✓ Đã sao chép";
       setTimeout(() => ($("btnCopyMd").textContent = "📋 Sao chép Markdown"), 1500);
     } catch {
@@ -918,21 +922,13 @@ function bindToolbar() {
 function bindUnload() {
   window.addEventListener("beforeunload", (e) => {
     if (!isDirtyish()) return;
-    // Best-effort last save: keepalive lets the PUT outlive the page
-    // (fetch keepalive caps bodies ~64KiB — larger canvases just warn).
+    // Best-effort last save THROUGH the serialized autosave pipeline —
+    // a parallel keepalive PUT would race an in-flight save with the same
+    // expectedRevision and whichever lands second is discarded as 409.
+    // putDraft carries keepalive, so the flushed request survives unload.
     // serializeDraft also records lastSentBody so a landed-but-lost write
     // resolves as a self-save on the next attempt, never a false 409.
-    const payload = serializeDraft();
-    if (payload.length < 60000) {
-      apiFetch(`/canvases/${canvasId}/draft`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: payload,
-        keepalive: true,
-      }).catch(() => {});
-    } else {
-      autosave.flush(() => state).catch(() => {});
-    }
+    autosave.flush(() => state).catch(() => {});
     e.preventDefault();
     e.returnValue = "";
   });
@@ -979,6 +975,73 @@ function showDenied(message) {
     "Bạn không có quyền xem canvas này — hoặc canvas không tồn tại. Nếu bạn vừa được cấp quyền, hãy tải lại trang.";
 }
 
+/**
+ * No ?canvas= param → the creation flow (gate-review fix): collect name +
+ * owner, POST /canvases, then open the editor on the new id. The owner
+ * select lists active company users — the subject policy on the chosen
+ * owner decides server-side (self for members, subtree for managers,
+ * anyone for owner); a denied pick answers 404 and shows here.
+ */
+async function showCreate(me) {
+  hideLoadNote();
+  const panel = $("canvasCreate");
+  panel.hidden = false;
+  const sel = $("createOwner");
+  const selfOpt = document.createElement("option");
+  selfOpt.value = me.id;
+  selfOpt.textContent = `${me.name} (tôi)`;
+  sel.append(selfOpt);
+  try {
+    const res = await apiFetch("/users?limit=100");
+    if (res.ok) {
+      const page = await res.json();
+      for (const u of page.items || []) {
+        if (u.id === me.id || u.status !== "active") continue;
+        const o = document.createElement("option");
+        o.value = u.id;
+        o.textContent = u.name;
+        sel.append(o);
+      }
+    }
+  } catch {
+    /* owner list is best-effort — self is always a valid default */
+  }
+  $("createForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const err = $("createErr");
+    err.hidden = true;
+    const btn = $("createSubmit");
+    btn.disabled = true;
+    try {
+      const res = await apiFetch("/canvases", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ownerUserId: sel.value || me.id,
+          name: $("createName").value.trim(),
+          body: blankBody(),
+        }),
+      });
+      if (res.status === 201) {
+        const created = await res.json();
+        location.href = `/canvas-online/?canvas=${encodeURIComponent(created.id)}`;
+        return;
+      }
+      const data = await res.json().catch(() => null);
+      err.textContent =
+        res.status === 404
+          ? "Bạn không có quyền tạo canvas cho người này — hãy chọn chủ sở hữu trong phạm vi của bạn."
+          : (data && data.message) || "Không tạo được canvas — thử lại sau.";
+      err.hidden = false;
+    } catch {
+      err.textContent = "Mất kết nối máy chủ — thử lại sau.";
+      err.hidden = false;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}
+
 async function init() {
   $("brandMark").src = GWP_LOGO;
   const identity = await requireAuth(); // null → redirected to /index.html
@@ -987,7 +1050,7 @@ async function init() {
   const params = new URLSearchParams(location.search);
   canvasId = params.get("canvas");
   if (!canvasId) {
-    showDenied("Thiếu tham số canvas — mở editor từ một canvas cụ thể.");
+    await showCreate(identity.user);
     return;
   }
 

@@ -20,6 +20,7 @@
  */
 export function createAutosave({ debounceMs = 800, send, setState }) {
   let timer = null;
+  let timerArmed = false; // a debounced edit exists that hasn't fired yet
   let inFlight = false;
   let queued = false;
   let frozen = false;
@@ -41,7 +42,11 @@ export function createAutosave({ debounceMs = 800, send, setState }) {
           frozen = true;
           setState("conflict");
         } else if (status && status >= 200 && status < 300) {
-          setState("saved");
+          // "saved" only when nothing is still owed: a debounced edit
+          // (timerArmed) or a queued follow-up (queued) both mean newer
+          // content hasn't hit the wire yet — reporting saved here would
+          // let unload/export/publish skip flushing real changes.
+          if (!timerArmed && !queued) setState("saved");
         } else {
           setState("error");
         }
@@ -66,7 +71,13 @@ export function createAutosave({ debounceMs = 800, send, setState }) {
       if (bodyGetter) getBody = bodyGetter;
       setState("dirty");
       clearTimeout(timer);
-      timer = setTimeout(run, debounceMs);
+      timerArmed = true;
+      timer = setTimeout(() => {
+        // The pending edit is now handed to run() — queued (in-flight) or
+        // sent (idle) — so the timer itself no longer owes anything.
+        timerArmed = false;
+        run();
+      }, debounceMs);
     },
     /**
      * Save NOW and resolve after the queue drains (retry button,
@@ -75,6 +86,7 @@ export function createAutosave({ debounceMs = 800, send, setState }) {
     flush(bodyGetter) {
       if (frozen) return Promise.resolve();
       if (bodyGetter) getBody = bodyGetter;
+      timerArmed = false;
       clearTimeout(timer);
       return Promise.resolve(run());
     },
@@ -86,6 +98,7 @@ export function createAutosave({ debounceMs = 800, send, setState }) {
     freeze() {
       frozen = true;
       clearTimeout(timer);
+      timerArmed = false;
       queued = false;
     },
     thaw() {
@@ -96,6 +109,7 @@ export function createAutosave({ debounceMs = 800, send, setState }) {
     },
     dispose() {
       clearTimeout(timer);
+      timerArmed = false;
       frozen = true;
     },
   };

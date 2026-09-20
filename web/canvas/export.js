@@ -8,7 +8,7 @@
  * versions is rendered server-side so the response can carry the exact
  * loss warnings.
  *
- *   exportDraftPreview(canvasId) → {body, revision, warnings}|null
+ *   exportDraftPreview(canvasId) → {body, revision, markdown, warnings}|null
  *   exportPublished(canvasId, versionId, format) → {body|markdown, warnings}|null
  */
 import { apiFetch } from "../api.js";
