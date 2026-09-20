@@ -1,0 +1,276 @@
+{
+  "schema_version": 1,
+  "meta": {
+    "title": "Thu hồi nợ sớm miền Nam Q3/2026",
+    "owner": "Giám đốc vùng HCM (coach) — phiên 1-1 với Tổ trưởng, 12/08/2026",
+    "stage": "PILOTING",
+    "mode": "GUIDED",
+    "updated": "2026-08-12",
+    "schema": "3.0"
+  },
+  "goal": {
+    "statement": "Giảm nợ chuyển nhóm bằng cách nâng chất lượng liên hệ sớm với khách quá hạn, đúng chuẩn thu hồi nợ văn minh.",
+    "context": "Tổ thu hồi nợ sớm (nhóm 2, quá hạn 30–60 ngày), miền Nam, trong Q3/2026."
+  },
+  "kr": {
+    "metric": "Tỷ lệ hồ sơ nhóm 2 xử lý xong trong 30 ngày",
+    "current": "58%",
+    "target": "70%",
+    "deadline": "2026-09-30",
+    "cs": "Đo trên hệ thống collection, tính theo tháng"
+  },
+  "outputs": [
+    {
+      "id": "fe2b3457-20c2-4656-bb9c-d2db10b94dd9",
+      "name": "Cuộc gọi đạt chuẩn chất lượng",
+      "current": "65% (baseline 15/07; đo 12/08: 78%)",
+      "target": "85%",
+      "deadline": "2026-09-30",
+      "cs": "Chấm theo checklist QA 10 điểm, mẫu 20 cuộc/tổ/tuần"
+    }
+  ],
+  "solution": {
+    "direction": "Nâng chất lượng cuộc gọi sớm dựa trên kịch bản chuẩn và dữ liệu hồ sơ nhằm nâng tỷ lệ xử lý nhóm 2 trong 30 ngày từ 58% lên 70%.",
+    "logic": "Chấm QA có biên bản bắt buộc nên sống sót khi lịch bị chèn; role-play không có chứng cứ nên bị cắt đầu tiên — khoảng cách nằm ở xung đột vai trò của tổ trưởng, không phải thiếu cam kết."
+  },
+  "behaviors": [
+    {
+      "id": "3df051ab-39e0-457d-988b-29c3c428efe1",
+      "actor": "Nhân viên thu hồi nợ",
+      "behavior": "Đọc kỹ hồ sơ trước khi gọi, mở đầu bằng xác nhận hoàn cảnh",
+      "context": "Mỗi cuộc gọi nhóm 2",
+      "outputs": "Cuộc gọi đạt chuẩn",
+      "signal": "Cuộc gọi có đề xuất phương án trả phù hợp",
+      "freq": "Mỗi cuộc gọi"
+    },
+    {
+      "id": "1d0877f1-a40b-478a-95fc-5f1c0ef9f60d",
+      "actor": "Tổ trưởng",
+      "behavior": "Nghe và chấm 20 cuộc gọi mẫu, phản hồi 1-1",
+      "context": "Hàng tuần",
+      "outputs": "Cuộc gọi đạt chuẩn",
+      "signal": "Biên bản chấm QA + phản hồi có chữ ký hai bên",
+      "freq": "Hàng tuần"
+    },
+    {
+      "id": "4286ede1-4e15-4710-b9df-a7c0f13c3cd6",
+      "actor": "Tổ trưởng + Phó tổ",
+      "behavior": "Bàn giao trực ca khiếu nại cho phó tổ để giữ lịch role-play và chấm QA",
+      "context": "Sáng thứ 4 hàng tuần",
+      "outputs": "Cuộc gọi đạt chuẩn (bảo vệ 2 hành vi trên)",
+      "signal": "Sáng thứ 4 phó tổ trực; role-play và chấm QA diễn ra đúng lịch",
+      "freq": "Hàng tuần"
+    }
+  ],
+  "boxes": [
+    {
+      "id": "2d057854-7cbf-4494-9467-e8d3d179d920",
+      "box": "Kỳ vọng & Phản hồi | Expectations & Feedback",
+      "condition": "Chuẩn cuộc gọi rõ, phản hồi hàng tuần",
+      "evidence": "Checklist QA 10 điểm đã ban hành; 4 tuần liên tục chấm đủ 20 cuộc/tuần, có biên bản",
+      "gap": "Thấp",
+      "priority": "Trung bình",
+      "behavior_id": "1d0877f1-a40b-478a-95fc-5f1c0ef9f60d",
+      "action": "Duy trì",
+      "assignee_label": "Tổ trưởng"
+    },
+    {
+      "id": "8a77694c-0a52-4726-976c-e6d7b23e2437",
+      "box": "Công cụ & Nguồn lực | Tools & Resources",
+      "condition": "Hồ sơ khách hiện đủ trên một màn hình",
+      "evidence": "Phải mở 2 hệ thống mới đủ thông tin",
+      "gap": "Cao",
+      "priority": "Cao",
+      "behavior_id": "3df051ab-39e0-457d-988b-29c3c428efe1",
+      "action": "Đề xuất IT gộp màn hình",
+      "assignee_label": "Giám đốc vùng HCM"
+    },
+    {
+      "id": "afb52115-049e-458b-b649-056fccf9e3f2",
+      "box": "Hệ quả & Ghi nhận | Consequences & Recognition",
+      "condition": "Ghi nhận cuộc gọi chất lượng, không chỉ số tiền thu",
+      "evidence": "Thưởng hiện chỉ theo số tiền thu",
+      "gap": "Cao",
+      "priority": "Cao",
+      "behavior_id": "3df051ab-39e0-457d-988b-29c3c428efe1",
+      "action": "Đề xuất thêm tiêu chí QA vào thưởng",
+      "assignee_label": "Giám đốc vùng HCM"
+    },
+    {
+      "id": "a94db6b6-16b9-4f7d-98ee-19bbd6f60e49",
+      "box": "Kiến thức & Kỹ năng | Knowledge & Skills",
+      "condition": "Kỹ năng xử lý tình huống khách khó",
+      "evidence": "Nhân viên mới chiếm 40% tổ; role-play mới chạy được 2/4 buổi",
+      "gap": "Trung bình",
+      "priority": "Cao",
+      "behavior_id": "3df051ab-39e0-457d-988b-29c3c428efe1",
+      "action": "Role-play 30 phút/tuần",
+      "assignee_label": "Tổ trưởng"
+    },
+    {
+      "id": "ee50c35e-50ef-46a5-a18b-ed5f448eb068",
+      "box": "Vai trò & Quyền hạn | Role & Authority",
+      "condition": "Nhân viên được chủ động đề xuất phương án trả trong khung",
+      "evidence": "Mọi phương án phải xin duyệt",
+      "gap": "Trung bình",
+      "priority": "Trung bình",
+      "behavior_id": "3df051ab-39e0-457d-988b-29c3c428efe1",
+      "action": "Ban hành khung phương án chuẩn",
+      "assignee_label": "Giám đốc vùng HCM"
+    },
+    {
+      "id": "1ae06506-1fb1-492d-8ca4-f765183568c4",
+      "box": "Động lực & Ưu tiên | Motivation & Priorities",
+      "condition": "Thời gian chấm QA và role-play được bảo vệ",
+      "evidence": "2 tuần liền tổ trưởng bị kéo vào xử lý ca khiếu nại; role-play chỉ đạt 2/4 buổi dù chấm QA vẫn đủ 4/4 tuần",
+      "gap": "Cao",
+      "priority": "Cao",
+      "behavior_id": "4286ede1-4e15-4710-b9df-a7c0f13c3cd6",
+      "action": "Bàn giao trực sáng thứ 4 cho phó tổ, từ tuần sau",
+      "assignee_label": "Tổ trưởng"
+    }
+  ],
+  "actions": [
+    {
+      "id": "1e20b1a6-90c1-41b4-a0b4-8b1e9e6c0dd3",
+      "action": "Chấm QA 20 cuộc/tuần và phản hồi 1-1",
+      "start": "2026-07-16",
+      "deadline": "2026-08-15",
+      "assignee_label": "Tổ trưởng",
+      "supporter_label": "Giám đốc vùng HCM",
+      "criteria": "4 tuần liên tục có biên bản chấm",
+      "status": "Hoàn thành",
+      "risk": "Đã đạt 4/4 tuần — duy trì nhịp"
+    },
+    {
+      "id": "9c28a24e-3134-439a-b4d6-6f01c6c1ec8a",
+      "action": "Role-play tình huống khách khó 30 phút/tuần",
+      "start": "2026-07-16",
+      "deadline": "2026-09-09",
+      "assignee_label": "Tổ trưởng",
+      "supporter_label": "QA nội bộ; Phó tổ",
+      "criteria": "Mỗi nhân viên mới qua 4 buổi",
+      "status": "Cần hỗ trợ",
+      "risk": "Mới đạt 2/4 buổi do trùng ca khiếu nại — gia hạn và bàn giao trực"
+    },
+    {
+      "id": "96c2c6a9-ca2b-4534-beae-3d8eecd18b4a",
+      "action": "Bàn giao trực ca khiếu nại sáng thứ 4 cho phó tổ",
+      "start": "2026-08-19",
+      "deadline": "2026-09-09",
+      "assignee_label": "Tổ trưởng",
+      "supporter_label": "Phó tổ",
+      "criteria": "4 tuần tới đủ 4 buổi role-play",
+      "status": "Chưa bắt đầu",
+      "risk": "Phó tổ có thể vướng ca phức tạp — thống nhất ngưỡng chuyển ngược"
+    }
+  ],
+  "risks": "Giả định: phó tổ đủ thẩm quyền và năng lực trực ca khiếu nại sáng thứ 4.\nGiả định: mức tăng 65% → 78% đến chủ yếu từ chấm QA, vì role-play mới chạy 50% kế hoạch — cần tách bằng chứng ở vòng đo sau.\nRủi ro: 7 điểm còn lại tới CS 85% khó hơn phần đã đạt.\nCần xác nhận: lịch review tiếp theo để 09/09 theo đề xuất, tổ trưởng chưa chốt.",
+  "plan": [
+    {
+      "id": "782e89eb-a4a7-46cc-9c8c-48009f6c1327",
+      "date": "2026-08-15",
+      "layer": "BEHAVIOR",
+      "metric": "Số tuần chấm QA đủ 20 cuộc + biên bản",
+      "baseline": "0",
+      "target": "4/4 tuần",
+      "source": "Biên bản QA",
+      "collector": "Tổ trưởng",
+      "verifier": "Giám đốc vùng HCM"
+    },
+    {
+      "id": "803e7fa7-16d8-49d0-a5e1-95eed575e423",
+      "date": "2026-08-31",
+      "layer": "OUTPUT",
+      "metric": "Tỷ lệ cuộc gọi đạt chuẩn",
+      "baseline": "65%",
+      "target": "≥ 75%",
+      "source": "Hệ thống QA",
+      "collector": "QA nội bộ",
+      "verifier": "Giám đốc vùng HCM"
+    },
+    {
+      "id": "9c3306e5-e53e-450e-ba7a-9f59a2a6fd12",
+      "date": "2026-09-09",
+      "layer": "BEHAVIOR",
+      "metric": "Số buổi role-play; số sáng thứ 4 phó tổ trực",
+      "baseline": "2/4; 0/4",
+      "target": "4/4; 4/4",
+      "source": "Lịch role-play + phân công trực",
+      "collector": "Tổ trưởng",
+      "verifier": "Giám đốc vùng HCM"
+    },
+    {
+      "id": "db9d462d-adf9-4d89-8585-da5fd7d30afb",
+      "date": "2026-09-30",
+      "layer": "RESULT",
+      "metric": "Tỷ lệ hồ sơ nhóm 2 xử lý xong trong 30 ngày",
+      "baseline": "58%",
+      "target": "70%",
+      "source": "Hệ thống collection",
+      "collector": "Data",
+      "verifier": "Giám đốc Thu hồi nợ"
+    }
+  ],
+  "observed": [
+    {
+      "id": "10c00408-edc6-4b2c-94ea-fa5b36d4fa7d",
+      "date": "2026-08-12",
+      "layer": "BEHAVIOR",
+      "value": "Chấm QA đạt 4/4 tuần, đủ 20 cuộc/tuần, có biên bản đầy đủ",
+      "source": "Biên bản chấm QA 4 tuần (16/07–12/08)",
+      "confidence": "HIGH",
+      "learning": "Hành vi có biên bản bắt buộc thì sống sót khi lịch bị chèn",
+      "decision": "CONTINUE",
+      "verifier": "Giám đốc vùng HCM"
+    },
+    {
+      "id": "e9ac4688-d90f-4a3c-b835-e2a1276d612c",
+      "date": "2026-08-12",
+      "layer": "BEHAVIOR",
+      "value": "Role-play chỉ chạy 2/4 buổi; 2 tuần liền tổ trưởng bị kéo vào ca khiếu nại",
+      "source": "Ghi chú 1-1 ngày 12/08/2026",
+      "confidence": "HIGH",
+      "learning": "Nguyên nhân là xung đột vai trò, không phải thiếu cam kết",
+      "decision": "ADJUST",
+      "verifier": "Giám đốc vùng HCM"
+    },
+    {
+      "id": "9aec311f-0a39-47e4-8aa8-3489d21c4507",
+      "date": "2026-08-12",
+      "layer": "OUTPUT",
+      "value": "Tỷ lệ cuộc gọi đạt chuẩn tăng từ 65% lên 78%",
+      "source": "Hệ thống QA; QA nội bộ đã xác nhận",
+      "confidence": "HIGH",
+      "learning": "Vượt mốc ≥ 75% sớm hơn kế hoạch, còn 7 điểm tới CS 85%",
+      "decision": "CONTINUE",
+      "verifier": "Giám đốc vùng HCM"
+    }
+  ],
+  "reviews": [
+    {
+      "id": "239c1d92-feb6-4e02-853c-001b4efa3b38",
+      "checkpoint": "Sau 4 tuần",
+      "date": "2026-08-12",
+      "behavior_evidence": "Chấm QA 4/4 tuần; role-play 2/4 buổi",
+      "output_evidence": "Cuộc gọi đạt chuẩn 65% → 78%",
+      "result_evidence": "Chưa đủ chu kỳ đo",
+      "works": "Nhịp chấm QA và phản hồi 1-1 duy trì đủ 4 tuần",
+      "not_works": "Role-play bị cắt vì trùng lịch trực ca khiếu nại",
+      "learning": "Bàn giao trực cho phó tổ từ tuần sau",
+      "verifier": "Giám đốc vùng HCM"
+    },
+    {
+      "id": "a4d2f457-4962-4381-b0f3-5e5006e12a72",
+      "checkpoint": "Sau 8 tuần",
+      "date": "2026-09-09",
+      "behavior_evidence": "",
+      "output_evidence": "",
+      "result_evidence": "",
+      "works": "",
+      "not_works": "",
+      "learning": "",
+      "verifier": "Giám đốc vùng HCM"
+    }
+  ]
+}
