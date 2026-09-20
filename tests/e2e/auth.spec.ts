@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { isolateClientIp } from "../helpers/browser.js";
 
 /**
  * Task 0.5 e2e — real web auth against the real backend (dedicated gwp_e2e
@@ -21,6 +22,7 @@ async function loginViaUi(
   page: Page,
   creds: { email: string; password: string },
 ): Promise<void> {
+  await isolateClientIp(page);
   await page.goto("/index.html");
   await page.getByLabel("Email").fill(creds.email);
   await page.getByLabel("Mật khẩu", { exact: true }).fill(creds.password);

@@ -279,7 +279,7 @@ git commit -m "feat: add one-time activation and audited credential recovery"
 - GET /audit: metadata-only paginated; admin redact nội dung/identity nhạy cảm theo schema.
 - UI owner-only roles/reporting/token buttons; API remains authoritative.
 
-- [ ] **Step 1: Viết test đỏ** trong `tests/e2e/admin.spec.ts`. Tạo org/pending user→owner activation→user login; admin không có role/reset buttons; trực tiếp API vẫn403; branding escaped.
+- [x] **Step 1: Viết test đỏ** trong `tests/e2e/admin.spec.ts`. Tạo org/pending user→owner activation→user login; admin không có role/reset buttons; trực tiếp API vẫn403; branding escaped.
 
 ```ts
 await loginAs(page,"admin");
@@ -291,13 +291,13 @@ await page.getByRole("button",{name:"Lưu",exact:true}).click();
 await expect(page.getByText("Khối mới",{exact:true})).toBeVisible();
 ```
 
-- [ ] **Step 2: Chạy test trước triển khai.**
+- [x] **Step 2: Chạy test trước triển khai.**
 
 Run: `npm run test:e2e -- tests/e2e/admin.spec.ts`.
 Expected: FAIL tại hành vi/assertion mới hoặc missing module; sửa lỗi setup/môi trường trước,
 không coi lỗi không kết nối DB là bằng chứng RED hợp lệ.
 
-- [ ] **Step 3: Triển khai phần lõi và nối interface.**
+- [x] **Step 3: Triển khai phần lõi và nối interface.**
 
 Tạo tests/helpers/browser.ts export loginAs(page,persona) qua login form từ fixture credentials, dùng trong E2E. Tách profile, reporting, roles forms để generic PATCH không vô tình ghi quyền. Activation nhập token/password, không query token vào analytics/log. Org archive hiển thị referenced error hướng dẫn transfer. Audit only metadata, branding zod regex #hex, textContent render. Không expose demo toggle.
 
@@ -310,12 +310,12 @@ const BrandingInput = z.object({
 // GET audit chỉ safe_metadata allowlist, không serialize toàn DB row.
 ```
 
-- [ ] **Step 4: Chạy lại test và kiểm tra hồi quy.**
+- [x] **Step 4: Chạy lại test và kiểm tra hồi quy.**
 
 Run: `npm run test:e2e -- tests/e2e/admin.spec.ts`, rồi `npm run typecheck`.
 Expected: test mới PASS, typecheck exit 0. Chạy thêm toàn bộ integration tests của module vừa thay đổi.
 
-- [ ] **Step 5: Commit riêng task sau khi kiểm tra diff.**
+- [x] **Step 5: Commit riêng task sau khi kiểm tra diff.**
 
 ```sh
 git diff --check
@@ -325,10 +325,10 @@ git commit -m "feat: add organization administration and safe audit viewer"
 
 ## Exit gate và bằng chứng bàn giao
 
-- [ ] `npm test -- tests/integration`, `npm run typecheck`, `npm run test:e2e -- tests/e2e/admin.spec.ts` PASS.
-- [ ] Test races cây/last owner bằng 2 connections PostgreSQL thực, không Promise chỉ trên mock.
-- [ ] Thử deactivate/reset khiến session cũ ngừng hoạt động; admin không self-escalation.
-- [ ] Ghi `docs/superpowers/evidence/phase-1.md`; review trước Phase 2.
+- [x] `npm test -- tests/integration`, `npm run typecheck`, `npm run test:e2e -- tests/e2e/admin.spec.ts` PASS.
+- [x] Test races cây/last owner bằng 2 connections PostgreSQL thực, không Promise chỉ trên mock.
+- [x] Thử deactivate/reset khiến session cũ ngừng hoạt động; admin không self-escalation.
+- [x] Ghi `docs/superpowers/evidence/phase-1.md`; review trước Phase 2.
 
 ## Self-review coverage
 

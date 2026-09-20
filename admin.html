@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quản trị — Performance Follow-up | GoWise Partners</title>
+<link rel="stylesheet" href="assets/fonts.css">
+<link rel="stylesheet" href="assets/gwp.css">
+</head>
+<body data-page="admin">
+<main>
+  <div class="eyebrow">Quản trị tổ chức</div>
+  <h1 class="title">Quản trị</h1>
+  <p class="note">Phòng ban, tổ, tài khoản và nhận diện. Cấp quyền, tuyến báo cáo và mã xác thực chỉ dành cho owner.</p>
+
+  <div class="tabs" role="tablist">
+    <button role="tab" id="tab-org" aria-controls="panel-org" aria-selected="true">Tổ chức</button>
+    <button role="tab" id="tab-users" aria-controls="panel-users" aria-selected="false">Người dùng</button>
+    <button role="tab" id="tab-audit" aria-controls="panel-audit" aria-selected="false">Nhật ký</button>
+  </div>
+
+  <section class="tabpanel" id="panel-org" role="tabpanel" aria-labelledby="tab-org"></section>
+  <section class="tabpanel" id="panel-users" role="tabpanel" aria-labelledby="tab-users" hidden></section>
+  <section class="tabpanel" id="panel-audit" role="tabpanel" aria-labelledby="tab-audit" hidden></section>
+</main>
+
+<script type="module" src="web/admin/main.js"></script>
+</body>
+</html>

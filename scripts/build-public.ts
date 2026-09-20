@@ -3,13 +3,15 @@
  * serves is public-build/, and it contains ONLY this allowlist:
  *
  *   index.html dashboard.html employee.html canvas.html
+ *   admin.html activate.html
  *   assets/gwp.css assets/fonts.css assets/app.js assets/fonts/*
- *   web/api.js web/auth.js
+ *   web/api.js web/auth.js web/activate.js web/admin/*
  *
- * web/*.js and assets/app.js are already browser-ready ESM (no TypeScript,
- * no bare specifiers beyond relative paths), so a verified plain copy is
- * correct — when Phase 2 adds shared/canvas TypeScript entrypoints they get
- * bundled through esbuild here instead. TS sources are never served.
+ * web/*.js, web/admin/*.js and assets/app.js are already browser-ready ESM
+ * (no TypeScript, no bare specifiers beyond relative paths), so a verified
+ * plain copy is correct — when Phase 2 adds shared/canvas TypeScript
+ * entrypoints they get bundled through esbuild here instead. TS sources
+ * are never served.
  *
  * Deliberately excluded: assets/data.js + assets/export.js (demo-era),
  * canvas-online/, coaching-report/, docs/, server/, tests/, node_modules,
@@ -39,15 +41,19 @@ const ALLOWLIST_FILES = [
   "dashboard.html",
   "employee.html",
   "canvas.html",
+  "admin.html",
+  "activate.html",
   "assets/gwp.css",
   "assets/fonts.css",
   "assets/app.js",
   "web/api.js",
   "web/auth.js",
+  "web/activate.js",
 ] as const;
 
-/** Whole directories copied verbatim (locally bundled fonts + license). */
-const ALLOWLIST_DIRS = ["assets/fonts"] as const;
+/** Whole directories copied verbatim (locally bundled fonts + license,
+ * and the admin page's flat ESM module directory). */
+const ALLOWLIST_DIRS = ["assets/fonts", "web/admin"] as const;
 
 export function buildPublic(): string[] {
   rmSync(outDir, { recursive: true, force: true });

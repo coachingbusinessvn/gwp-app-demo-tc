@@ -39,7 +39,11 @@ export default defineConfig({
       DEMO_MODE: "demo",
       APP_ORIGIN: E2E_ORIGIN,
       PORT: String(E2E_PORT),
-      TRUST_PROXY: "false",
+      // "loopback" so tests/helpers/browser.ts can give each browser
+      // context its own client IP via X-Forwarded-For — the per-IP auth
+      // rate limiters (spec §8) would otherwise see the whole suite as one
+      // 127.0.0.1 client and start 429-ing refresh calls mid-run.
+      TRUST_PROXY: "loopback",
     },
   },
 });

@@ -38,6 +38,15 @@ tags:
       User administration and directory — the reporting line and role set
       are owner-only; profile edits are self or owner/admin; lifecycle
       (pending → active → inactive) follows spec §8.
+  - name: settings
+    description: >
+      Company settings — branding personalizes the shell for every member;
+      writes are owner/admin only and the strict schema admits no HTML,
+      URL or free CSS.
+  - name: audit
+    description: >
+      Administrative audit trail — owner/admin only, metadata-only rows;
+      there is no endpoint to read raw rows or content payloads.
 
 paths:
   /health/live:
@@ -1269,6 +1278,125 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/settings/branding:
+    get:
+      tags: [settings]
+      summary: Read the company branding
+      description: >
+        Any authenticated member may read — the branding document
+        personalizes the account shell for everyone. Returns the stored
+        document or the shipped defaults when unset.
+      operationId: getBranding
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Current branding (or defaults).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Branding"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    patch:
+      tags: [settings]
+      summary: Replace the company branding
+      description: >
+        Owner/admin only. Full replace of the strict branding document —
+        displayName is plain text (1-120 chars, rendered via textContent
+        only) and accentColor must be a #rrggbb value. There is no field
+        that could carry HTML, a URL or free CSS; stored values are
+        audited by key name only, never by value (spec §9).
+      operationId: updateBranding
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Branding"
+      responses:
+        "200":
+          description: Branding saved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Branding"
+        "400":
+          description: >
+            Body failed validation — empty/overlong displayName, a
+            non-#rrggbb accentColor, or an unexpected key (strict).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller is neither owner nor admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/audit:
+    get:
+      tags: [audit]
+      summary: List audit events (metadata-only, keyset page)
+      description: >
+        Owner/admin only (spec §4). Returns operational metadata rows —
+        id, at, actorId, action, outcome, requestId, targetType/targetId
+        and the safe_metadata allowlist re-applied on read; a key that is
+        not allowlisted is dropped, so no content or secret can ever
+        leave this endpoint. Ordered newest-first over (created_at, id);
+        limit defaults to 25, max 100; cursor is the opaque token from
+        nextCursor.
+      operationId: listAuditEvents
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/LimitParam"
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque keyset cursor from the previous page's nextCursor.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: One page of metadata-only audit events.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditEventPage"
+        "400":
+          description: Invalid limit or cursor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller is neither owner nor admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
 components:
   parameters:
     XCsrfToken:
@@ -1785,3 +1913,79 @@ components:
           format: password
           minLength: 12
           maxLength: 256
+    Branding:
+      type: object
+      required: [displayName, accentColor]
+      additionalProperties: false
+      description: >
+        The whole writable branding surface — plain-text display name and
+        a #rrggbb accent color. No HTML, URL or free-CSS field exists.
+      properties:
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: Plain text; clients must render via textContent.
+        accentColor:
+          type: string
+          pattern: "^#[0-9a-fA-F]{6}$"
+          description: Hex color applied as a CSS custom-property value.
+    AuditEvent:
+      type: object
+      description: >
+        Metadata-only audit row — never a raw record, never content.
+        metadata carries only allowlisted keys with scalar values.
+      required:
+        [
+          id,
+          at,
+          actorId,
+          action,
+          outcome,
+          requestId,
+          targetType,
+          targetId,
+          metadata,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        at:
+          type: string
+          format: date-time
+        actorId:
+          type: string
+          format: uuid
+          nullable: true
+        action:
+          type: string
+        outcome:
+          type: string
+        requestId:
+          type: string
+          nullable: true
+        targetType:
+          type: string
+          nullable: true
+        targetId:
+          type: string
+          format: uuid
+          nullable: true
+        metadata:
+          type: object
+          description: Only allowlisted keys with scalar values survive.
+          additionalProperties:
+            type: [string, number, boolean, "null"]
+    AuditEventPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditEvent"
+        nextCursor:
+          type: string
+          nullable: true
+          description: Pass as ?cursor= for the next page; null at the end.

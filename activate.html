@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kích hoạt tài khoản — Performance Follow-up | GoWise Partners</title>
+<link rel="stylesheet" href="assets/fonts.css">
+<link rel="stylesheet" href="assets/gwp.css">
+</head>
+<body class="login">
+<form class="loginbox" id="frm-activate" autocomplete="off">
+  <svg class="mark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="52" height="52" role="img" aria-label="GoWise Partners"><circle cx="32" cy="32" r="29" fill="none" stroke="#C9A668" stroke-width="3"/><path d="M20 22l7 22 5-14 5 14 7-22" fill="none" stroke="#E7D0A2" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  <div class="brand">GoWise Partners</div>
+  <h1 id="act-title">Kích hoạt tài khoản</h1>
+  <p class="sub" id="act-sub">Đặt mật khẩu lần đầu cho tài khoản của bạn. Liên kết này chỉ dùng được một lần.</p>
+
+  <label for="pw1">Mật khẩu mới</label>
+  <input type="password" id="pw1" name="new-password" autocomplete="new-password" minlength="12" required>
+
+  <label for="pw2">Nhập lại mật khẩu</label>
+  <input type="password" id="pw2" autocomplete="new-password" minlength="12" required>
+
+  <p class="err" id="actErr" role="alert" hidden></p>
+  <p class="sub" id="actOk" hidden>Tài khoản đã sẵn sàng — đăng nhập để bắt đầu.</p>
+
+  <button class="btn" type="submit" id="actSubmit">Kích hoạt tài khoản</button>
+  <a class="btn" id="actLogin" href="index.html" hidden>Đăng nhập</a>
+</form>
+
+<script type="module" src="web/activate.js"></script>
+</body>
+</html>
