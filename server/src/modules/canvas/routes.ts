@@ -25,6 +25,7 @@ import {
  *   POST /canvases/:id/draft                      — open the shared draft
  *   PUT  /canvases/:id/draft                      — CAS save (expectedRevision)
  *   POST /canvases/:id/publish                    — idempotent publish
+ *   GET  /canvases/:id/versions                   — published history list
  *   GET  /canvases/:id/versions/:versionId        — one published snapshot
  *   POST /canvases/:id/versions/:versionId/restore — restore into the draft
  *   POST /canvases/:id/archive                    — archive (write-off flag)
@@ -147,6 +148,17 @@ export function canvasRoutes(deps: {
       const body = parseBody(publishBodySchema, req.body);
       res.json(
         await canvas.publish(actorOf(res), pathId(req.params.id), body),
+      );
+    },
+  );
+
+  // Bounded ordered list — versions are few per canvas, so no cursor.
+  router.get(
+    "/canvases/:id/versions",
+    requireAuth(auth),
+    async (req: Request, res: Response) => {
+      res.json(
+        await canvas.listVersions(actorOf(res), pathId(req.params.id)),
       );
     },
   );

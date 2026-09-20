@@ -127,7 +127,9 @@ test("bundle production không tải assets/data.js và trang không link mini-a
     /\/assets\/(data|export)\.js(\?|$)/.test(u),
   );
   expect(demoAssets).toEqual([]);
-  for (const gone of ["canvas-online", "coaching-report"]) {
+  // canvas-online is the real authenticated editor since task 2.5 — only
+  // coaching-report remains a demo mini-app that must not be linked.
+  for (const gone of ["coaching-report"]) {
     await expect(page.locator(`a[href*="${gone}"]`)).toHaveCount(0);
   }
 });

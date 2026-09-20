@@ -243,6 +243,46 @@ export async function findVersionById(
 }
 
 /**
+ * Summary columns of a published version — everything the history list
+ * needs EXCEPT the immutable body, which is fetched per-version only.
+ */
+export interface CanvasVersionSummaryRow {
+  id: string;
+  canvas_id: string;
+  version_no: number;
+  schema_version: number;
+  change_summary: string | null;
+  published_by: string;
+  published_at: Date | string;
+}
+
+/**
+ * Every published version of one canvas, newest first (task 2.5 history
+ * list). SUMMARY columns only — bodies ship through findVersionById, one
+ * snapshot per request. Versions are bounded per canvas (publish is a
+ * deliberate manual action — tens, never thousands), so the whole ordered
+ * list is returned without a cursor.
+ */
+export async function listVersionsByCanvas(
+  db: Qb,
+  companyId: string,
+  canvasId: string,
+): Promise<CanvasVersionSummaryRow[]> {
+  return (await db("canvas_version")
+    .where({ canvas_id: canvasId, company_id: companyId })
+    .orderBy("version_no", "desc")
+    .select([
+      "id",
+      "canvas_id",
+      "version_no",
+      "schema_version",
+      "change_summary",
+      "published_by",
+      "published_at",
+    ])) as CanvasVersionSummaryRow[];
+}
+
+/**
  * Highest published version_no of a canvas — call only while the canvas
  * row is held FOR UPDATE so the next number cannot race (task 2.4).
  */

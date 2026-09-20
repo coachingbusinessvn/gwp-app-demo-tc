@@ -28,6 +28,7 @@ import {
   insertCanvas,
   insertDraft,
   insertVersion,
+  listVersionsByCanvas,
   lockCanvasById,
   lockDraftByCanvas,
   maxVersionNo,
@@ -37,10 +38,12 @@ import {
   type CanvasDraftRow,
   type CanvasRow,
   type CanvasVersionRow,
+  type CanvasVersionSummaryRow,
 } from "./repository.js";
 import {
   encodeCanvasCursor,
   findUserDisplayName,
+  findUserDisplayNames,
   listScopedCanvases,
   type CanvasCursor,
   type ScopedCanvasRow,
@@ -103,6 +106,8 @@ export interface VersionSummaryDto {
   schemaVersion: number;
   changeSummary: string | null;
   publishedBy: Id;
+  /** Display label for the publisher — metadata only, "" when unknown. */
+  publishedByName: string;
   publishedAt: string;
 }
 
@@ -168,20 +173,27 @@ function toDraftDto(row: CanvasDraftRow): DraftDto {
   };
 }
 
-function toVersionSummary(row: CanvasVersionRow): VersionSummaryDto {
+function toVersionSummary(
+  row: CanvasVersionRow | CanvasVersionSummaryRow,
+  publishedByName = "",
+): VersionSummaryDto {
   return {
     id: row.id,
     versionNo: row.version_no,
     schemaVersion: row.schema_version,
     changeSummary: row.change_summary,
     publishedBy: row.published_by,
+    publishedByName,
     publishedAt: new Date(row.published_at).toISOString(),
   };
 }
 
-function toVersionDto(row: CanvasVersionRow): CanvasVersionDto {
+function toVersionDto(
+  row: CanvasVersionRow,
+  publishedByName = "",
+): CanvasVersionDto {
   return {
-    ...toVersionSummary(row),
+    ...toVersionSummary(row, publishedByName),
     canvasId: row.canvas_id,
     body: row.body,
     provenance: row.provenance,
@@ -410,6 +422,9 @@ export function createCanvasService({ db, policy, clock }: CanvasDeps) {
             canvas.id,
             canvas.current_version_id,
           );
+    const publisherName = version
+      ? await findUserDisplayName(qb, actor.companyId, version.published_by)
+      : undefined;
     return {
       id: canvas.id,
       ownerUserId: canvas.owner_user_id,
@@ -421,7 +436,9 @@ export function createCanvasService({ db, policy, clock }: CanvasDeps) {
       archivedAt: toIso(canvas.archived_at),
       archivedBy: canvas.archived_by,
       draft: draft ? toDraftDto(draft) : null,
-      currentVersion: version ? toVersionSummary(version) : null,
+      currentVersion: version
+        ? toVersionSummary(version, publisherName ?? "")
+        : null,
     };
   }
 
@@ -505,7 +522,34 @@ export function createCanvasService({ db, policy, clock }: CanvasDeps) {
       versionId,
     );
     if (!version) throw notFound();
-    return toVersionDto(version);
+    const publisherName = await findUserDisplayName(
+      db,
+      actor.companyId,
+      version.published_by,
+    );
+    return toVersionDto(version, publisherName ?? "");
+  }
+
+  /**
+   * Version history list (task 2.5): every published version of the
+   * canvas, newest first, summaries only — bodies stay behind the
+   * single-version read. Same subject gate as getVersion; a denied or
+   * missing canvas is the uniform 404, so history is never enumerable.
+   */
+  async function listVersions(
+    actor: ActorContext,
+    canvasId: Id,
+  ): Promise<VersionSummaryDto[]> {
+    const canvas = await findCanvasById(db, actor.companyId, canvasId);
+    if (!canvas) throw notFound();
+    await policy.assertSubjectAccess(actor, canvas.owner_user_id);
+    const rows = await listVersionsByCanvas(db, actor.companyId, canvasId);
+    const names = await findUserDisplayNames(db, actor.companyId, [
+      ...new Set(rows.map((r) => r.published_by)),
+    ]);
+    return rows.map((r) =>
+      toVersionSummary(r, names.get(r.published_by) ?? ""),
+    );
   }
 
   /**
@@ -972,6 +1016,7 @@ export function createCanvasService({ db, policy, clock }: CanvasDeps) {
     getCanvas,
     listCanvases,
     getVersion,
+    listVersions,
     assertWrite,
     createDraft,
     saveDraft,

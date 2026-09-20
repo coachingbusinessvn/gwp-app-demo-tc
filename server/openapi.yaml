@@ -1880,6 +1880,45 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/canvases/{id}/versions:
+    get:
+      tags: [canvas]
+      summary: List published versions of a canvas (history)
+      description: >
+        Every published version of the canvas, newest first — summaries
+        only (no bodies; each snapshot is fetched through
+        GET .../versions/{versionId}). Versions are bounded per canvas —
+        publish is a deliberate manual action — so the full ordered list
+        is returned without pagination. Subject policy on the canvas
+        owner applies to history exactly as to drafts: missing, foreign
+        and denied ids all return the same 404.
+      operationId: listCanvasVersions
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CanvasId"
+      responses:
+        "200":
+          description: The version history, newest first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CanvasVersionSummary"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: No such canvas, or no subject access to its owner.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /api/v1/canvases/{id}/versions/{versionId}:
     get:
       tags: [canvas]
@@ -2701,7 +2740,15 @@ components:
     CanvasVersionSummary:
       type: object
       required:
-        [id, versionNo, schemaVersion, changeSummary, publishedBy, publishedAt]
+        [
+          id,
+          versionNo,
+          schemaVersion,
+          changeSummary,
+          publishedBy,
+          publishedByName,
+          publishedAt,
+        ]
       properties:
         id:
           type: string
@@ -2717,6 +2764,9 @@ components:
         publishedBy:
           type: string
           format: uuid
+        publishedByName:
+          type: string
+          description: Display name of the publisher — "" when unknown.
         publishedAt:
           type: string
           format: date-time

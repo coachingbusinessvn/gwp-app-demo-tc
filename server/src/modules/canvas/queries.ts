@@ -53,6 +53,26 @@ export async function findUserDisplayName(
 }
 
 /**
+ * Display names for a batch of company users — one query for the version
+ * history list (task 2.5), so a publishedBy label never costs N+1 reads.
+ * Missing/foreign ids are simply absent from the map.
+ */
+export async function findUserDisplayNames(
+  db: Qb,
+  companyId: string,
+  userIds: string[],
+): Promise<Map<string, string>> {
+  const names = new Map<string, string>();
+  if (userIds.length === 0) return names;
+  const rows = (await db("app_user")
+    .where({ company_id: companyId })
+    .whereIn("id", userIds)
+    .select("id", "name")) as { id: string; name: string }[];
+  for (const row of rows) names.set(row.id, row.name);
+  return names;
+}
+
+/**
  * One page of canvases owned by any subject in `ownerIds`, newest first.
  * ownerIds comes straight from policy.scopeSubjectIds — the list can never
  * outgrow the caller's subject scope. An empty scope is valid input and

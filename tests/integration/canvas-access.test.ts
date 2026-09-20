@@ -716,6 +716,105 @@ describe("GET /api/v1/canvases/:id/versions/:versionId", () => {
   });
 });
 
+describe("GET /api/v1/canvases/:id/versions", () => {
+  function listVersions(
+    f: Fixture,
+    persona: Persona | undefined,
+    canvasId: string,
+  ): Promise<TestResponse> {
+    return f
+      .api(persona)
+      .get(`/api/v1/canvases/${canvasId}/versions`) as unknown as Promise<TestResponse>;
+  }
+
+  it("returns ordered summaries with publisher names — bodies stay behind the single-version read", async () => {
+    const f = await fixture({ seeded: true });
+    try {
+      const { canvasId, versionId } = await seedCanvasWithVersion(
+        f,
+        f.ids.member,
+        clone(canonical),
+      );
+      // A second, newer version — published by the manager this time.
+      const v2 = clone(canonical);
+      v2.meta.title = "V2";
+      const versionId2 = randomUUID();
+      await f.db("canvas_version").insert({
+        id: versionId2,
+        company_id: f.ids.company,
+        canvas_id: canvasId,
+        version_no: 2,
+        schema_version: v2.schema_version,
+        body: JSON.stringify(v2),
+        change_summary: "Chốt sau review tuần 2",
+        published_by: f.ids.manager,
+      });
+      await f
+        .db("canvas")
+        .where({ id: canvasId, company_id: f.ids.company })
+        .update({ current_version_id: versionId2 });
+
+      for (const p of ["member", "manager", "owner"] as Persona[]) {
+        const res = await listVersions(f, p, canvasId);
+        expect(res.status, p).toBe(200);
+        expect(Array.isArray(res.body)).toBe(true);
+        // Newest first; summaries only — a body must never ride the list.
+        expect(res.body.map((v: { id: string }) => v.id)).toEqual([
+          versionId2,
+          versionId,
+        ]);
+        expect(res.body[0]).toMatchObject({
+          id: versionId2,
+          versionNo: 2,
+          publishedBy: f.ids.manager,
+          publishedByName: "Fixture Manager",
+          changeSummary: "Chốt sau review tuần 2",
+        });
+        expect(res.body[1]).toMatchObject({
+          id: versionId,
+          versionNo: 1,
+          publishedBy: f.ids.member,
+          publishedByName: "Fixture Member",
+        });
+        for (const v of res.body) {
+          expect(v.body).toBeUndefined();
+        }
+      }
+
+      // A canvas with no versions yet → empty list, still 200.
+      const empty = await mustCreate(f, "member", f.ids.member, "No versions");
+      const res = await listVersions(f, "member", empty);
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual([]);
+    } finally {
+      await f.close();
+    }
+  });
+
+  it("is non-enumerable: denied, foreign, missing and anonymous callers get the uniform 404/401", async () => {
+    const f = await fixture({ seeded: true });
+    try {
+      const { canvasId } = await seedCanvasWithVersion(
+        f,
+        f.ids.member,
+        clone(canonical),
+      );
+      // admin has no canvas privilege; outsider is outside the subtree.
+      for (const p of ["admin", "outsider"] as Persona[]) {
+        const res = await listVersions(f, p, canvasId);
+        expect(res.status, p).toBe(404);
+        expect(res.body.code).toBe("NOT_FOUND");
+      }
+      for (const bad of [randomUUID(), f.ids.otherCompany, "not-a-uuid"]) {
+        expect((await listVersions(f, "owner", bad)).status, bad).toBe(404);
+      }
+      expect((await listVersions(f, undefined, canvasId)).status).toBe(401);
+    } finally {
+      await f.close();
+    }
+  });
+});
+
 describe("assignee_user_id is content, not a grant", () => {
   it("being assigned inside a body never opens the canvas to that user", async () => {
     const f = await fixture({ seeded: true });

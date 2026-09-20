@@ -5,16 +5,17 @@
  *   index.html dashboard.html employee.html canvas.html
  *   admin.html activate.html
  *   assets/gwp.css assets/fonts.css assets/app.js assets/fonts/*
- *   web/api.js web/auth.js web/activate.js web/admin/*
+ *   web/api.js web/auth.js web/activate.js web/admin/* web/canvas/*
+ *   canvas-online/  (task 2.5 — the real canvas editor page)
  *
- * web/*.js, web/admin/*.js and assets/app.js are already browser-ready ESM
- * (no TypeScript, no bare specifiers beyond relative paths), so a verified
- * plain copy is correct — when Phase 2 adds shared/canvas TypeScript
- * entrypoints they get bundled through esbuild here instead. TS sources
- * are never served.
+ * web/*.js, web/admin/*.js, web/canvas/*.js and assets/app.js are already
+ * browser-ready ESM (no TypeScript, no bare specifiers beyond relative
+ * paths), so a verified plain copy is correct — when Phase 2 adds
+ * shared/canvas TypeScript entrypoints they get bundled through esbuild
+ * here instead. TS sources are never served.
  *
  * Deliberately excluded: assets/data.js + assets/export.js (demo-era),
- * canvas-online/, coaching-report/, docs/, server/, tests/, node_modules,
+ * coaching-report/, docs/, server/, tests/, node_modules,
  * .env*, *.md — anything not on the list stays unserved.
  *
  * `npm run build` = tsx scripts/build-public.ts && tsc -p tsconfig.build.json.
@@ -52,8 +53,14 @@ const ALLOWLIST_FILES = [
 ] as const;
 
 /** Whole directories copied verbatim (locally bundled fonts + license,
- * and the admin page's flat ESM module directory). */
-const ALLOWLIST_DIRS = ["assets/fonts", "web/admin"] as const;
+ * the admin page's flat ESM module directory, and the canvas editor
+ * modules + page — task 2.5). */
+const ALLOWLIST_DIRS = [
+  "assets/fonts",
+  "web/admin",
+  "web/canvas",
+  "canvas-online",
+] as const;
 
 export function buildPublic(): string[] {
   rmSync(outDir, { recursive: true, force: true });

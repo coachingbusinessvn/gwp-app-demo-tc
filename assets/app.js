@@ -144,14 +144,28 @@ async function init() {
   }
 
   if (page === "canvas") {
+    // Task 2.5: the real editor lives at /canvas-online/?canvas=<id> —
+    // this page just forwards (same query param) or links over.
+    const app = document.getElementById("app");
+    const params = new URLSearchParams(location.search);
+    const canvasId = params.get("canvas") || params.get("id");
+    if (canvasId) {
+      location.replace(
+        `/canvas-online/?canvas=${encodeURIComponent(canvasId)}`,
+      );
+      return;
+    }
     const cname = document.getElementById("vname");
     if (cname) cname.textContent = "Canvas chi tiết";
-    const app = document.getElementById("app");
     if (app) {
       app.innerHTML =
         '<div class="card"><h1 class="title">Canvas chi tiết</h1>' +
-        lockedHTML("Canvas chi tiết, gợi ý cải tiến và xuất tài liệu") +
-        '<div class="btnrow" style="margin-top:12px"><a class="btn ghost" href="dashboard.html">Về bảng theo dõi</a></div></div>';
+        '<p class="note">Canvas Online đã mở — bản nháp lưu trên máy chủ, ' +
+        "chốt phiên bản bất biến, có lịch sử khôi phục. Mở một canvas cụ thể " +
+        "từ danh sách để chỉnh sửa.</p>" +
+        '<div class="btnrow" style="margin-top:12px">' +
+        '<a class="btn ghost" href="/canvas-online/">Mở Canvas Online</a>' +
+        '<a class="btn ghost" href="dashboard.html">Về bảng theo dõi</a></div></div>';
     }
   }
 

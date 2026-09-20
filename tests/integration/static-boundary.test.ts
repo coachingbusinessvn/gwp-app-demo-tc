@@ -87,6 +87,14 @@ const ALLOWED_PATHS = [
   "/assets/app.js",
   "/web/api.js",
   "/web/auth.js",
+  // Task 2.5 — the canvas editor ships in the public build.
+  "/canvas-online/index.html",
+  "/web/canvas/editor.js",
+  "/web/canvas/model.js",
+  "/web/canvas/autosave.js",
+  "/web/canvas/diff.js",
+  "/web/canvas/history.js",
+  "/web/canvas/logo.js",
 ];
 
 describe("static boundary — allowlisted public build is served", () => {
@@ -105,6 +113,14 @@ describe("static boundary — allowlisted public build is served", () => {
   it("directory requests do not auto-serve index (index:false)", async () => {
     const res = await request(app).get("/");
     expect(res.status).toBe(404);
+  });
+
+  it("/canvas-online/ serves the built editor via its explicit route", async () => {
+    for (const p of ["/canvas-online", "/canvas-online/"]) {
+      const res = await request(app).get(p);
+      expect(res.status, p).toBe(200);
+      expect(res.headers["content-type"]).toContain("text/html");
+    }
   });
 
   it("unknown /api/v1/* still returns the JSON NOT_FOUND envelope", async () => {

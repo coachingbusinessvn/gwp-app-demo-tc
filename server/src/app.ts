@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import path from "node:path";
 import express, {
   type Express,
   type NextFunction,
@@ -100,6 +101,14 @@ export function createApp({ db, clock, config }: AppDeps): Express {
   app.use("/api/v1", settingsRoutes({ db, clock, config })); // task 1.5
   app.use("/api/v1", auditRoutes({ db, clock, config })); // task 1.5
   app.use("/api/v1", canvasRoutes({ db, clock, config })); // task 2.3
+
+  // Canvas editor (task 2.5): the pinned URL /canvas-online/?canvas=<id>
+  // serves the built editor page. It is a static artifact, but directory
+  // index serving is disabled boundary-wide, so the directory URL gets an
+  // explicit route instead of weakening the static boundary.
+  app.get(["/canvas-online", "/canvas-online/"], (_req, res) => {
+    res.sendFile(path.join(config.publicDir, "canvas-online", "index.html"));
+  });
 
   // Public asset boundary (task 0.5, spec §2): serve ONLY the allowlisted
   // build output at config.publicDir (<repo>/public-build) — never the
