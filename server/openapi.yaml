@@ -1957,6 +1957,101 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/canvases/{id}/versions/{versionId}/export:
+    get:
+      tags: [canvas]
+      summary: Export one published version (JSON or Markdown)
+      description: >
+        Audited export boundary (task 2.7, spec §5.4): reads the immutable
+        published snapshot and returns it either verbatim as the canonical
+        JSON body or rendered to Markdown with explicit loss warnings —
+        extension fields Markdown cannot carry are named in `warnings`, so
+        callers can fall back to the lossless JSON. Same subject policy as
+        a version read: denied, foreign, missing and mismatched canvas/
+        version pairs all return a uniform 404. Every export is recorded in
+        the audit trail as metadata only ({mode, version}) — exported
+        content never enters the audit log.
+      operationId: exportCanvasVersion
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CanvasId"
+        - $ref: "#/components/parameters/VersionId"
+        - name: format
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [json, markdown]
+            default: json
+      responses:
+        "200":
+          description: The exported snapshot plus loss warnings.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CanvasVersionExport"
+        "400":
+          description: format is not json|markdown.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: >
+            No such canvas/version pair, or no subject access to the
+            canvas owner.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/canvases/{id}/export-preview:
+    post:
+      tags: [canvas]
+      summary: Authorized preview export of the current draft
+      description: >
+        Audited draft preview (task 2.7, spec §5.4): returns the current
+        server-saved draft body + revision plus the Markdown loss warnings
+        a downstream render would produce. The browser toolbar (Markdown /
+        JSON / XLSX / PDF) builds its artifacts from THIS payload — never
+        from unsaved tab state — so exports are subject-policy gated and
+        audited ({mode:"preview", version:revision}) exactly like version
+        exports. Returns 404 when the canvas has no current draft (e.g.
+        publish consumed it and none was reopened).
+      operationId: exportCanvasDraftPreview
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CanvasId"
+      responses:
+        "200":
+          description: The saved draft preview plus loss warnings.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CanvasDraftExport"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: >
+            No such canvas, no current draft, or no subject access to the
+            canvas owner.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /api/v1/dashboard:
     get:
       tags: [dashboard]
@@ -2772,6 +2867,45 @@ components:
         updatedAt:
           type: string
           format: date-time
+    CanvasVersionExport:
+      type: object
+      required: [schema_version, warnings]
+      properties:
+        schema_version:
+          type: integer
+          description: Canonical payload version of `body` (1 today).
+        body:
+          $ref: "#/components/schemas/CanvasBody"
+          description: Present when format=json — the immutable published body, byte-faithful.
+        markdown:
+          type: string
+          description: Present when format=markdown — the rendered Markdown document.
+        warnings:
+          type: array
+          items:
+            type: string
+          description: >
+            Format-loss warnings — e.g. extension fields Markdown cannot
+            carry. Empty for JSON (lossless). Codes come from the shared
+            Markdown renderer (JSON_REQUIRED_FOR_EXTENSIONS, …).
+    CanvasDraftExport:
+      type: object
+      required: [schema_version, body, revision, warnings]
+      properties:
+        schema_version:
+          type: integer
+          description: Canonical payload version of `body` (1 today).
+        body:
+          $ref: "#/components/schemas/CanvasBody"
+          description: The current server-saved draft body.
+        revision:
+          type: integer
+          description: Draft revision at preview time — changes under CAS on every save.
+        warnings:
+          type: array
+          items:
+            type: string
+          description: Same loss-warning contract as CanvasVersionExport.
     CanvasVersionSummary:
       type: object
       required:

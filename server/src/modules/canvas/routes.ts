@@ -177,6 +177,39 @@ export function canvasRoutes(deps: {
     },
   );
 
+  router.get(
+    "/canvases/:id/versions/:versionId/export",
+    requireAuth(auth),
+    async (req: Request, res: Response) => {
+      const format = String(req.query.format ?? "json");
+      if (format !== "json" && format !== "markdown") {
+        throw new AppError(
+          400,
+          "INVALID_INPUT",
+          "format phải là json hoặc markdown",
+        );
+      }
+      res.json(
+        await canvas.exportVersion(
+          actorOf(res),
+          pathId(req.params.id),
+          pathId(req.params.versionId),
+          format,
+        ),
+      );
+    },
+  );
+
+  router.post(
+    "/canvases/:id/export-preview",
+    requireAuth(auth),
+    async (req: Request, res: Response) => {
+      res.json(
+        await canvas.exportDraftPreview(actorOf(res), pathId(req.params.id)),
+      );
+    },
+  );
+
   router.post(
     "/canvases/:id/versions/:versionId/restore",
     requireAuth(auth),

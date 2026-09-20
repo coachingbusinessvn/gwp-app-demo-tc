@@ -2,9 +2,29 @@
 
 Bản demo giao diện (HTML/CSS/JS tĩnh, không backend, không thư viện ngoài) cho luồng **Leader theo dõi hiệu suất đội ngũ bằng Performance Architecture Canvas**, có trợ lý AI đi kèm là hai chatbot đã triển khai của dự án.
 
-GitHub Pages: https://coachingbusinessvn.github.io/gwp-app-demo-tc/
+> **Cập nhật 2026-09:** repo này đã chuyển thành **ứng dụng thật self-hosted**
+> (spec `docs/superpowers/specs/2026-09-19-gwp-app-real-design.md`): Node/Express
+> + PostgreSQL, xác thực thật, canvas lưu server-side theo draft/publish bất biến,
+> dashboard dựng từ bằng chứng đã chốt. Chạy bằng `compose.yaml` — xem runbook
+> `docs/operations/foundation.md` và checklist pilot `docs/operations/pilot.md`.
+> Phần mô tả dưới đây kể lại **bản demo tĩnh gốc** mà UI hiện tại được port lên.
 
-Chạy local: `python3 -m http.server 8765` rồi mở `http://localhost:8765/`.
+## Xuất file qua ranh giới được kiểm toán (Phase 2.7)
+
+Mọi thao tác xuất trên `canvas-online/` đi qua hai endpoint có phân quyền +
+audit thay vì render thuần client:
+
+| Endpoint | Dùng cho |
+|---|---|
+| `GET /api/v1/canvases/:id/versions/:vid/export?format=json\|markdown` | Bản đã chốt — JSON trả body bất biến nguyên vẹn; Markdown trả `warnings` liệt kê trường mở rộng bị mất |
+| `POST /api/v1/canvases/:id/export-preview` | Bản nháp hiện tại — toolbar JSON/Markdown/XLSX/PDF render từ payload này (đã flush autosave), không dùng state tab-local |
+
+Cả hai ghi audit chỉ bằng metadata `{mode, version}` — nội dung xuất không bao
+giờ vào audit log. XLSX dùng inline strings nên ô bắt đầu `=`/`+`/`-`/`@`
+không trở thành công thức. PDF/PNG là bản trình bày; **JSON là nguồn bảo
+toàn toàn bộ nội dung**.
+
+*Demo tĩnh gốc:* GitHub Pages: https://coachingbusinessvn.github.io/gwp-app-demo-tc/ — hoặc `python3 -m http.server 8765` rồi mở `http://localhost:8765/`.
 
 ## Luồng màn hình
 

@@ -40,6 +40,7 @@ import {
 } from "./model.js";
 import { createAutosave } from "./autosave.js";
 import { diffBodies, renderDiff } from "./diff.js";
+import { exportDraftPreview } from "./export.js";
 import { createHistoryPanel } from "./history.js";
 import { GWP_LOGO } from "./logo.js";
 
@@ -822,6 +823,24 @@ function bindImportUI() {
 
 /* ================= Toolbar ================= */
 
+/** Flush pending autosave, then fetch the audited draft export payload. */
+async function exportableDraft() {
+  if (isDirtyish()) await autosave.flush(() => state);
+  if (saveState === "conflict") {
+    window.alert(
+      "Đang có xung đột chưa xử lý — bản xuất là bản đã lưu trên máy chủ.",
+    );
+  }
+  const out = await exportDraftPreview(canvasId);
+  if (!out) {
+    window.alert(
+      "Không xuất được — canvas chưa có bản nháp hoặc bạn không còn quyền.",
+    );
+    return null;
+  }
+  return out;
+}
+
 function bindToolbar() {
   $("btnPreview").addEventListener("click", () => {
     $("preview").innerHTML = previewHtml(state, GWP_LOGO);
@@ -831,32 +850,48 @@ function bindToolbar() {
   $("btnClosePreview").addEventListener("click", () =>
     $("previewWrap").classList.remove("show"),
   );
-  $("btnMd").addEventListener("click", () =>
+  // Export buttons go through POST /export-preview — the download is an
+  // audited act, and the payload is the server-saved draft (not whatever
+  // the tab happens to hold).
+  $("btnMd").addEventListener("click", async () => {
+    const out = await exportableDraft();
+    if (!out) return;
+    if (out.warnings?.length) {
+      window.alert("Lưu ý khi xuất Markdown:\n- " + out.warnings.join("\n- "));
+    }
     download(
-      new Blob([buildMarkdown(state)], { type: "text/markdown" }),
-      slug(state) + ".md",
-    ),
-  );
+      new Blob([buildMarkdown(out.body)], { type: "text/markdown" }),
+      slug(out.body) + ".md",
+    );
+  });
   $("btnCopyMd").addEventListener("click", async () => {
+    const out = await exportableDraft();
+    if (!out) return;
     try {
-      await navigator.clipboard.writeText(buildMarkdown(state));
+      await navigator.clipboard.writeText(buildMarkdown(out.body));
       $("btnCopyMd").textContent = "✓ Đã sao chép";
       setTimeout(() => ($("btnCopyMd").textContent = "📋 Sao chép Markdown"), 1500);
     } catch {
       window.alert("Trình duyệt chặn clipboard — hãy dùng nút Markdown (.md).");
     }
   });
-  $("btnJson").addEventListener("click", () =>
+  $("btnJson").addEventListener("click", async () => {
+    const out = await exportableDraft();
+    if (!out) return;
     download(
-      new Blob([JSON.stringify(state, null, 2)], { type: "application/json" }),
-      slug(state) + ".json",
-    ),
-  );
-  $("btnXlsx").addEventListener("click", () =>
-    download(buildXlsx(state), slug(state) + ".xlsx"),
-  );
-  $("btnPdf").addEventListener("click", () => {
-    $("preview").innerHTML = previewHtml(state, GWP_LOGO);
+      new Blob([JSON.stringify(out.body, null, 2)], { type: "application/json" }),
+      slug(out.body) + ".json",
+    );
+  });
+  $("btnXlsx").addEventListener("click", async () => {
+    const out = await exportableDraft();
+    if (!out) return;
+    download(buildXlsx(out.body), slug(out.body) + ".xlsx");
+  });
+  $("btnPdf").addEventListener("click", async () => {
+    const out = await exportableDraft();
+    if (!out) return;
+    $("preview").innerHTML = previewHtml(out.body, GWP_LOGO);
     $("previewWrap").classList.add("show");
     setTimeout(() => window.print(), 60);
   });

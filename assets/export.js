@@ -1,6 +1,12 @@
 /* Xuất canvas ra Markdown (khung gold schema 3.0) và Excel (.xlsx) —
    cùng định dạng với Canvas Online, để dán thẳng vào chatbot hoặc mở bằng Excel.
-   Không dùng thư viện ngoài. */
+   Không dùng thư viện ngoài.
+
+   ⚠ DEMO-ERA — không còn được trang nào nạp (task 2.7): xuất file giờ đi qua
+   ranh giới được kiểm toán trên server — POST /canvases/:id/export-preview và
+   GET /canvases/:id/versions/:versionId/export — rồi web/canvas/export.js +
+   editor.js/history.js render bên client. File này giữ lại chỉ để tham chiếu
+   (và bị loại khỏi public-build) — không thêm script tag nạp nó vào đâu nữa. */
 "use strict";
 
 /* ================= Markdown ================= */

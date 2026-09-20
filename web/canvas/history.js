@@ -17,7 +17,8 @@
  *   - download(blob, filename) + slugFor(body).
  */
 import { apiFetch } from "../api.js";
-import { buildMarkdown, previewHtml } from "./model.js";
+import { previewHtml } from "./model.js";
+import { exportPublished } from "./export.js";
 import { GWP_LOGO } from "./logo.js";
 
 const fmtDate = (iso) => {
@@ -125,10 +126,14 @@ export function createHistoryPanel({
       btnJson.className = "add";
       btnJson.textContent = "JSON";
       btnJson.addEventListener("click", async () => {
-        const full = await fetchVersion(v.id);
-        if (!full) return;
+        // Audited export boundary (task 2.7) — JSON is the lossless path.
+        const out = await exportPublished(canvasId, v.id, "json");
+        if (!out) {
+          onError?.("Không xuất được phiên bản — có thể bạn không có quyền.");
+          return;
+        }
         download(
-          new Blob([JSON.stringify(full.body, null, 2)], {
+          new Blob([JSON.stringify(out.body, null, 2)], {
             type: "application/json",
           }),
           `${fileStem(v)}.json`,
@@ -140,10 +145,20 @@ export function createHistoryPanel({
       btnMd.className = "add";
       btnMd.textContent = "Markdown";
       btnMd.addEventListener("click", async () => {
-        const full = await fetchVersion(v.id);
-        if (!full) return;
+        // Server-side render so the response carries the exact loss
+        // warnings — extension fields Markdown cannot carry are flagged.
+        const out = await exportPublished(canvasId, v.id, "markdown");
+        if (!out) {
+          onError?.("Không xuất được phiên bản — có thể bạn không có quyền.");
+          return;
+        }
+        if (out.warnings?.length) {
+          onError?.(
+            "Markdown không giữ đủ trường mở rộng — dùng JSON để bảo toàn toàn bộ.",
+          );
+        }
         download(
-          new Blob([buildMarkdown(full.body)], { type: "text/markdown" }),
+          new Blob([out.markdown], { type: "text/markdown" }),
           `${fileStem(v)}.md`,
         );
       });

@@ -12,6 +12,7 @@ import { withReceipt } from "../../shared/write-receipt.js";
 import type { CanvasBody } from "../../../../shared/canvas/schema.js";
 import { blankCanvas } from "../../../../shared/canvas/defaults.js";
 import { validateCanvas } from "../../../../shared/canvas/validation.js";
+import { toMarkdown } from "../../../../shared/canvas/markdown.js";
 import { appendAudit } from "../audit/service.js";
 import {
   assertActiveActor,
@@ -115,6 +116,25 @@ export interface CanvasVersionDto extends VersionSummaryDto {
   canvasId: Id;
   body: CanvasBody;
   provenance: Record<string, unknown> | null;
+}
+
+export interface VersionExportDto {
+  schema_version: number;
+  /** Present for format=json — the immutable canonical body. */
+  body?: CanvasBody;
+  /** Present for format=markdown — the loss-aware render. */
+  markdown?: string;
+  /** What the format could not carry — never silently dropped. */
+  warnings: string[];
+}
+
+export interface DraftExportDto {
+  schema_version: number;
+  body: CanvasBody;
+  /** Draft revision exported — the client's CAS pointer sanity check. */
+  revision: number;
+  /** What a Markdown export of this draft would lose. */
+  warnings: string[];
 }
 
 export interface CanvasDto {
@@ -1011,12 +1031,100 @@ export function createCanvasService({ db, policy, clock }: CanvasDeps) {
     });
   }
 
+  /**
+   * Version export (task 2.7, spec §5.3): the auditable preservation
+   * path. Same subject gate as every other canvas read — denied callers
+   * get the uniform 404. `json` returns the immutable body byte-faithful;
+   * `markdown` returns the loss-aware render plus the warnings the format
+   * could not carry (extensions, placeholder collisions). The export is
+   * audited with format/version metadata only — never content.
+   */
+  async function exportVersion(
+    actor: ActorContext,
+    canvasId: Id,
+    versionId: Id,
+    format: "json" | "markdown",
+  ): Promise<VersionExportDto> {
+    return db.transaction(async (tx) => {
+      const canvas = await findCanvasById(tx, actor.companyId, canvasId);
+      if (!canvas) throw notFound();
+      await policy.assertSubjectAccess(actor, canvas.owner_user_id, tx);
+      const version = await findVersionById(
+        tx,
+        actor.companyId,
+        canvasId,
+        versionId,
+      );
+      if (!version) throw notFound();
+      const md = format === "markdown" ? toMarkdown(version.body) : null;
+      await appendAudit(tx, {
+        companyId: actor.companyId,
+        actorId: actor.userId,
+        action: "canvas.export",
+        targetType: "canvas_version",
+        targetId: versionId,
+        outcome: "success",
+        requestId: actor.requestId,
+        metadata: { mode: format, version: version.version_no },
+      });
+      return {
+        schema_version: version.schema_version,
+        ...(md ? { markdown: md.text } : { body: version.body }),
+        warnings: md ? md.warnings : [],
+      };
+    });
+  }
+
+  /**
+   * Draft export-preview (task 2.7): browser Excel/PDF/PNG render from
+   * this payload so exporting a live draft is authorized + audited
+   * server-side. Strictly the current draft — after publish consumes it
+   * this is a 404 until a new draft is opened. `warnings` previews what a
+   * Markdown export of this draft would lose.
+   */
+  async function exportDraftPreview(
+    actor: ActorContext,
+    canvasId: Id,
+  ): Promise<DraftExportDto> {
+    return db.transaction(async (tx) => {
+      const canvas = await findCanvasById(tx, actor.companyId, canvasId);
+      if (!canvas) throw notFound();
+      await policy.assertSubjectAccess(actor, canvas.owner_user_id, tx);
+      const draft = await findDraftByCanvas(tx, actor.companyId, canvasId);
+      if (!draft) {
+        throw new AppError(
+          404,
+          "DRAFT_NOT_FOUND",
+          "Canvas chưa có bản nháp — mở bản nháp trước khi xuất",
+        );
+      }
+      await appendAudit(tx, {
+        companyId: actor.companyId,
+        actorId: actor.userId,
+        action: "canvas.export",
+        targetType: "canvas",
+        targetId: canvasId,
+        outcome: "success",
+        requestId: actor.requestId,
+        metadata: { mode: "preview", version: draft.revision },
+      });
+      return {
+        schema_version: draft.body.schema_version,
+        body: draft.body,
+        revision: draft.revision,
+        warnings: toMarkdown(draft.body).warnings,
+      };
+    });
+  }
+
   return {
     createCanvas,
     getCanvas,
     listCanvases,
     getVersion,
     listVersions,
+    exportVersion,
+    exportDraftPreview,
     assertWrite,
     createDraft,
     saveDraft,

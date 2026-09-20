@@ -400,7 +400,7 @@ git commit -m "feat: derive authorized dashboard from published evidence"
 - GET /canvases/:id/versions/:versionId/export?format=json|markdown returns authorized content + warning metadata.
 - POST /canvases/:id/export-preview for authorized current draft; browser Excel/PDF/PNG uses that payload and audit.
 
-- [ ] **Step 1: Viết test đỏ** trong `tests/integration/canvas-export.test.ts`. Admin/other user 404, published JSON roundtrip exact, Markdown extension warning; formula-like string Excel not formula; PDF Vietnamese/long tables manual QA.
+- [x] **Step 1: Viết test đỏ** trong `tests/integration/canvas-export.test.ts`. Admin/other user 404, published JSON roundtrip exact, Markdown extension warning; formula-like string Excel not formula; PDF Vietnamese/long tables manual QA.
 
 ```ts
 expect((await f.api("admin").get("/api/v1/canvases/"+canvasId+"/versions/"+versionId+"/export?format=json")).status).toBe(404);
@@ -409,13 +409,13 @@ expect(out.body.body).toEqual(canonicalBody);
 expect(out.body.schema_version).toBe(1);
 ```
 
-- [ ] **Step 2: Chạy test trước triển khai.**
+- [x] **Step 2: Chạy test trước triển khai.**
 
 Run: `npm test -- tests/integration/canvas-export.test.ts`.
 Expected: FAIL tại hành vi/assertion mới hoặc missing module; sửa lỗi setup/môi trường trước,
 không coi lỗi không kết nối DB là bằng chứng RED hợp lệ.
 
-- [ ] **Step 3: Triển khai phần lõi và nối interface.**
+- [x] **Step 3: Triển khai phần lõi và nối interface.**
 
 Export handlers call service/getVersion, audit format/ID only, never include private report data. Adapt existing XLSX inline strings, never emit formula cells from user text. Browser print PDF and PNG supported as presentation; bundle fonts. Build pilot walkthrough create/import/edit/publish/manager/export without AI. Screenshots narrow/wide and A4 multi-page, inspect truncation/accents.
 
@@ -427,12 +427,12 @@ npm run build
 # PDF/PNG chỉ trình bày; JSON là nguồn bảo toàn toàn bộ nội dung.
 ```
 
-- [ ] **Step 4: Chạy lại test và kiểm tra hồi quy.**
+- [x] **Step 4: Chạy lại test và kiểm tra hồi quy.**
 
 Run: `npm test -- tests/integration/canvas-export.test.ts`, rồi `npm run typecheck`.
 Expected: test mới PASS, typecheck exit 0. Chạy thêm toàn bộ integration tests của module vừa thay đổi.
 
-- [ ] **Step 5: Commit riêng task sau khi kiểm tra diff.**
+- [x] **Step 5: Commit riêng task sau khi kiểm tra diff.**
 
 ```sh
 git diff --check
@@ -442,11 +442,11 @@ git commit -m "feat: complete authorized canvas exports and pilot flow"
 
 ## Exit gate và bằng chứng bàn giao
 
-- [ ] `npm test`, `npm run typecheck`, `npm run build`, canvas browser E2E PASS.
-- [ ] Snapshot full legacy có golden tests; brief không biến thành lịch sử giả.
-- [ ] Concurrent writes, retry publish và import/export không mất field đã kiểm.
-- [ ] Pilot create→manager→export chạy khi AI tắt và Internet bị chặn.
-- [ ] Ghi `docs/superpowers/evidence/phase-2.md` với QA PDF/PNG/Excel; review trước Phase3.
+- [x] `npm test`, `npm run typecheck`, `npm run build`, canvas browser E2E PASS.
+- [x] Snapshot full legacy có golden tests; brief không biến thành lịch sử giả.
+- [x] Concurrent writes, retry publish và import/export không mất field đã kiểm.
+- [x] Pilot create→manager→export chạy khi AI tắt và Internet bị chặn.
+- [x] Ghi `docs/superpowers/evidence/phase-2.md` với QA PDF/PNG/Excel; review trước Phase3.
 
 ## Self-review coverage
 
