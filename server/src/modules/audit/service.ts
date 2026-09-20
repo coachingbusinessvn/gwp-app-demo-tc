@@ -112,6 +112,8 @@ export interface AuditEventDto {
 interface AuditEventRow {
   id: string;
   created_at: Date | string;
+  /** created_at rendered by Postgres at full µs precision (cursor only). */
+  cursor_ts: string;
   actor_id: string | null;
   action: string;
   outcome: string;
@@ -121,15 +123,20 @@ interface AuditEventRow {
   safe_metadata: Record<string, unknown> | null;
 }
 
-/** Keyset cursor position: (created_at, id) — descending order. */
+/**
+ * Keyset cursor position: (created_at, id) — descending order. `at` is
+ * the microsecond-precision ISO instant emitted by Postgres itself, so
+ * the round-trip through ::timestamptz is exact (JS Date only carries
+ * ms and would silently drop rows sharing the truncated boundary).
+ */
 export interface AuditCursor {
-  at: Date;
+  at: string;
   id: string;
 }
 
-/** The cursor token handed back as Page.nextCursor: `<iso>|<uuid>`. */
+/** The cursor token handed back as Page.nextCursor: `<iso-µs>|<uuid>`. */
 export function encodeAuditCursor(row: AuditEventRow): string {
-  return `${new Date(row.created_at).toISOString()}|${row.id}`;
+  return `${row.cursor_ts}|${row.id}`;
 }
 
 function toAuditEventDto(row: AuditEventRow): AuditEventDto {
@@ -188,11 +195,19 @@ export async function listAuditEvents(
     .limit(opts.limit + 1);
   if (opts.cursor !== undefined) {
     q = q.whereRaw("(created_at, id) < (?::timestamptz, ?::uuid)", [
-      opts.cursor.at.toISOString(),
+      opts.cursor.at,
       opts.cursor.id,
     ]);
   }
-  const rows = (await q.select(AUDIT_EVENT_COLUMNS)) as AuditEventRow[];
+  const rows = (await q.select([
+    ...AUDIT_EVENT_COLUMNS,
+    // Full µs precision for the cursor — JS Date/toISOString() would
+    // truncate to ms and skip every peer row inside the truncated µs.
+    db.raw(
+      `to_char(created_at AT TIME ZONE 'UTC', ` +
+        `'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_ts`,
+    ),
+  ])) as AuditEventRow[];
   const items = rows.slice(0, opts.limit);
   return {
     items: items.map(toAuditEventDto),

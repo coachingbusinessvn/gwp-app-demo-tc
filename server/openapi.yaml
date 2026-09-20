@@ -1976,7 +1976,11 @@ components:
           type: object
           description: Only allowlisted keys with scalar values survive.
           additionalProperties:
-            type: [string, number, boolean, "null"]
+            nullable: true
+            anyOf:
+              - type: string
+              - type: number
+              - type: boolean
     AuditEventPage:
       type: object
       required: [items, nextCursor]

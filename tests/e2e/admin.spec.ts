@@ -68,6 +68,15 @@ test("admin quản trị được org nhưng không thấy nút đặc quyền �
     { purpose: "reset" },
   );
   expect(deniedToken.status).toBe(403);
+
+  // Entry point: the shared shell nav surfaces "Quản trị" for admin
+  // (built by assets/app.js on every shell page; UX-only — the API is
+  // still the enforcement, proven by the 403s above).
+  await page.goto("/dashboard.html");
+  const adminNav = page.getByRole("link", { name: "Quản trị" });
+  await expect(adminNav).toBeVisible();
+  await adminNav.click();
+  await expect(page).toHaveURL(/\/admin\.html$/);
 });
 
 test("vòng đời tài khoản: admin tạo pending → owner phát mã → activate → login", async ({
@@ -84,6 +93,11 @@ test("vòng đời tài khoản: admin tạo pending → owner phát mã → act
   await page.getByRole("button", { name: "Tạo người dùng" }).click();
   await page.getByLabel("Email", { exact: true }).fill(email);
   await page.getByLabel("Họ tên").fill("Người Mới");
+  // Picking a department rebuilds the team <select>'s options in place —
+  // the label for/select id wiring must survive, or getByLabel("Tổ")
+  // would dangle.
+  await page.getByLabel("Phòng ban").selectOption({ index: 1 });
+  await expect(page.getByLabel("Tổ", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Lưu", exact: true }).click();
   await expect(page.getByText(email, { exact: true })).toBeVisible();
 
@@ -150,6 +164,10 @@ test("vòng đời tài khoản: admin tạo pending → owner phát mã → act
     await expect(activation.getByTestId("account-name")).toContainText(
       "Người Mới",
     );
+    // A plain member's shell nav does NOT show the "Quản trị" entry.
+    await expect(
+      activation.getByRole("link", { name: "Quản trị" }),
+    ).toHaveCount(0);
   } finally {
     await ownerCtx.close();
     await publicCtx.close();

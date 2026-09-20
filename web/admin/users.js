@@ -97,8 +97,8 @@ export function mountUsers(panel, ctx) {
     return sel;
   }
 
-  function teamSelect(departmentId, selectedId) {
-    const sel = selectInput();
+  /** Repopulate a team <select>'s options (keeps the element + label). */
+  function fillTeams(sel, departmentId, selectedId) {
     const none = document.createElement("option");
     none.value = "";
     none.textContent = "— Không có —";
@@ -110,18 +110,24 @@ export function mountUsers(panel, ctx) {
       if (t.id === selectedId) opt.selected = true;
       sel.append(opt);
     }
+  }
+
+  function teamSelect(departmentId, selectedId) {
+    const sel = selectInput();
+    fillTeams(sel, departmentId, selectedId);
     return sel;
   }
 
   /** Department+team field pair — the team list follows the department. */
   function orgFields(current) {
     const dep = departmentSelect(current?.departmentId ?? null);
-    let teamSel = teamSelect(dep.value || null, current?.teamId ?? null);
+    const teamSel = teamSelect(dep.value || null, current?.teamId ?? null);
     const teamField = field("Tổ", teamSel);
     dep.addEventListener("change", () => {
-      const next = teamSelect(dep.value || null, null);
-      teamField.replaceChildren(next);
-      teamSel = next;
+      // Swap only the <option>s — replacing the element would orphan the
+      // label's for/id association that field() wired up.
+      teamSel.replaceChildren();
+      fillTeams(teamSel, dep.value || null, null);
     });
     return {
       nodes: [field("Phòng ban", dep), teamField],

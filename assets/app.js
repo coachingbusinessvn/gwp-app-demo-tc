@@ -26,7 +26,13 @@ const LOGO =
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><circle cx="32" cy="32" r="29" fill="none" stroke="#C9A668" stroke-width="3"/><path d="M20 22l7 22 5-14 5 14 7-22" fill="none" stroke="#E7D0A2" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   );
 
-function renderHeader(me) {
+function renderHeader(me, roles) {
+  // Admin entry point is a UX convenience only — roles come from
+  // GET /auth/me (DB truth) and every admin API re-checks server-side.
+  const adminNav =
+    roles.includes("owner") || roles.includes("admin")
+      ? '<a href="admin.html">Quản trị</a>'
+      : "";
   document.body.insertAdjacentHTML(
     "afterbegin",
     '<header class="app"><div class="bar">' +
@@ -34,6 +40,7 @@ function renderHeader(me) {
       '<div><div class="brand">GoWise Partners</div><div class="appname">Performance Follow-up</div></div>' +
       '<nav class="sitenav" aria-label="Công cụ">' +
       '<a href="dashboard.html">Bảng theo dõi</a>' +
+      adminNav +
       "</nav>" +
       '<div class="spacer"></div>' +
       '<div class="who" data-testid="account-name"><b>' + esc(me.name) + "</b><br>" +
@@ -71,7 +78,7 @@ async function init() {
   const identity = await requireAuth(); // { user, roles } — null after redirect
   if (!identity) return;
   const me = identity.user;
-  renderHeader(me);
+  renderHeader(me, identity.roles ?? []);
 
   const page = document.body.dataset.page;
 

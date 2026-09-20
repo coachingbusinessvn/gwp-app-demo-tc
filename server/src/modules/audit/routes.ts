@@ -36,6 +36,10 @@ function cursorParam(raw: unknown): AuditCursor | undefined {
   const sep = s.lastIndexOf("|");
   const at = sep > 0 ? s.slice(0, sep) : "";
   const id = sep > 0 ? s.slice(sep + 1) : "";
+  // The timestamp half is Postgres-rendered µs ISO (e.g.
+  // 2026-09-20T00:26:34.123456Z) — the regex allows any µs width and the
+  // string is passed back to ::timestamptz verbatim, so no precision is
+  // lost between pages.
   if (!ISO_INSTANT_RE.test(at) || !UUID_RE.test(id)) {
     throw new AppError(400, "INVALID_CURSOR", "Con trỏ trang không hợp lệ");
   }
@@ -43,7 +47,7 @@ function cursorParam(raw: unknown): AuditCursor | undefined {
   if (!Number.isFinite(date.getTime())) {
     throw new AppError(400, "INVALID_CURSOR", "Con trỏ trang không hợp lệ");
   }
-  return { at: date, id };
+  return { at, id };
 }
 
 export function auditRoutes(deps: {

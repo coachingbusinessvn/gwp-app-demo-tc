@@ -95,7 +95,9 @@ describe("GET /api/v1/audit", () => {
   it("paginates newest-first with a keyset cursor and validates params", async () => {
     const f = await fixture({ seeded: true });
     try {
-      // Three known events, inserted in order.
+      // Three known events, inserted in order. Sequential awaited
+      // inserts get distinct per-statement now() timestamps — and being
+      // the newest rows in the table, they head the newest-first page.
       for (const action of ["e.one", "e.two", "e.three"]) {
         await f.db("audit_event").insert({
           company_id: f.ids.company,
@@ -105,13 +107,6 @@ describe("GET /api/v1/audit", () => {
           request_id: `req-${action}`,
           safe_metadata: {},
         });
-        // Distinct created_at so the ordering assertion is deterministic.
-        // audit_event is append-only for the runtime role, so this test
-        // backdating goes through the maintenance connection.
-        await f.maintenanceDb.raw(
-          `UPDATE audit_event SET created_at = now() - interval '1 second' * ? WHERE action = ?`,
-          [action === "e.one" ? 3 : action === "e.two" ? 2 : 1, action],
-        );
       }
 
       const page1 = (await f
@@ -133,6 +128,61 @@ describe("GET /api/v1/audit", () => {
       expect(p2.items[0].action).toBe("e.one");
       // Seed logins also wrote auth.login events before ours — they may
       // follow e.one; only the leading item is asserted.
+
+      // Boundary regression: rows written in ONE transaction share an
+      // identical created_at (now() = transaction timestamp, µs
+      // precision). A cursor truncated to ms would silently drop the
+      // sibling sitting inside the truncated µs window — page through
+      // them one at a time and prove both arrive, no gap, no repeat.
+      await f.db.transaction(async (tx) => {
+        for (const action of ["e.same-a", "e.same-b"]) {
+          await tx("audit_event").insert({
+            company_id: f.ids.company,
+            actor_id: f.ids.admin,
+            action,
+            outcome: "success",
+            request_id: `req-${action}`,
+            safe_metadata: {},
+          });
+        }
+      });
+      // Runtime role holds SELECT on audit_event; f.db resolves the
+      // fixture schema via its search_path.
+      const distinctTs = (
+        await f.db.raw(
+          `SELECT DISTINCT created_at::text AS t FROM audit_event
+           WHERE action IN ('e.same-a', 'e.same-b')`,
+        )
+      ).rows as { t: string }[];
+      expect(distinctTs).toHaveLength(1); // identical µs timestamp
+
+      const gapP1 = (await f
+        .api("owner")
+        .get("/api/v1/audit?limit=1")) as unknown as TestResponse;
+      const g1 = gapP1.body as {
+        items: { action: string }[];
+        nextCursor: string | null;
+      };
+      expect(g1.items).toHaveLength(1);
+      expect(g1.nextCursor).toBeTruthy();
+      const newest = g1.items[0].action;
+      // The same-timestamp pair is newest overall; whichever sibling
+      // leads page 1, page 2 must surface the other — never skip it.
+      expect(["e.same-a", "e.same-b"]).toContain(newest);
+
+      const gapP2 = (await f
+        .api("owner")
+        .get(
+          `/api/v1/audit?limit=1&cursor=${encodeURIComponent(g1.nextCursor!)}`,
+        )) as unknown as TestResponse;
+      const g2 = gapP2.body as {
+        items: { action: string }[];
+        nextCursor: string | null;
+      };
+      expect(g2.items).toHaveLength(1);
+      expect(g2.items[0].action).toBe(
+        newest === "e.same-a" ? "e.same-b" : "e.same-a",
+      );
 
       const badCursor = (await f
         .api("owner")
