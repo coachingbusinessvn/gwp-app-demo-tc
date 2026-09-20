@@ -440,6 +440,100 @@ describe("POST /api/v1/auth/reset", () => {
       await f.close();
     }
   });
+
+  it("refuses a token whose target left the issuable status after issuance — consume must not resurrect", async () => {
+    const f = await fixture({ seeded: true });
+    try {
+      // The constant-error baseline every invalid token produces.
+      const unknown = await consume(
+        f,
+        "reset",
+        "not-a-real-token",
+        NEW_PASSWORD,
+      );
+      expect(unknown.status).toBe(400);
+      expect(unknown.body.code).toBe("INVALID_TOKEN");
+
+      // Arm 1 — reset issued for an ACTIVE member who is deactivated
+      // through the real owner route before the consume (member has no
+      // reports, so no replacementManagerId is needed).
+      const issued = await issue(f, "owner", f.ids.member, "reset");
+      expect(issued.status).toBe(201);
+      const token = issued.body.token as string;
+      const before = await f
+        .db("app_user")
+        .where({ id: f.ids.member })
+        .first();
+      expect(before.status).toBe("active");
+
+      const off = await f
+        .api("owner")
+        .post(`/api/v1/users/${f.ids.member}/deactivate`)
+        .send({});
+      expect(off.status).toBe(200);
+
+      const res = await consume(f, "reset", token, NEW_PASSWORD);
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe("INVALID_TOKEN");
+      expect(res.body.message).toBe(unknown.body.message);
+
+      // Nothing moved: the password hash is untouched, the token was NOT
+      // consumed, and the account stays inactive — a reset token must
+      // never resurrect a deactivated account.
+      const after = await f
+        .db("app_user")
+        .where({ id: f.ids.member })
+        .first();
+      expect(after.status).toBe("inactive");
+      expect(after.password_hash).toBe(before.password_hash);
+      const resetRow = await f
+        .db("one_time_token")
+        .where({ token_hash: sha256hex(token) })
+        .first();
+      expect(resetRow.used_at).toBeNull();
+
+      // Arm 2 — activate issued for a pending user whose status flips
+      // (pending → inactive) before the consume: the same INVALID_TOKEN,
+      // same non-resurrection. No public pending→inactive transition
+      // exists, so the flip is a direct SQL update.
+      const pendingId = await createPendingUser(f, "flip@example.test");
+      const act = await issue(f, "owner", pendingId, "activate");
+      expect(act.status).toBe(201);
+      const pendingBefore = await f
+        .db("app_user")
+        .where({ id: pendingId })
+        .first();
+      expect(pendingBefore.status).toBe("pending");
+      await f
+        .db("app_user")
+        .where({ id: pendingId })
+        .update({ status: "inactive" });
+
+      const actRes = await consume(
+        f,
+        "activate",
+        act.body.token as string,
+        NEW_PASSWORD,
+      );
+      expect(actRes.status).toBe(400);
+      expect(actRes.body.code).toBe("INVALID_TOKEN");
+      expect(actRes.body.message).toBe(unknown.body.message);
+
+      const pendingAfter = await f
+        .db("app_user")
+        .where({ id: pendingId })
+        .first();
+      expect(pendingAfter.status).toBe("inactive");
+      expect(pendingAfter.password_hash).toBe(pendingBefore.password_hash);
+      const actRow = await f
+        .db("one_time_token")
+        .where({ token_hash: sha256hex(act.body.token as string) })
+        .first();
+      expect(actRow.used_at).toBeNull();
+    } finally {
+      await f.close();
+    }
+  });
 });
 
 describe("POST /api/v1/auth/password", () => {
