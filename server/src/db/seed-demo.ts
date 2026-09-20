@@ -12,19 +12,22 @@ import {
   DEMO_PASSWORD,
   type DemoId,
 } from "./demo-identities.js";
+import { seedDemoCanvases, type CanvasSeedReport } from "./seed-canvas.js";
 
 /**
- * Demo seed — IDENTITIES ONLY at Phase 0 (canvas seed is Phase 2).
+ * Demo seed — identities (v1) + demo canvases (v2, task 2.6).
  *
  * Spec §8: demo mode is an immutable property of the database, so this
  * refuses unless deployment_state.mode === 'demo' AND first-run setup has
- * completed. Idempotent via deployment_state.seed_version — a second run is
- * a version-skip no-op. Runs as the runtime credential (no DDL needed).
+ * completed. Idempotent via deployment_state.seed_version — each phase
+ * runs only when the stored version is below it, so a v1 database picks
+ * up just the canvas phase and a v2 database is a no-op. Runs as the
+ * runtime credential (no DDL needed).
  *
  * All demo users share the published demo password hashed once — the
  * credential is public by design, so per-user salts would only burn CPU.
  */
-export const DEMO_SEED_VERSION = 1;
+export const DEMO_SEED_VERSION = 2;
 
 export async function seedDemo(
   db: Knex,
@@ -74,33 +77,42 @@ export async function seedDemo(
       ),
     );
 
-    // DEMO_IDENTITIES iterates parents before children (org order), so the
-    // composite manager FK resolves within the same pass.
-    const idByDemoId = new Map<DemoId, string>();
-    for (const [demoId, ident] of Object.entries(DEMO_IDENTITIES)) {
-      const userId = ident.demoUserId;
-      idByDemoId.set(demoId as DemoId, userId);
-      await tx("app_user").insert({
-        id: userId,
-        company_id: companyId,
-        email: ident.email,
-        name: ident.name,
-        title: ident.title,
-        status: "active",
-        password_hash: passwordHash,
-        manager_id: ident.managerDemoId
-          ? idByDemoId.get(ident.managerDemoId)
-          : null,
-      });
-      const roleId = roleIdByKey.get(ident.role);
-      if (!roleId) {
-        throw new AppError(500, "ROLE_MISSING", `Thiếu role ${ident.role}`);
+    // v1 — identities. DEMO_IDENTITIES iterates parents before children
+    // (org order), so the composite manager FK resolves within one pass.
+    if (state.seed_version < 1) {
+      const idByDemoId = new Map<DemoId, string>();
+      for (const [demoId, ident] of Object.entries(DEMO_IDENTITIES)) {
+        const userId = ident.demoUserId;
+        idByDemoId.set(demoId as DemoId, userId);
+        await tx("app_user").insert({
+          id: userId,
+          company_id: companyId,
+          email: ident.email,
+          name: ident.name,
+          title: ident.title,
+          status: "active",
+          password_hash: passwordHash,
+          manager_id: ident.managerDemoId
+            ? idByDemoId.get(ident.managerDemoId)
+            : null,
+        });
+        const roleId = roleIdByKey.get(ident.role);
+        if (!roleId) {
+          throw new AppError(500, "ROLE_MISSING", `Thiếu role ${ident.role}`);
+        }
+        await tx("user_role").insert({
+          company_id: companyId,
+          user_id: userId,
+          role_id: roleId,
+        });
       }
-      await tx("user_role").insert({
-        company_id: companyId,
-        user_id: userId,
-        role_id: roleId,
-      });
+    }
+
+    // v2 — demo canvases: full legacy snapshots as immutable published
+    // versions; brief markers become migration notes in provenance.
+    let canvasReport: CanvasSeedReport | null = null;
+    if (state.seed_version < 2) {
+      canvasReport = await seedDemoCanvases(tx, companyId);
     }
 
     await appendAudit(tx, {
@@ -140,7 +152,9 @@ if (invokedDirectly) {
     const db = createDb(url);
     try {
       await seedDemo(db, mode);
-      console.log("db:seed-demo complete — demo identities seeded");
+      console.log(
+        "db:seed-demo complete — demo identities + canvases seeded (idempotent)",
+      );
     } finally {
       await db.destroy().catch(() => {});
     }

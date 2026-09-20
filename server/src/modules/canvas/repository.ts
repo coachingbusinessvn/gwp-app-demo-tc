@@ -310,6 +310,8 @@ export async function insertVersion(
     change_summary: string | null;
     provenance: Record<string, unknown> | null;
     published_by: string;
+    /** Seed-only: pin the historical publish date instead of now(). */
+    published_at?: string;
   },
 ): Promise<CanvasVersionRow> {
   const rows = (await tx("canvas_version").insert(

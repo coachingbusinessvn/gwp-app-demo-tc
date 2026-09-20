@@ -345,7 +345,7 @@ git commit -m "feat: connect canvas editor to revision-aware API"
 - `buildSeries(body:CanvasBody): Series[]`; same metricId+definitionRevision+unit, dedup observed row ID.
 - `seedDemoCanvases(db)` uses fromLegacy full only; fixture seed version tracked.
 
-- [ ] **Step 1: Viết test đỏ** trong `tests/integration/dashboard.test.ts`. Draft future observation không ảnh hưởng dashboard; same title different assignee; current date timezone rollover; missing evidence/changed unit no fabricated trend.
+- [x] **Step 1: Viết test đỏ** trong `tests/integration/dashboard.test.ts`. Draft future observation không ảnh hưởng dashboard; same title different assignee; current date timezone rollover; missing evidence/changed unit no fabricated trend.
 
 ```ts
 const result=await f.api("manager").get("/api/v1/dashboard");
@@ -354,13 +354,13 @@ expect(result.body.attention.every((x:{assigneeUserId:string})=>x.assigneeUserId
 expect(result.body.canvases.find((x:{id:string})=>x.id===draftOnlyCanvas).status).toBe("unpublished");
 ```
 
-- [ ] **Step 2: Chạy test trước triển khai.**
+- [x] **Step 2: Chạy test trước triển khai.**
 
 Run: `npm test -- tests/integration/dashboard.test.ts`.
 Expected: FAIL tại hành vi/assertion mới hoặc missing module; sửa lỗi setup/môi trường trước,
 không coi lỗi không kết nối DB là bằng chứng RED hợp lệ.
 
-- [ ] **Step 3: Triển khai phần lõi và nối interface.**
+- [x] **Step 3: Triển khai phần lõi và nối interface.**
 
 Join latest published only and permitted owners; no unfiltered counts. Clock injectable, day difference company timezone; actions overdue if deadline<today and status not completed. Series uses latest snapshot cumulative observed, dedup row ID; no mixing units/baselines; skip no numeric extension, display no data. Demo trend from real fixture observed extension if available, do not assign fake evidence to text.
 
@@ -375,12 +375,12 @@ export function progress(value:number, baseline:number, target:number): number|n
 // Lower-is-better tự đúng khi target<baseline; không parseFloat("2,1 tỷ").
 ```
 
-- [ ] **Step 4: Chạy lại test và kiểm tra hồi quy.**
+- [x] **Step 4: Chạy lại test và kiểm tra hồi quy.**
 
 Run: `npm test -- tests/integration/dashboard.test.ts`, rồi `npm run typecheck`.
 Expected: test mới PASS, typecheck exit 0. Chạy thêm toàn bộ integration tests của module vừa thay đổi.
 
-- [ ] **Step 5: Commit riêng task sau khi kiểm tra diff.**
+- [x] **Step 5: Commit riêng task sau khi kiểm tra diff.**
 
 ```sh
 git diff --check

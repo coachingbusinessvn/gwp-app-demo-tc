@@ -1957,6 +1957,41 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/dashboard:
+    get:
+      tags: [dashboard]
+      summary: Policy-scoped rollup of published canvas evidence
+      description: >
+        The follow-up dashboard (spec §5.3): `people` are exactly the
+        subjects the actor may read (self, company for owner/admin,
+        reporting subtree for a manager), `canvases` are the canvases
+        owned by those subjects joined to their LATEST PUBLISHED version
+        only — drafts are never evidence and an unpublished canvas
+        reports `status: "unpublished"` with no content. `attention`
+        lists only overdue open actions assigned TO the caller
+        (`assigneeUserId === actor`), on canvases inside scope; archived
+        canvases stay listed as `archived` but their actions stop
+        nagging. `series` per canvas is derived from
+        `observed[].measurement` of the published snapshot — there is no
+        stored or fabricated trend data. "Today" is the company
+        calendar day in Asia/Ho_Chi_Minh.
+      operationId: getDashboard
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The scoped dashboard rollup.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Dashboard"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
 components:
   parameters:
     XCsrfToken:
@@ -2893,3 +2928,185 @@ components:
           type: string
           nullable: true
           description: Pass as ?cursor= for the next page; null at the end.
+    SeriesPoint:
+      type: object
+      required: [observedId, date, value, layer]
+      properties:
+        observedId:
+          type: string
+          description: The observed row this point was derived from — evidence citation.
+        date:
+          type: string
+          format: date
+          description: ISO date verbatim from measurement.date — never re-zoned.
+        value:
+          type: number
+        layer:
+          type: string
+          enum: [BEHAVIOR, OUTPUT, RESULT]
+    MeasurementSeries:
+      type: object
+      required:
+        [
+          key,
+          metricId,
+          definitionRevision,
+          unit,
+          baseline,
+          target,
+          points,
+          latest,
+          progressPct,
+        ]
+      properties:
+        key:
+          type: string
+          description: Series identity — [metricId, definitionRevision, unit].
+        metricId:
+          type: string
+        definitionRevision:
+          type: integer
+        unit:
+          type: string
+        baseline:
+          type: number
+        target:
+          type: number
+        points:
+          type: array
+          items:
+            $ref: "#/components/schemas/SeriesPoint"
+        latest:
+          type: number
+          nullable: true
+        progressPct:
+          type: number
+          nullable: true
+          description: Null when baseline === target (a "maintain" metric).
+    DashboardPerson:
+      type: object
+      required:
+        [userId, name, title, managerId, canvasCount, publishedCount, overdueActions]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        title:
+          type: string
+        managerId:
+          type: string
+          format: uuid
+          nullable: true
+        canvasCount:
+          type: integer
+        publishedCount:
+          type: integer
+        overdueActions:
+          type: integer
+          description: Overdue open actions assigned to this person on readable canvases.
+    AttentionItem:
+      type: object
+      required:
+        [
+          actionId,
+          canvasId,
+          canvasName,
+          action,
+          deadline,
+          status,
+          assigneeUserId,
+          assigneeLabel,
+          daysOverdue,
+        ]
+      properties:
+        actionId:
+          type: string
+        canvasId:
+          type: string
+          format: uuid
+        canvasName:
+          type: string
+        action:
+          type: string
+        deadline:
+          type: string
+          format: date
+        status:
+          type: string
+        assigneeUserId:
+          type: string
+          format: uuid
+        assigneeLabel:
+          type: string
+          description: Display label only — identity is assigneeUserId.
+        daysOverdue:
+          type: integer
+    DashboardCanvas:
+      type: object
+      required:
+        [
+          id,
+          name,
+          ownerUserId,
+          ownerName,
+          status,
+          stage,
+          currentVersionNo,
+          publishedAt,
+          openActions,
+          overdueActions,
+          series,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        ownerUserId:
+          type: string
+          format: uuid
+        ownerName:
+          type: string
+        status:
+          type: string
+          enum: [unpublished, published, archived]
+        stage:
+          type: string
+          nullable: true
+        currentVersionNo:
+          type: integer
+          nullable: true
+        publishedAt:
+          type: string
+          format: date-time
+          nullable: true
+        openActions:
+          type: integer
+        overdueActions:
+          type: integer
+        series:
+          type: array
+          items:
+            $ref: "#/components/schemas/MeasurementSeries"
+    Dashboard:
+      type: object
+      required: [generatedAt, people, attention, canvases]
+      properties:
+        generatedAt:
+          type: string
+          format: date-time
+        people:
+          type: array
+          items:
+            $ref: "#/components/schemas/DashboardPerson"
+        attention:
+          type: array
+          items:
+            $ref: "#/components/schemas/AttentionItem"
+        canvases:
+          type: array
+          items:
+            $ref: "#/components/schemas/DashboardCanvas"

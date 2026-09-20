@@ -1,14 +1,14 @@
-/* assets/app.js — account shell chung (task 0.5).
+/* assets/app.js — account shell chung + bảng theo dõi (tasks 0.5, 2.6).
  *
- * Phase 0 chỉ ship account shell: định danh thật lấy từ GET /api/v1/auth/me
- * (qua apiFetch — Bearer trong memory, cookie refresh HttpOnly). Không còn
- * localStorage "gwp-demo-tc-session", không còn PEOPLE/ORG/canvas từ
- * assets/data.js — các mục nghiệp vụ demo hiển thị placeholder
- * "Chưa mở — Phase 2" cho tới khi canvas data thật được port.
+ * Định danh thật lấy từ GET /api/v1/auth/me (qua apiFetch — Bearer trong
+ * memory, cookie refresh HttpOnly). Dashboard + employee đọc dữ liệu thật
+ * từ GET /api/v1/dashboard — phạm vi subject do policy phía server quyết,
+ * xu hướng chỉ vẽ từ measurement trên bản đã chốt (không vẽ số bịa).
  *
  * Loaded as <script type="module"> — no inline scripts (CSP script-src 'self').
  */
 import { logout, requireAuth } from "../web/auth.js";
+import { apiFetch } from "../web/api.js";
 
 /* ---------- Helpers ---------- */
 function esc(s) {
@@ -17,6 +17,22 @@ function esc(s) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+function initials(name) {
+  const p = String(name || "?").trim().split(/\s+/);
+  return (p[0][0] + (p[p.length - 1][0] || "")).toUpperCase();
+}
+function dmy(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? esc(iso)
+    : d.toLocaleDateString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" });
+}
+async function fetchDashboard() {
+  const res = await apiFetch("/dashboard");
+  if (!res.ok) throw new Error(`dashboard ${res.status}`);
+  return res.json();
 }
 
 /* ---------- Header / footer ---------- */
@@ -59,17 +75,174 @@ function renderFooter() {
   document.body.insertAdjacentHTML(
     "beforeend",
     '<footer class="app"><b>GoWise Partners</b> · Performance Architecture Canvas schema 3.0 — ' +
-      "Phase 0: account shell. Nghiệp vụ canvas mở lại ở Phase 2.</footer>",
+      "dữ liệu trên bản canvas đã chốt, trong phạm vi bạn được xem.</footer>",
   );
 }
 
-/* ---------- Disabled business sections ---------- */
-function lockedHTML(what) {
+/* ---------- Dashboard data renderers ---------- */
+const STATUS_CHIP = {
+  unpublished: '<span class="chip draft">Chưa chốt</span>',
+  published: '<span class="chip piloting">Đã chốt</span>',
+  archived: '<span class="chip draft">Lưu trữ</span>',
+};
+const STAGE_CHIP = {
+  DRAFT: '<span class="chip draft">Draft</span>',
+  PILOTING: '<span class="chip piloting">Piloting</span>',
+  VALIDATED: '<span class="chip validated">Validated</span>',
+};
+
+function attentionHTML(items) {
+  const rows = items
+    .map(
+      (x) =>
+        '<div class="rec risk"><div class="ic">⚠</div><div class="tx">' +
+        "<b>" + esc(x.action) + "</b>" +
+        "<span>" +
+        '<a class="wlink" href="canvas.html?canvas=' + encodeURIComponent(x.canvasId) + '">' +
+        esc(x.canvasName) + "</a>" +
+        " · hạn " + esc(dmy(x.deadline)) +
+        " · quá " + x.daysOverdue + " ngày</span>" +
+        "</div></div>",
+    )
+    .join("");
   return (
-    '<div class="locked">' +
-    '<span class="chip draft">Chưa mở — Phase 2</span>' +
-    '<p class="note" style="margin-top:10px">' + esc(what) +
-    " đang được chuyển sang dữ liệu thật và sẽ mở lại ở Phase 2.</p></div>"
+    '<div class="eyebrow">Ưu tiên hôm nay</div><h2 class="title">Cần bạn xử lý</h2>' +
+    (rows
+      ? '<div class="recs">' + rows + "</div>"
+      : '<div class="recs"><div class="rec ok"><div class="ic">✓</div>' +
+        '<div class="tx"><b>Không có việc quá hạn</b>' +
+        "<span>Mọi hành động giao cho bạn trên các canvas bạn đọc được đều còn trong hạn.</span>" +
+        "</div></div></div>")
+  );
+}
+
+/* Cây đội ngũ: chỉ các subject trong phạm vi — gốc là chính mình, các nút
+ * mồ côi (manager ngoài phạm vi) treo vào gốc để không mất người. */
+function treeHTML(people, meId) {
+  const ids = new Set(people.map((p) => p.userId));
+  const byManager = new Map();
+  for (const p of people) {
+    if (p.userId === meId) continue;
+    const parent = p.managerId && ids.has(p.managerId) ? p.managerId : meId;
+    if (!byManager.has(parent)) byManager.set(parent, []);
+    byManager.get(parent).push(p);
+  }
+  const seen = new Set();
+  const node = (p) => {
+    if (seen.has(p.userId)) return "";
+    seen.add(p.userId);
+    const kids = (byManager.get(p.userId) || []).map(node).join("");
+    const over =
+      p.overdueActions > 0
+        ? '<span class="chip risk">' + p.overdueActions + " quá hạn</span>"
+        : '<span class="chip validated">Đúng hạn</span>';
+    return (
+      "<li>" +
+      '<a class="person" href="employee.html?id=' + encodeURIComponent(p.userId) + '">' +
+      '<span class="ava">' + esc(initials(p.name)) + "</span>" +
+      '<span><span class="nm">' + esc(p.name) + "</span><br>" +
+      '<span class="rl">' + esc(p.title || "") + "</span></span>" +
+      '<span class="meta"><span class="cnt">' +
+      p.canvasCount + " canvas · " + p.publishedCount + " đã chốt</span>" +
+      over + "</span></a>" +
+      (kids ? "<ul>" + kids + "</ul>" : "") +
+      "</li>"
+    );
+  };
+  if (!people.length) return '<p class="note">Chưa có ai trong phạm vi của bạn.</p>';
+  const roots = people.filter((p) => p.userId === meId);
+  const html = roots.length
+    ? roots.map(node).join("")
+    : people.map(node).join(""); // actor ngoài list — render phẳng
+  return '<ul class="tree">' + html + "</ul>";
+}
+
+function canvasRowHTML(c) {
+  const chips =
+    (STATUS_CHIP[c.status] || "") +
+    (c.stage && STAGE_CHIP[c.stage] ? STAGE_CHIP[c.stage] : "");
+  const meta =
+    c.openActions + " việc mở" +
+    (c.overdueActions ? " · " + c.overdueActions + " quá hạn" : "") +
+    (c.publishedAt ? " · chốt " + dmy(c.publishedAt) : "");
+  return (
+    '<a class="week" href="canvas.html?canvas=' + encodeURIComponent(c.id) + '">' +
+    '<span><span class="wk">' + esc(c.currentVersionNo ? "v" + c.currentVersionNo : "—") + "</span>" +
+    '<span class="wdate">' + esc(c.ownerName) + "</span></span>" +
+    '<span><span class="wt">' + esc(c.name) + "</span>" +
+    '<span class="wch">' + esc(meta) + "</span></span>" +
+    '<span class="wact">' + chips + "</span></a>"
+  );
+}
+
+/* ---------- Employee page renderers ---------- */
+/* Mỗi series là một metric thật (metricId+revision+unit). Trục chung là
+ * % tiến độ baseline→target — công thức giống shared/canvas/measurement.ts. */
+function pct(value, baseline, target) {
+  if (target === baseline) return null;
+  return Math.max(-10, Math.min(115, ((value - baseline) / (target - baseline)) * 100));
+}
+const LAYER_COLOR = {
+  BEHAVIOR: "#12304C",
+  OUTPUT: "#B98A48",
+  RESULT: "#2F7A5B",
+};
+
+function chartHTML(canvas) {
+  const series = canvas.series || [];
+  if (!series.length) {
+    return (
+      '<h3 class="title" style="font-size:15px">' + esc(canvas.name) + "</h3>" +
+      '<p class="note">Bản đã chốt chưa có số đo — observed evidence ở dạng văn bản, không vẽ xu hướng.</p>'
+    );
+  }
+  const dates = [...new Set(series.flatMap((s) => s.points.map((p) => p.date)))].sort();
+  if (dates.length < 2) {
+    return (
+      '<h3 class="title" style="font-size:15px">' + esc(canvas.name) + "</h3>" +
+      '<p class="note">Chưa đủ mốc đo để vẽ xu hướng — cần ít nhất 2 ngày đo khác nhau.</p>'
+    );
+  }
+  const W = 680, H = 250, L = 44, R = 14, T = 16, B = 34;
+  const iw = W - L - R, ih = H - T - B;
+  const x = (d) => L + (dates.indexOf(d) * iw) / (dates.length - 1);
+  const y = (v) => T + ih - (v / 100) * ih;
+  let g = "";
+  [0, 25, 50, 75, 100].forEach((p) => {
+    g += '<line class="grid" x1="' + L + '" y1="' + y(p) + '" x2="' + (W - R) + '" y2="' + y(p) + '"/>' +
+      '<text class="lbl" x="' + (L - 8) + '" y="' + (y(p) + 3.5) + '" text-anchor="end">' + p + "%</text>";
+  });
+  g += '<line class="tgt" x1="' + L + '" y1="' + y(100) + '" x2="' + (W - R) + '" y2="' + y(100) + '"/>' +
+    '<line class="axis" x1="' + L + '" y1="' + y(0) + '" x2="' + (W - R) + '" y2="' + y(0) + '"/>';
+  dates.forEach((d) => {
+    g += '<text class="lbl" x="' + x(d) + '" y="' + (H - 12) + '" text-anchor="middle">' + esc(dmy(d)) + "</text>";
+  });
+  series.forEach((s) => {
+    const color = LAYER_COLOR[s.points[0].layer] || "#5A7185";
+    let d = "", started = false, dots = "";
+    s.points.forEach((p) => {
+      const v = pct(p.value, s.baseline, s.target);
+      if (v == null) return;
+      d += (started ? " L" : "M") + x(p.date) + " " + y(v);
+      started = true;
+      dots += '<circle class="dot" cx="' + x(p.date) + '" cy="' + y(v) + '" r="4" fill="' + color + '"><title>' +
+        esc(s.metricId) + " — " + esc(dmy(p.date)) + ": " + p.value + esc(s.unit) + "</title></circle>";
+    });
+    if (d) g += '<path class="ln" d="' + d + '" stroke="' + color + '"/>' + dots;
+  });
+  const legend = series
+    .map(
+      (s) =>
+        '<span><i style="background:' + (LAYER_COLOR[s.points[0].layer] || "#5A7185") + '"></i>' +
+        esc(s.metricId) + (s.unit ? " (" + esc(s.unit) + ")" : "") +
+        (s.progressPct != null ? " — " + Math.round(s.progressPct) + "%" : "") + "</span>",
+    )
+    .join("");
+  return (
+    '<h3 class="title" style="font-size:15px">' + esc(canvas.name) + "</h3>" +
+    '<div class="chartwrap"><svg viewBox="0 0 ' + W + " " + H + '" width="100%" role="img" ' +
+    'aria-label="Xu hướng đo lường của ' + esc(canvas.name) + '">' + g + "</svg>" +
+    '<div class="legend">' + legend + "</div></div>"
   );
 }
 
@@ -89,21 +262,40 @@ async function init() {
     const psub = document.getElementById("psub");
     if (psub) psub.textContent = me.title || me.email;
 
-    const attention = document.getElementById("attention");
-    if (attention) {
-      attention.innerHTML =
-        '<div class="eyebrow">Ưu tiên hôm nay</div><h2 class="title">Cần bạn xử lý</h2>' +
-        lockedHTML("Theo dõi canvas đội ngũ");
-    }
-    const tree = document.getElementById("tree");
-    if (tree) tree.innerHTML = lockedHTML("Sơ đồ đội ngũ");
-    const mine = document.getElementById("mine");
-    if (mine) {
-      mine.innerHTML =
-        '<h2 class="title">Canvas cá nhân</h2>' + lockedHTML("Canvas cá nhân");
+    let data;
+    try {
+      data = await fetchDashboard();
+    } catch {
+      data = null;
     }
 
-    // Tabs (layout giữ nguyên — nội dung là placeholder Phase 2).
+    const attention = document.getElementById("attention");
+    if (attention) {
+      attention.innerHTML = data
+        ? attentionHTML(data.attention)
+        : '<div class="eyebrow">Ưu tiên hôm nay</div><h2 class="title">Cần bạn xử lý</h2>' +
+          '<p class="note">Không tải được dữ liệu — thử tải lại trang.</p>';
+    }
+    const tree = document.getElementById("tree");
+    if (tree) {
+      tree.innerHTML = data
+        ? treeHTML(data.people, me.id)
+        : '<p class="note">Không tải được dữ liệu.</p>';
+    }
+    const mine = document.getElementById("mine");
+    if (mine) {
+      const myRows = data
+        ? data.canvases.filter((c) => c.ownerUserId === me.id)
+        : [];
+      mine.innerHTML =
+        '<h2 class="title">Canvas cá nhân</h2>' +
+        (myRows.length
+          ? '<div class="weeklist">' + myRows.map(canvasRowHTML).join("") + "</div>"
+          : '<p class="note">Bạn chưa có canvas nào. Mở Canvas Online để bắt đầu.</p>' +
+            '<div class="btnrow" style="margin-top:10px"><a class="btn ghost" href="/canvas-online/">Mở Canvas Online</a></div>');
+    }
+
+    // Tabs (layout giữ nguyên).
     const tabs = [
       ["tab-team", "panel-team"],
       ["tab-mine", "panel-mine"],
@@ -121,25 +313,86 @@ async function init() {
   }
 
   if (page === "employee") {
+    const personId = new URLSearchParams(location.search).get("id");
     const cname = document.getElementById("cname");
-    if (cname) cname.textContent = "Canvas theo tuần";
     const head = document.getElementById("head");
-    if (head) {
-      head.innerHTML =
-        '<div class="card"><h1 class="title">Canvas theo tuần</h1>' +
-        lockedHTML("Hồ sơ canvas theo tuần của từng người") + "</div>";
-    }
     const trend = document.getElementById("trend");
-    if (trend) {
-      trend.innerHTML =
-        '<div class="eyebrow">Biến đổi hiệu suất</div><h2 class="title">Ba tầng bằng chứng theo tuần</h2>' +
-        lockedHTML("Biểu đồ xu hướng");
-    }
     const list = document.getElementById("list");
-    if (list) {
-      list.innerHTML =
-        '<div class="eyebrow">Lịch sử</div><h2 class="title">Các bản canvas theo tuần</h2>' +
-        lockedHTML("Lịch sử canvas");
+
+    let data = null;
+    try {
+      data = await fetchDashboard();
+    } catch {
+      data = null;
+    }
+    const person = data?.people.find((p) => p.userId === personId) || null;
+    const canvases = data
+      ? data.canvases.filter((c) => c.ownerUserId === personId)
+      : [];
+
+    if (!person) {
+      if (cname) cname.textContent = "Không xem được";
+      if (head) {
+        head.innerHTML =
+          '<div class="card"><h1 class="title">Không xem được hồ sơ này</h1>' +
+          '<p class="note">Người này không nằm trong phạm vi của bạn, hoặc liên kết đã cũ.</p>' +
+          '<div class="btnrow" style="margin-top:12px"><a class="btn ghost" href="dashboard.html">Về bảng theo dõi</a></div></div>';
+      }
+    } else {
+      if (cname) cname.textContent = person.name;
+      if (head) {
+        head.innerHTML =
+          '<div class="card"><div class="person" style="cursor:default">' +
+          '<span class="ava">' + esc(initials(person.name)) + "</span>" +
+          '<span><span class="nm" style="font-size:17px">' + esc(person.name) + "</span><br>" +
+          '<span class="rl">' + esc(person.title || "") + "</span></span>" +
+          '<span class="meta"><span class="cnt">' +
+          person.canvasCount + " canvas · " + person.publishedCount + " đã chốt · " +
+          person.overdueActions + " quá hạn</span></span></div></div>";
+      }
+      if (trend) {
+        trend.innerHTML =
+          '<div class="eyebrow">Biến đổi hiệu suất</div><h2 class="title">Bằng chứng đo được trên bản đã chốt</h2>' +
+          (canvases.length
+            ? canvases.map(chartHTML).join('<div style="height:18px"></div>')
+            : '<p class="note">Chưa có canvas nào trong phạm vi của bạn.</p>');
+      }
+      if (list) {
+        // Lịch sử bản chốt — tải song song per canvas (policy-gated server-side).
+        const lists = await Promise.all(
+          canvases.map(async (c) => {
+            const res = await apiFetch(
+              "/canvases/" + encodeURIComponent(c.id) + "/versions",
+            );
+            return res.ok ? { canvas: c, versions: await res.json() } : { canvas: c, versions: [] };
+          }),
+        );
+        const rows = lists
+          .flatMap(({ canvas, versions }) =>
+            versions.map((v) => ({ canvas, v })),
+          )
+          .sort((a, b) => String(b.v.publishedAt).localeCompare(String(a.v.publishedAt)));
+        list.innerHTML =
+          '<div class="eyebrow">Lịch sử</div><h2 class="title">Các bản canvas đã chốt</h2>' +
+          (rows.length
+            ? '<div class="weeklist">' +
+              rows
+                .map(
+                  ({ canvas, v }) =>
+                    '<a class="week" href="canvas.html?canvas=' + encodeURIComponent(canvas.id) + '">' +
+                    '<span><span class="wk">v' + v.versionNo + "</span>" +
+                    '<span class="wdate">' + esc(dmy(v.publishedAt)) + "</span></span>" +
+                    '<span><span class="wt">' + esc(canvas.name) + "</span>" +
+                    '<span class="wch">' +
+                    esc(v.changeSummary || "Bản chốt") +
+                    (v.publishedByName ? " · " + esc(v.publishedByName) : "") +
+                    "</span></span>" +
+                    '<span class="wact"><span class="chip piloting">Bất biến</span></span></a>',
+                )
+                .join("") +
+              "</div>"
+            : '<p class="note">Chưa có bản nào được chốt.</p>');
+      }
     }
   }
 
