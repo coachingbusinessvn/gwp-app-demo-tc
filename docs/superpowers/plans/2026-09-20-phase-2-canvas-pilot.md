@@ -168,7 +168,7 @@ git commit -m "feat: add loss-aware canonical Markdown import and export"
 - `assertWrite(actor,canvasId,tx?): Promise<void>`: load canvas same company, assertSubjectAccess(owner), từ chối archived; exported cho report bridge Phase4.
 - `createDraft(actor,canvasId): Promise<DraftDTO>`: POST /canvases/:id/draft, copy current published hoặc blank nếu chưa có; existing draft trả409, không xóa bản đang sửa.
 
-- [ ] **Step 1: Viết test đỏ** trong `tests/integration/canvas-access.test.ts`. owner/self/subtree allow; admin thuần deny; list/count/detail/history đều filter; fake otherCompany; assignee không tự access.
+- [x] **Step 1: Viết test đỏ** trong `tests/integration/canvas-access.test.ts`. owner/self/subtree allow; admin thuần deny; list/count/detail/history đều filter; fake otherCompany; assignee không tự access.
 
 ```ts
 const created=await f.api("member").post("/api/v1/canvases")
@@ -179,13 +179,13 @@ const list=await f.api("admin").get("/api/v1/canvases");
 expect(list.body.items).not.toEqual(expect.arrayContaining([expect.objectContaining({id:created.body.id})]));
 ```
 
-- [ ] **Step 2: Chạy test trước triển khai.**
+- [x] **Step 2: Chạy test trước triển khai.**
 
 Run: `npm test -- tests/integration/canvas-access.test.ts`.
 Expected: FAIL tại hành vi/assertion mới hoặc missing module; sửa lỗi setup/môi trường trước,
 không coi lỗi không kết nối DB là bằng chứng RED hợp lệ.
 
-- [ ] **Step 3: Triển khai phần lõi và nối interface.**
+- [x] **Step 3: Triển khai phần lõi và nối interface.**
 
 Composite FK company/canvas IDs, current_version nullable circular FK added sau tạo version table. company/actor từ server, ownerUserId chỉ same company và subject quyền. draft unique canvas_id; published UPDATE/DELETE blocked runtime role. body JSONB validated. Index owner/company và version canvas/no. Empty production reads không fixture fallback. Seed demo canvas separate idempotent mapping, archive read-only.
 
@@ -198,12 +198,12 @@ ALTER TABLE canvas_version ADD CONSTRAINT version_canvas_company_fk
 -- Không có /versions/:id PUT hoặc DELETE; GET vẫn kiểm subject access.
 ```
 
-- [ ] **Step 4: Chạy lại test và kiểm tra hồi quy.**
+- [x] **Step 4: Chạy lại test và kiểm tra hồi quy.**
 
 Run: `npm test -- tests/integration/canvas-access.test.ts`, rồi `npm run typecheck`.
 Expected: test mới PASS, typecheck exit 0. Chạy thêm toàn bộ integration tests của module vừa thay đổi.
 
-- [ ] **Step 5: Commit riêng task sau khi kiểm tra diff.**
+- [x] **Step 5: Commit riêng task sau khi kiểm tra diff.**
 
 ```sh
 git diff --check
