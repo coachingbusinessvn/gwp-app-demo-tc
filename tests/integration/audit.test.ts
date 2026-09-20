@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { listAuditEvents } from "../../server/src/modules/audit/service.js";
+import { lockCompany } from "../../server/src/shared/company-lock.js";
 import { fixture } from "../helpers/fixture.js";
 
 /**
@@ -76,6 +77,40 @@ describe("GET /api/v1/audit", () => {
         status: 403,
         code: "FORBIDDEN",
         message: "Tài khoản không hoạt động",
+      });
+    } finally {
+      await f.close();
+    }
+  });
+
+  it("serializes against an in-flight deactivation — the read blocks on the company lock, then sees inactive", async () => {
+    const f = await fixture({ seeded: true });
+    try {
+      // A writer holds the company lock with the deactivation uncommitted.
+      // The audit read must queue behind it; once the writer commits the
+      // read's own status check must observe status='inactive' → 403.
+      const writer = await f.db.transaction();
+      await lockCompany(writer, f.ids.company);
+      await writer("app_user")
+        .where({ id: f.ids.admin })
+        .update({ status: "inactive" });
+
+      const read = listAuditEvents(f.db, f.actor("admin"), { limit: 1 });
+      const outcome = Promise.race([
+        read.then(
+          () => "resolved",
+          () => "rejected",
+        ),
+        new Promise((r) => setTimeout(() => r("blocked"), 500)),
+      ]);
+      // While the writer's lock is held, the read must NOT have completed
+      // — without lockCompany it would return rows immediately.
+      expect(await outcome).toBe("blocked");
+
+      await writer.commit();
+      await expect(read).rejects.toMatchObject({
+        status: 403,
+        code: "FORBIDDEN",
       });
     } finally {
       await f.close();

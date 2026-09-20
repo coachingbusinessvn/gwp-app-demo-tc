@@ -1,5 +1,6 @@
 import type { Knex } from "knex";
 import type { ActorContext, Page } from "../../shared/contracts.js";
+import { lockCompany } from "../../shared/company-lock.js";
 import { AppError } from "../../shared/errors.js";
 import {
   assertActiveActor,
@@ -175,52 +176,59 @@ const AUDIT_EVENT_COLUMNS = [
  * from the DB per request — never the JWT — and so is the actor's status:
  * role rows survive deactivation, so without the second read an in-flight
  * request from a just-deactivated admin could still read the audit trail
- * behind authenticate()'s per-request check. Newest-first keyset over
- * (created_at, id): the cursor is the composite position of the last row
- * of the previous page, so no row is skipped or repeated.
+ * behind authenticate()'s per-request check. The whole read runs inside
+ * one transaction holding the company lock so the role/status check and
+ * the row read serialize against the same lock that deactivation takes —
+ * a deactivation either commits before the lock is acquired (the status
+ * read then sees inactive) or waits for this read to finish. Newest-first
+ * keyset over (created_at, id): the cursor is the composite position of
+ * the last row of the previous page, so no row is skipped or repeated.
  */
 export async function listAuditEvents(
   db: Knex,
   actor: ActorContext,
   opts: { limit: number; cursor?: AuditCursor },
 ): Promise<Page<AuditEventDto>> {
-  const roles = await loadActorRoles(db, actor.companyId, actor.userId);
-  if (!roles.includes("owner") && !roles.includes("admin")) {
-    throw new AppError(
-      403,
-      "FORBIDDEN",
-      "Chỉ owner hoặc admin được xem nhật ký kiểm toán",
-    );
-  }
-  await assertActiveActor(db, actor.companyId, actor.userId);
-  let q = db("audit_event")
-    .where({ company_id: actor.companyId })
-    .orderBy([
-      { column: "created_at", order: "desc" },
-      { column: "id", order: "desc" },
-    ])
-    .limit(opts.limit + 1);
-  if (opts.cursor !== undefined) {
-    q = q.whereRaw("(created_at, id) < (?::timestamptz, ?::uuid)", [
-      opts.cursor.at,
-      opts.cursor.id,
-    ]);
-  }
-  const rows = (await q.select([
-    ...AUDIT_EVENT_COLUMNS,
-    // Full µs precision for the cursor — JS Date/toISOString() would
-    // truncate to ms and skip every peer row inside the truncated µs.
-    db.raw(
-      `to_char(created_at AT TIME ZONE 'UTC', ` +
-        `'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_ts`,
-    ),
-  ])) as AuditEventRow[];
-  const items = rows.slice(0, opts.limit);
-  return {
-    items: items.map(toAuditEventDto),
-    nextCursor:
-      rows.length > opts.limit
-        ? encodeAuditCursor(items[items.length - 1])
-        : null,
-  };
+  return db.transaction(async (tx) => {
+    await lockCompany(tx, actor.companyId);
+    const roles = await loadActorRoles(tx, actor.companyId, actor.userId);
+    if (!roles.includes("owner") && !roles.includes("admin")) {
+      throw new AppError(
+        403,
+        "FORBIDDEN",
+        "Chỉ owner hoặc admin được xem nhật ký kiểm toán",
+      );
+    }
+    await assertActiveActor(tx, actor.companyId, actor.userId);
+    let q = tx("audit_event")
+      .where({ company_id: actor.companyId })
+      .orderBy([
+        { column: "created_at", order: "desc" },
+        { column: "id", order: "desc" },
+      ])
+      .limit(opts.limit + 1);
+    if (opts.cursor !== undefined) {
+      q = q.whereRaw("(created_at, id) < (?::timestamptz, ?::uuid)", [
+        opts.cursor.at,
+        opts.cursor.id,
+      ]);
+    }
+    const rows = (await q.select([
+      ...AUDIT_EVENT_COLUMNS,
+      // Full µs precision for the cursor — JS Date/toISOString() would
+      // truncate to ms and skip every peer row inside the truncated µs.
+      tx.raw(
+        `to_char(created_at AT TIME ZONE 'UTC', ` +
+          `'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_ts`,
+      ),
+    ])) as AuditEventRow[];
+    const items = rows.slice(0, opts.limit);
+    return {
+      items: items.map(toAuditEventDto),
+      nextCursor:
+        rows.length > opts.limit
+          ? encodeAuditCursor(items[items.length - 1])
+          : null,
+    };
+  });
 }
