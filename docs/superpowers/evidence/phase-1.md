@@ -22,11 +22,39 @@ Commits theo task: 1.1 `073633e`+`98931ff`, 1.2 `19dfd64`, 1.3
   cho member); OpenAPI `additionalProperties` chuyển `anyOf`+`nullable`
   (đúng 3.0.3).
 
+## Review độc lập (Codex gpt-5.6-terra:high)
+
+Gate chạy headless trên checkout thật. Kết quả cuối: **PASS** trên HEAD
+`74204e1` — `npm test` 148/148, `tsc --noEmit` 0, `test:e2e` 9/9, diff
+sạch, compose.test.yaml hợp lệ. Hai vòng FAIL trước đó và cách sửa:
+
+- **TOCTOU actor-status** (`a5a6c94`): org/settings/audit chỉ re-read role
+  trong company lock mà không re-check `status` — role row sống sót sau
+  deactivate nên request đã authenticate của admin vừa bị deactivate vẫn
+  hoàn tất mutation. Thêm `assertActiveActor` dùng chung trong
+  `authorization/repository.ts`, gọi trong mọi gate sau lockCompany; test
+  service-level chứng minh stale-context bị 403 + rollback.
+- **Audit read còn cửa sổ TOCTOU** (`88f01b8`): read chạy trên connection
+  không lock — deactivate commit giữa assertActiveActor và SELECT vẫn lộ
+  trail. Giờ toàn bộ read chạy trong MỘT transaction sau `lockCompany` —
+  serialize đúng với writer. Test chứng minh read bị chặn khi writer giữ
+  lock rồi 403 sau commit.
+- **Suite flake dưới tải** (`17b59bc` + `74204e1`): root cause là cạn
+  connection (4 worker × 3 pool × max:10 ≈ 120 > max_connections=100) và
+  bucket rate-limit dùng chung một IP loopback. Fix: pool fixture 2/2/5 qua
+  `createDb.poolMax`, `max_connections=300` trên test container,
+  `TRUST_PROXY=loopback` trong testEnv + X-Forwarded-For riêng mỗi fixture
+  (cùng cơ chế e2e), `maxWorkers:4` + `retry:1` cho transient cấp host.
+  Hai lượt full suite liên tiếp 148/148 (~52-63s), Codex xác nhận 148/148.
+
+Whole-branch review (subagent độc lập): coherent & spec-compliant, không
+Critical/Important; các minor còn lại ghi ở ledger để xử Phase 2+.
+
 ## Điều kiện nghiệm thu (exit gate của plan)
 
 | Điều kiện | Bằng chứng |
 |---|---|
-| `npm test` / typecheck / admin e2e | `vitest run`: 144 tests trên PostgreSQL thật (compose.test.yaml @127.0.0.1:54329); `tsc --noEmit` exit 0; `playwright test tests/e2e/admin.spec.ts` 4/4 xanh |
+| `npm test` / typecheck / admin e2e | `vitest run`: 148 tests trên PostgreSQL thật (compose.test.yaml @127.0.0.1:54329); `tsc --noEmit` exit 0; `playwright test` 9/9 xanh (admin 4 + auth 5) |
 | Race cây/last-owner bằng 2 kết nối PostgreSQL thật | `user-roles.test.ts`: "serializes two concurrent last-owner demotions — exactly one succeeds", "serializes two concurrent owner deactivations — exactly one succeeds"; `policy.test.ts`: "serializes concurrent edits that would form a cycle — exactly one wins" (200+409, loser `REPORTING_CYCLE`); `auth.test.ts`: "concurrent rotation of the same token has exactly one winner". Tất cả trên DB thật, không mock |
 | Deactivate/reset giết session cũ; admin không self-escalation | `user-roles.test.ts`: deactivate → session chết; `credentials.test.ts`: reset revoke mọi session, consume không resurrect; admin 403 trên role/deactivate-owner; `auth.test.ts`: deactivate→reactivate không hồi sinh token |
 | Admin UI + branding + audit metadata-only | `admin.spec.ts` 4/4: admin quản org không thấy nút owner-only (API vẫn 403), vòng đời pending→activate→login thật, displayName HTML render như text, audit viewer metadata-only |
