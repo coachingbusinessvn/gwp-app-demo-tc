@@ -7,7 +7,7 @@ Ledger: `.superpowers/sdd/2026-09-20-phase-2-canvas/progress.md`
 
 Commits theo task: 2.1 `7c46c8f`+`8e40669`, 2.2 `e19453a`+`733f3c0`+`40064a5`,
 2.3 `dec1102`, 2.4 `ac1d93e`+`aca04d8`, 2.5 `01d7880`+`cc45e0a`+`776241b`,
-2.6 `6fe8bad`, 2.7 `efef8bc` (export boundary + pilot gate).
+2.6 `6fe8bad`, 2.7 (export boundary + pilot gate — commit trên cùng file này).
 
 ## Kết quả kiểm chứng cuối phase (HEAD sau 2.7)
 
