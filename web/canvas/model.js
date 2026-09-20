@@ -729,7 +729,7 @@ function cleanCell(v) {
   return s;
 }
 function splitRow(line) {
-  const SUB = " ";
+  const SUB = "\u0000";
   let s = line.trim().replace(/\\\|/g, SUB);
   if (s.startsWith("|")) s = s.slice(1);
   if (s.endsWith("|")) s = s.slice(0, -1);
