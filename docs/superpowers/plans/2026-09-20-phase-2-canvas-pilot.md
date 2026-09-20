@@ -282,7 +282,7 @@ git commit -m "feat: make canvas edits conflict-safe and publication idempotent"
 - Autosave serializes own requests; only advances revision from server response.
 - Draft load GET /canvases/:id/draft; published history GET /canvases/:id/versions.
 
-- [ ] **Step 1: Viết test đỏ** trong `tests/e2e/canvas.spec.ts`. 2 tabs conflict preserves local text; reload saved draft; publish DRAFT stage remains valid; retry save, beforeunload, malicious text rendered inert.
+- [x] **Step 1: Viết test đỏ** trong `tests/e2e/canvas.spec.ts`. 2 tabs conflict preserves local text; reload saved draft; publish DRAFT stage remains valid; retry save, beforeunload, malicious text rendered inert.
 
 ```ts
 await page.goto("/canvas-online/?canvas="+canvasId);
@@ -294,13 +294,13 @@ await page.getByRole("button",{name:"Chốt phiên bản"}).click();
 await expect(page.getByTestId("version-number")).toHaveText("v1");
 ```
 
-- [ ] **Step 2: Chạy test trước triển khai.**
+- [x] **Step 2: Chạy test trước triển khai.**
 
 Run: `npm run test:e2e -- tests/e2e/canvas.spec.ts`.
 Expected: FAIL tại hành vi/assertion mới hoặc missing module; sửa lỗi setup/môi trường trước,
 không coi lỗi không kết nối DB là bằng chứng RED hợp lệ.
 
-- [ ] **Step 3: Triển khai phần lõi và nối interface.**
+- [x] **Step 3: Triển khai phần lõi và nối interface.**
 
 Remove STORE_KEY/load/save localStorage from editor runtime; intentional explicit import legacy local copy requires user confirmation, never auto-upload. Serialize debounce saves; unmount warns unsaved; 409 freezes autosave, offers diff/copy local/reload, never automatic overwrite. History restore/export screens display permissions and immutable version. IDs supplied from API not PEOPLE globals. Diff uses escaped text and stable row ID.
 
@@ -318,12 +318,12 @@ async function saveCurrent(body) {
 // Define setSaveState in autosave.js; queue callers so only one saveCurrent runs at a time.
 ```
 
-- [ ] **Step 4: Chạy lại test và kiểm tra hồi quy.**
+- [x] **Step 4: Chạy lại test và kiểm tra hồi quy.**
 
 Run: `npm run test:e2e -- tests/e2e/canvas.spec.ts`, rồi `npm run typecheck`.
 Expected: test mới PASS, typecheck exit 0. Chạy thêm toàn bộ integration tests của module vừa thay đổi.
 
-- [ ] **Step 5: Commit riêng task sau khi kiểm tra diff.**
+- [x] **Step 5: Commit riêng task sau khi kiểm tra diff.**
 
 ```sh
 git diff --check
