@@ -341,10 +341,18 @@ marker text (also warned) so "undecided" is never misread as a link.
   `INVALID_ENUM`, `INVALID_DATE`, `SCHEMA_VERSION_MISMATCH`,
   `RISKS_FORMAT` (all warnings unless noted).
 - Meta labels (`**Canvas Stage:**`, `**Người lập:**`, …) are only read
-  in the preamble before `## 1.` — a label-shaped line inside a section
-  is content (and flags `DUPLICATE_LABEL`/`UNPARSED_CONTENT`), never
-  overrides real metadata. Text after `**Rủi ro …:**` on the label line
-  itself is imported into `risks`, not dropped.
+  from the preamble — lines before the *first* `##` heading (the title
+  line does not end the preamble; any `##`/stray `#` heading does).
+  Meta-shaped lines inside a numbered section flag
+  `DUPLICATE_LABEL`/`UNPARSED_CONTENT` and never override real metadata;
+  under an *unrecognized* `##`/`#` heading they are orphan content —
+  `UNPARSED_CONTENT`, never imported (the `UNKNOWN_SECTION` disclaimer
+  "nội dung mục này không import" is honored literally). A duplicated
+  meta label in the preamble warns `DUPLICATE_LABEL`; a content label
+  (`**Bối cảnh:**`, `**Rủi ro:**`, …) sitting in the preamble warns
+  `UNPARSED_CONTENT` rather than being exempted as furniture. Text after
+  `**Rủi ro …:**` on the label line itself is imported into `risks`,
+  not dropped.
 - `meta.updated`, `actions[].start/deadline`, `plan/observed/reviews[].date`
   go through the same date rules as `fromLegacy` (ISO validated against the
   real calendar; anchored `DD/MM/YYYY` normalizes; garbage warns + blanks).

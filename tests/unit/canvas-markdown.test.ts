@@ -594,4 +594,58 @@ describe("review fixes — silent-drop and collision regressions", () => {
     // first canonical hit wins; the row content is still preserved
     expect(r.body!.boxes[0]!.condition).toBe("c1");
   });
+
+  it("meta labels under an unknown ## section cannot smuggle metadata (N-1)", () => {
+    const md =
+      MINIMAL +
+      "\n## 9. APPENDIX\n\n" +
+      "**Canvas Stage:** VALIDATED\n" +
+      "**Người lập:** Sneaky Owner\n" +
+      "**Last Updated:** 2000-01-01\n";
+    const r = parseMarkdown(md);
+    // preamble values win — the appendix copies are never meta
+    expect(r.body!.meta.stage).toBe("DRAFT");
+    expect(r.body!.meta.owner).toBe("");
+    expect(r.body!.meta.updated).toBe("2026-09-20");
+    expect(
+      warnings(r.issues).some((i) => i.code === "UNKNOWN_SECTION"),
+    ).toBe(true);
+    // orphan label lines are reported, not silently exempted
+    expect(
+      warnings(r.issues).some(
+        (i) => i.code === "UNPARSED_CONTENT" && i.path === "document",
+      ),
+    ).toBe(true);
+  });
+
+  it("a content label in the preamble is UNPARSED_CONTENT, not furniture (N-2)", () => {
+    const md = MINIMAL.replace(
+      "## 1. GOAL",
+      "**Bối cảnh:** stray context\n\n## 1. GOAL",
+    );
+    const r = parseMarkdown(md);
+    expect(r.body!.goal.context).toBe("");
+    expect(
+      warnings(r.issues).some(
+        (i) =>
+          i.code === "UNPARSED_CONTENT" &&
+          i.path === "document" &&
+          i.message.includes("Bối cảnh"),
+      ),
+    ).toBe(true);
+  });
+
+  it("a duplicated meta label in the preamble warns DUPLICATE_LABEL", () => {
+    const md = MINIMAL.replace(
+      "**Migration Status:** Native v3",
+      "**Migration Status:** Native v3\n\n**Canvas Stage:** PILOTING",
+    );
+    const r = parseMarkdown(md);
+    expect(r.body!.meta.stage).toBe("DRAFT");
+    expect(
+      warnings(r.issues).some(
+        (i) => i.code === "DUPLICATE_LABEL" && i.path === "document",
+      ),
+    ).toBe(true);
+  });
 });

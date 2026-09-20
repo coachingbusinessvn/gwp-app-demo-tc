@@ -431,28 +431,40 @@ const KNOWN_LABEL_RE =
   /^\*\*(?:Bối cảnh|Solution Direction|Logic chốt hướng|Rủi ro|Key Result|Người lập|Canvas Stage|Build Mode|Schema Version|Last Updated|Migration Status)[^:\n]*:\*\*/i;
 
 /**
+ * Meta-only labels — the subset of KNOWN_LABEL_RE that `grabMeta` reads
+ * from the document preamble. Content labels (Bối cảnh, Rủi ro, …) are
+ * deliberately absent: a content label sitting in the preamble is
+ * misplaced input and must warn, not be exempted as furniture.
+ */
+const META_LABEL_RE =
+  /^\*\*(?:Người lập|Canvas Stage|Build Mode|Schema Version|Last Updated|Migration Status)[^:\n]*:\*\*/i;
+
+/**
  * Non-empty, unconsumed lines → warnings (loss-aware). Inside sections,
  * an unconsumed known-label line means a *duplicate* label — the first
- * occurrence was already imported, so it gets its own code. In the
- * document preamble (`exemptKnownLabels`), the meta/`Người lập` lines are
- * legitimate furniture and stay exempt.
+ * occurrence was already imported, so it gets its own code.
+ * `dupLabelRe` controls which labels count as "known" for that check;
+ * pass `null` (e.g. for lines under an unknown `##` heading, where the
+ * UNKNOWN_SECTION warning already disclaims import) to report every
+ * leftover line as UNPARSED_CONTENT.
  */
 function warnLeftover(
   lines: string[],
   consumed: Set<number>,
   path: string,
   issues: Issue[],
-  opts: { exemptKnownLabels?: boolean } = {},
+  opts: { dupLabelRe?: RegExp | null } = {},
 ): void {
+  const dupRe =
+    opts.dupLabelRe === undefined ? KNOWN_LABEL_RE : opts.dupLabelRe;
   const rest = lines
     .map((l, i) => ({ l: l.trim(), i }))
     .filter(({ l, i }) => l !== "" && !consumed.has(i));
-  const flagged = opts.exemptKnownLabels
-    ? rest.filter(({ l }) => !KNOWN_LABEL_RE.test(l))
-    : rest;
-  if (flagged.length === 0) return;
-  const dupLabels = flagged.filter(({ l }) => KNOWN_LABEL_RE.test(l));
-  const other = flagged.filter(({ l }) => !KNOWN_LABEL_RE.test(l));
+  if (rest.length === 0) return;
+  const dupLabels =
+    dupRe === null ? [] : rest.filter(({ l }) => dupRe.test(l));
+  const other =
+    dupRe === null ? rest : rest.filter(({ l }) => !dupRe.test(l));
   if (dupLabels.length > 0) {
     issues.push(
       warn(
@@ -488,7 +500,13 @@ export function parseMarkdown(text: string): MarkdownImport {
   let title: string | null = null;
   const sec: Record<string, string[]> = {};
   const sub: Record<string, string[]> = {};
+  // Preamble = lines before the first `##` heading — the only place meta
+  // labels are honored. Lines under an unrecognized heading go to
+  // `orphan` instead, so `**Canvas Stage:** …` inside `## 9. APPENDIX`
+  // cannot smuggle metadata past the UNKNOWN_SECTION warning.
   const stray: string[] = [];
+  const orphan: string[] = [];
+  let preambleEnded = false;
   let cur: string | null = null;
   let curSub: string | null = null;
   for (const line of lines) {
@@ -499,6 +517,7 @@ export function parseMarkdown(text: string): MarkdownImport {
       if (title === null) {
         title = h1[1]!;
       } else {
+        preambleEnded = true;
         issues.push(
           warn(
             "UNKNOWN_SECTION",
@@ -511,6 +530,7 @@ export function parseMarkdown(text: string): MarkdownImport {
     }
     const h2 = line.match(/^##(?!#)\s*(.+?)\s*$/);
     if (h2) {
+      preambleEnded = true;
       const num = h2[1]!.match(/^([1-6])(?:[\.．:]|\s|$)/);
       if (num) {
         cur = num[1]!;
@@ -563,6 +583,7 @@ export function parseMarkdown(text: string): MarkdownImport {
       continue;
     }
     if (/^#\s/.test(line)) {
+      preambleEnded = true;
       issues.push(
         warn(
           "UNKNOWN_SECTION",
@@ -574,6 +595,7 @@ export function parseMarkdown(text: string): MarkdownImport {
     }
     if (cur === "6" && curSub) sub[curSub]!.push(line);
     else if (cur) sec[cur]!.push(line);
+    else if (preambleEnded) orphan.push(line);
     else stray.push(line);
   }
 
@@ -609,17 +631,22 @@ export function parseMarkdown(text: string): MarkdownImport {
       );
     }
   }
-  warnLeftover(stray, new Set(), "document", issues, {
-    exemptKnownLabels: true,
-  });
-
   // ---- metadata (recognized labels; never imported into priv fields) --
-  // Meta labels only count in the preamble (before `## 1.`) — a
-  // "**Canvas Stage:** X" line inside a section is content, not metadata.
-  const metaText = stray.join("\n");
+  // Meta labels only count in the preamble (lines before the first `##`
+  // heading) — a "**Canvas Stage:** X" line inside a section is content,
+  // not metadata. Each stray line that actually yields a meta value is
+  // marked consumed so warnLeftover flags only real leftovers.
+  const consumedStray = new Set<number>();
   const grabMeta = (label: string): string | null => {
-    const m = metaText.match(new RegExp(`\\*\\*${label}:\\*\\*\\s*([^·\\n*]*)`));
-    return m === null ? null : normalizeText(m[1]!);
+    const re = new RegExp(`\\*\\*${label}:\\*\\*\\s*([^·\\n*]*)`);
+    for (let i = 0; i < stray.length; i++) {
+      const m = stray[i]!.match(re);
+      if (m !== null) {
+        consumedStray.add(i);
+        return normalizeText(m[1]!);
+      }
+    }
+    return null;
   };
   const stageRaw = grabMeta("Canvas Stage");
   const modeRaw = grabMeta("Build Mode");
@@ -663,6 +690,18 @@ export function parseMarkdown(text: string): MarkdownImport {
   } else {
     meta.updated = mdDate(updatedRaw, "Last Updated", "meta.updated", issues);
   }
+
+  // Preamble leftovers: meta lines already consumed by grabMeta stay
+  // quiet; a *second* meta label → DUPLICATE_LABEL; content labels or
+  // free text in the preamble → UNPARSED_CONTENT. Orphan lines sit under
+  // unrecognized headings — UNKNOWN_SECTION already disclaimed them, so
+  // they report as plain unparsed content (labels included).
+  warnLeftover(stray, consumedStray, "document", issues, {
+    dupLabelRe: META_LABEL_RE,
+  });
+  warnLeftover(orphan, new Set(), "document", issues, {
+    dupLabelRe: null,
+  });
 
   // ---- §1 GOAL --------------------------------------------------------
   const consumed1 = new Set<number>();
