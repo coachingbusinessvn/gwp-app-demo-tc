@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   ACTION_STATUSES,
   CANVAS_STAGES,
@@ -515,5 +515,87 @@ describe("fromLegacy — demo snapshot → canonical", () => {
     expect(res.body!.actions[0]!.deadline).toBe("2026-12-31");
     // kr/output deadlines are free text in the editor — preserved verbatim
     expect(res.body!.kr.deadline).toBe("31/12/2026");
+  });
+});
+
+describe("fromLegacy — schema-valid by construction", () => {
+  it("warns + blanks an impossible ISO date instead of passing it through", () => {
+    const bad = clone(legacyFull);
+    bad.observed[0] = { ...bad.observed[0], date: "2026-13-45" };
+    const res = fromLegacy(bad);
+    expect(res.body!.observed[0]!.date).toBe("");
+    expect(res.warnings.join("\n")).toContain("2026-13-45");
+    expect(CanvasBodySchema.safeParse(res.body).success).toBe(true);
+  });
+
+  it("warns when an ISO date is embedded in surrounding text (kept, text flagged)", () => {
+    const bad = clone(legacyFull);
+    bad.plan[0] = { ...bad.plan[0], date: "hạn 2026-09-30 theo chốt" };
+    const res = fromLegacy(bad);
+    expect(res.body!.plan[0]!.date).toBe("2026-09-30");
+    expect(res.warnings.join("\n")).toContain("hạn 2026-09-30 theo chốt");
+  });
+
+  it("truncates over-bound lists (outputs >3, behaviors >5) with warnings", () => {
+    const wide = clone(legacyFull);
+    wide.outputs = [0, 1, 2, 3].map(() => clone(legacyFull.outputs[0]));
+    wide.behaviors = [0, 1, 2, 3, 4, 5].map((i) =>
+      clone(legacyFull.behaviors[i % legacyFull.behaviors.length]!),
+    );
+    const res = fromLegacy(wide);
+    expect(res.body!.outputs).toHaveLength(3);
+    expect(res.body!.behaviors).toHaveLength(5);
+    const text = res.warnings.join("\n");
+    expect(text).toContain("outputs");
+    expect(text).toContain("behaviors");
+    expect(CanvasBodySchema.safeParse(res.body).success).toBe(true);
+  });
+
+  it("warns when required enums are absent or blank — never a silent default", () => {
+    const noStage = clone(legacyFull);
+    delete noStage.stage;
+    noStage.actions = [{ ...noStage.actions[0], st: "" }];
+    const res = fromLegacy(noStage);
+    const text = res.warnings.join("\n");
+    expect(text).toContain("stage");
+    expect(text).toContain("st");
+    expect(res.body!.meta.stage).toBe("DRAFT");
+    expect(res.body!.actions[0]!.status).toBe("Chưa bắt đầu");
+  });
+
+  it("final gate: returns body:null rather than a schema-invalid body", async () => {
+    // Every coercion path produces schema-legal values, so the gate is only
+    // reachable if a future change regresses — force it by corrupting newId.
+    vi.doMock("../../shared/canvas/defaults.js", async (importOriginal) => {
+      const orig =
+        await importOriginal<typeof import("../../shared/canvas/defaults.js")>();
+      return { ...orig, newId: () => "not-a-uuid" };
+    });
+    try {
+      vi.resetModules();
+      const { fromLegacy: guarded } = await import(
+        "../../shared/canvas/legacy.js"
+      );
+      const res = guarded(legacyFull);
+      expect(res.body).toBeNull();
+      expect(res.warnings.length).toBeGreaterThan(0);
+    } finally {
+      vi.doUnmock("../../shared/canvas/defaults.js");
+      vi.resetModules();
+    }
+  });
+
+  it.each([
+    { ...legacyFull, kr: "không phải object" },
+    { ...legacyFull, boxes: "không phải mảng" },
+    { ...legacyFull, observed: [{ date: "32/13/2026" }] },
+    { ...legacyFull, actions: [{ act: "x", st: "??" }] },
+    { ...legacyFull, name: 5, date: "mùa thu" },
+    { goal: "partial snapshot — chỉ có mục tiêu" },
+  ])("never returns a body that fails CanvasBodySchema: %#", (mutant) => {
+    const res = fromLegacy(mutant);
+    if (res.body !== null) {
+      expect(CanvasBodySchema.safeParse(res.body).success).toBe(true);
+    }
   });
 });

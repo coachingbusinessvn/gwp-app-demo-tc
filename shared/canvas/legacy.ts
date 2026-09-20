@@ -16,6 +16,7 @@ import {
   CANVAS_PAYLOAD_VERSION,
   CANVAS_STAGES,
   CONFIDENCE_LEVELS,
+  CanvasBodySchema,
   EVIDENCE_LAYERS,
   GAP_LEVELS,
   PRIORITY_LEVELS,
@@ -134,7 +135,8 @@ function asEnumOpt<T extends readonly string[]>(
   return "";
 }
 
-/** Required enum: invalid/missing values warn and fall back explicitly. */
+/** Required enum: invalid OR absent/blank values warn and fall back
+ *  explicitly — a silently defaulted stage/status would be a silent drop. */
 function asEnumReq<T extends readonly string[]>(
   v: unknown,
   options: T,
@@ -142,26 +144,44 @@ function asEnumReq<T extends readonly string[]>(
   ctx: string,
   warnings: string[],
 ): T[number] {
+  if (v == null || (typeof v === "string" && v.trim() === "")) {
+    warnings.push(`${ctx}: thiếu giá trị — đặt "${fallback}", kiểm tra lại.`);
+    return fallback;
+  }
   const s = asText(v, ctx, warnings).trim();
   if ((options as readonly string[]).includes(s)) return s as T[number];
-  if (s !== "") {
-    warnings.push(
-      `${ctx}: giá trị "${s}" không thuộc danh sách chuẩn (${options.join(" / ")}) — đặt "${fallback}".`,
-    );
-  }
+  warnings.push(
+    `${ctx}: giá trị "${s}" không thuộc danh sách chuẩn (${options.join(" / ")}) — đặt "${fallback}".`,
+  );
   return fallback;
 }
 
 /**
- * Date-typed fields: keep an ISO date found in the value, normalize
- * DD/MM/YYYY → YYYY-MM-DD, otherwise warn and blank (never pass through a
- * wrong-typed date — the payload schema would reject it anyway).
+ * Date-typed fields: an ISO YYYY-MM-DD candidate must be a real calendar
+ * date (z.iso.date() — "2026-13-45" warns and blanks); DD/MM/YYYY is
+ * normalized then validated the same way. An ISO substring embedded in
+ * other text is kept but warned — the dropped text is never silent.
+ * Anything else warns and blanks: a wrong-shaped date must never flow into
+ * a body the schema would reject.
  */
 function asIsoDate(v: unknown, ctx: string, warnings: string[]): string {
   const s = asText(v, ctx, warnings).trim();
   if (s === "") return "";
   const iso = s.match(/\d{4}-\d{2}-\d{2}/);
-  if (iso) return iso[0];
+  if (iso) {
+    if (ISO_DATE.safeParse(iso[0]).success) {
+      if (iso[0] !== s) {
+        warnings.push(
+          `${ctx}: ngày "${s}" chứa text ngoài phần ISO — giữ "${iso[0]}", phần còn lại bị lược, kiểm tra lại.`,
+        );
+      }
+      return iso[0];
+    }
+    warnings.push(
+      `${ctx}: ngày "${iso[0]}" trong "${s}" không phải ngày lịch thật — để trống.`,
+    );
+    return "";
+  }
   const dmy = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (dmy) {
     const candidate = `${dmy[3]}-${dmy[2]!.padStart(2, "0")}-${dmy[1]!.padStart(2, "0")}`;
@@ -265,7 +285,14 @@ export function fromLegacy(raw: unknown): LegacyImport {
   const outputs: CanvasBody["outputs"] = (() => {
     const rows = rowsOf("outputs");
     if (rows === null) return [blankOutput()];
-    return rows.map((r, i) => ({
+    let kept = rows;
+    if (rows.length > 3) {
+      warnings.push(
+        `"${label}".outputs: ${rows.length} dòng vượt giới hạn schema (tối đa 3) — giữ 3 dòng đầu, phần còn lại bị lược, kiểm tra lại.`,
+      );
+      kept = rows.slice(0, 3);
+    }
+    return kept.map((r, i) => ({
       id: newId(),
       name: asText(r.name, `"${label}".outputs[${i}].name`, warnings),
       current: asText(r.cur, `"${label}".outputs[${i}].cur`, warnings),
@@ -278,7 +305,14 @@ export function fromLegacy(raw: unknown): LegacyImport {
   const behaviors: CanvasBody["behaviors"] = (() => {
     const rows = rowsOf("behaviors");
     if (rows === null) return [blankBehavior(), blankBehavior()];
-    return rows.map((r, i) => ({
+    let kept = rows;
+    if (rows.length > 5) {
+      warnings.push(
+        `"${label}".behaviors: ${rows.length} dòng vượt giới hạn schema (tối đa 5) — giữ 5 dòng đầu, phần còn lại bị lược, kiểm tra lại.`,
+      );
+      kept = rows.slice(0, 5);
+    }
+    return kept.map((r, i) => ({
       id: newId(),
       actor: asText(r.actor, `"${label}".behaviors[${i}].actor`, warnings),
       behavior: asText(r.beh, `"${label}".behaviors[${i}].beh`, warnings),
@@ -476,6 +510,22 @@ export function fromLegacy(raw: unknown): LegacyImport {
     observed,
     reviews,
   };
+
+  // Belt-and-suspenders: the assembled body must satisfy CanvasBodySchema.
+  // If any coercion above ever slips an invalid value through, report the
+  // schema issues as warnings and refuse the body instead of returning a
+  // payload the schema would reject downstream.
+  const gate = CanvasBodySchema.safeParse(body);
+  if (!gate.success) {
+    const detail = gate.error.issues
+      .slice(0, 12)
+      .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
+      .join(" | ");
+    warnings.push(
+      `"${label}": body dựng xong không đạt CanvasBodySchema — KHÔNG trả body. Chi tiết: ${detail}`,
+    );
+    return { body: null, warnings };
+  }
 
   return { body, warnings };
 }

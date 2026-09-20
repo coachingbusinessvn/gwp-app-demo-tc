@@ -54,6 +54,11 @@ Every object is `.strict()` — unknown keys are rejected at every level, so
 privilege/server fields (`company_id`, `owner_user_id`, `canvas_id`, …) can
 never ride in through a payload. All row `id`s are UUIDs.
 
+Note: `boxes` is `.length(6)` at **schema** level — every stored body, draft
+or published, carries exactly the six canonical box rows (blank ones while
+undecided). Importers (Markdown round-trip in 2.2, editor in 2.5) must
+always emit 6 rows; there is no "fewer boxes" draft state.
+
 ### Enums
 
 | field | values | blankable |
@@ -135,6 +140,12 @@ metric reference when one exists (drives dashboard series — spec §5.3).
   `decision`, `verifier` all non-empty). A blank observed row is **not**
   evidence.
 
+  Semantic edge (flagged for 2.2/2.5, not handled here): completeness is
+  non-emptiness, not meaning — a row filled with placeholder text (`TBD`,
+  `(chưa điền)`, `—`) in every field satisfies this check. The Markdown
+  importer already strips `TBD`/`(chưa điền)` to `""` at parse time; keep
+  that normalization on every write path that can carry placeholders.
+
 Draft mode never blocks on business completeness — a fully blank
 `blankCanvas()` is a valid draft.
 
@@ -149,41 +160,63 @@ snapshots.
 
 ### Field map
 
+Complete map — identity (same-name) fields listed for completeness:
+
 | legacy | canonical | notes |
 |---|---|---|
 | `name` | `meta.title` | canvas-level field, flattened onto the record |
 | `owner` | `meta.owner` | |
-| `stage` | `meta.stage` | invalid → warn + `DRAFT` |
-| `mode` | `meta.mode` | invalid → warn + `GUIDED` |
-| `date` | `meta.updated` | normalized to ISO |
+| `stage` | `meta.stage` | invalid **or absent/blank** → warn + `DRAFT` |
+| `mode` | `meta.mode` | invalid or absent/blank → warn + `GUIDED` |
+| `date` | `meta.updated` | normalized to ISO (see rules) |
 | `goal` / `context` | `goal.statement` / `goal.context` | verbatim |
 | `direction` / `logic` | `solution.direction` / `solution.logic` | verbatim |
 | `risks[]` | `risks` | joined with `"\n"` (a bare string passes through) |
-| `kr.cur/tgt/due` | `kr.current/target/deadline` | `due` verbatim free text |
-| `outputs[].cur/tgt/due` | `outputs[].current/target/deadline` | `due` verbatim |
-| `behaviors[].beh/ctx/out/sign` | `behavior/context/outputs/signal` | |
-| `boxes[].cond/ev/pri/act/own` | `condition/evidence/priority/action/assignee_label` | row order maps positionally onto `SIX_BOXES` |
+| `kr.metric` | `kr.metric` | verbatim |
+| `kr.cur` / `kr.tgt` / `kr.due` / `kr.cs` | `kr.current` / `kr.target` / `kr.deadline` / `kr.cs` | `due` verbatim free text |
+| `outputs[].name` | `outputs[].name` | verbatim |
+| `outputs[].cur` / `tgt` / `due` / `cs` | `current` / `target` / `deadline` / `cs` | `due` verbatim |
+| `behaviors[].actor` | `behaviors[].actor` | verbatim |
+| `behaviors[].beh` / `ctx` / `out` / `sign` / `freq` | `behavior` / `context` / `outputs` / `signal` / `freq` | |
+| `boxes[].cond` / `ev` / `pri` / `act` / `own` | `condition` / `evidence` / `priority` / `action` / `assignee_label` | row order maps positionally onto `SIX_BOXES` |
+| `boxes[].gap` | `gap` | enum; invalid → warn + `""` |
 | `boxes[].beh` | `boxes[].behavior_id` | exact name match → `behaviors[].id`; unknown → `null` + warning |
-| `actions[].act/due/own/sup/cri/st` | `action/deadline/assignee_label/supporter_label/criteria/status` | `st` invalid → warn + `Chưa bắt đầu` |
-| `plan[].base/src/col/ver` | `baseline/source/collector/verifier` | |
-| `observed[].val/src/conf/learn/dec/ver` | `value/source/confidence/learning/decision/verifier` | |
-| `reviews[].cp/be/oe/re/ok/no/ln/ver` | `checkpoint/behavior_evidence/output_evidence/result_evidence/works/not_works/learning/verifier` | absent review keys → `""` |
+| `actions[].act` / `own` / `sup` / `cri` / `risk` | `action` / `assignee_label` / `supporter_label` / `criteria` / `risk` | |
+| `actions[].start` / `due` | `start` / `deadline` | ISO-normalized |
+| `actions[].st` | `status` | invalid or absent/blank → warn + `Chưa bắt đầu` |
+| `plan[].date` / `metric` | `date` / `metric` | date ISO-normalized; metric verbatim |
+| `plan[].layer` | `layer` | enum; invalid → warn + `""` |
+| `plan[].base` / `tgt` / `src` / `col` / `ver` | `baseline` / `target` / `source` / `collector` / `verifier` | |
+| `observed[].date` / `layer` | `date` / `layer` | date ISO-normalized; layer enum (invalid → warn + `""`) |
+| `observed[].val` / `src` / `conf` / `learn` / `dec` / `ver` | `value` / `source` / `confidence` / `learning` / `decision` / `verifier` | conf/dec enum (invalid → warn + `""`) |
+| `reviews[].cp` / `date` / `ver` | `checkpoint` / `date` / `verifier` | date ISO-normalized |
+| `reviews[].be` / `oe` / `re` / `ok` / `no` / `ln` | `behavior_evidence` / `output_evidence` / `result_evidence` / `works` / `not_works` / `learning` | absent review keys → `""` |
 | `id`, `personId`, `v`, `week`, `change`, `brief` | — | server-owned bookkeeping/identity, recognized but not imported |
 
 Rules:
 
-- Dates (`date`, `*.start`, `*.due` on actions, `*.date` on plan/observed/
-  reviews): ISO kept, `DD/MM/YYYY` normalized to ISO, anything else warns
+- Dates (`date`, `actions[].start`/`due`, `*.date` on plan/observed/reviews):
+  a bare ISO `YYYY-MM-DD` is kept after real-calendar validation; anchored
+  `DD/MM/YYYY` normalizes to ISO (validated — `32/13/2026` warns + blanks);
+  an ISO substring embedded in other text is kept **with a warning** naming
+  field and value; impossible ISO (`2026-13-45`) or unrecognized text warns
   and blanks. `kr.due` / `outputs[].due` are free text — never normalized.
-- Enums: exact match or warning + explicit fallback (no silent defaults,
-  no diacritic-folding guesses).
+- Enums: exact match or warning + explicit fallback — including absent and
+  blank required enums (`stage`, `mode`, `st`), which also warn. No silent
+  defaults, no diacritic-folding guesses.
 - Unknown keys — top-level or inside any row — always warn; privilege-shaped
   keys (`company_id`, `user_id`, …) are dropped with a warning, never
   imported.
+- Schema bounds enforced at mapping: `outputs` >3 and `behaviors` >5 are
+  truncated to the first rows with a warning (the publish bounds live in
+  validation.ts; the schema `.max()` applies to every stored body).
 - Missing content sections warn once and fall back to the blank-state shape
   (1 output, 2 behaviors, 6 blank boxes, 1 action, 3 plan rows, 1 observed
   row, 2 review checkpoints). An explicitly empty list (e.g.
   `observed: []`) is a real state and stays empty.
 - Every mapped row gets a fresh UUID `id`; legacy records carry none.
-- Mapped bodies are `CanvasBodySchema`-valid by construction; the tc2
-  fixture maps with zero warnings and passes `validateCanvas(_, "publish")`.
+- **Final gate:** the assembled body must pass `CanvasBodySchema`; if it
+  ever fails, `fromLegacy` returns `body: null` plus warnings carrying the
+  schema issues — the adapter never returns a body the schema would reject.
+- The tc2 fixture maps with zero warnings and passes
+  `validateCanvas(_, "publish")`.
