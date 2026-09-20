@@ -83,7 +83,9 @@ test("vòng đời tài khoản: admin tạo pending → owner phát mã → act
   page,
   browser,
 }) => {
-  const email = "newbie@example.test";
+  // Unique per run: playwright may reuse a live e2e server whose DB still
+  // holds a previously activated account under a fixed email.
+  const email = `newbie-${Date.now()}@example.test`;
   const password = "mat-khau-moi-12345";
 
   // Admin creates the pending member through the real admin form.
