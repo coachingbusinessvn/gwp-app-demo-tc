@@ -201,6 +201,79 @@ describe("sanitizeBody — untrusted versioned input is validated, not trusted",
     expect(warnings.some((w) => w.includes("id không hợp lệ"))).toBe(true);
   });
 
+  it("a combined-name box cannot satisfy two canonical boxes — no duplicate row ids", () => {
+    // Round-4 repro: one row named "Kỳ vọng & Phản hồi + Công cụ & Nguồn
+    // lực" used to match boxes[0] AND boxes[1], landing its id on both —
+    // the strict save then 400'd on duplicate_id.
+    const warnings: string[] = [];
+    const src = canonicalWithMeasurement() as unknown as Record<string, unknown>;
+    const dupId = "12345678-1234-4234-8234-567890abcdef";
+    src.boxes = [
+      {
+        id: dupId,
+        box: "Kỳ vọng & Phản hồi + Công cụ & Nguồn lực",
+        condition: "KEEP-ME",
+      },
+    ];
+    const out = sanitizeBody(src, warnings);
+    expect(out.boxes).toHaveLength(6);
+    expect(
+      out.boxes.filter((b: { id: string }) => b.id === dupId),
+    ).toHaveLength(1);
+    expect(
+      out.boxes.some((b: { condition: string }) => b.condition === "KEEP-ME"),
+    ).toBe(true);
+    expect(
+      CanvasBodySchema.safeParse(out).success,
+    ).toBe(true);
+  });
+
+  it("warns for every dropped/coerced value — unmatched boxes, unreadable dates, invalid enums, explicit nulls", () => {
+    const warnings: string[] = [];
+    const src = canonicalWithMeasurement() as unknown as Record<string, unknown>;
+    const boxes = src.boxes as Array<Record<string, unknown>>;
+    const actions = src.actions as Array<Record<string, unknown>>;
+    const observed = src.observed as Array<Record<string, unknown>>;
+    const meta = src.meta as Record<string, unknown>;
+
+    // Seventh box with an unknown name carrying real user data.
+    boxes.push({ id: "99999999-8888-4777-a666-555555555555", box: "UNKNOWN BOX", condition: "must survive in warnings" });
+    // Non-object box row.
+    boxes.push("not-a-box" as never);
+    // Date content that extracts to nothing.
+    actions[0].start = "not-a-date";
+    // "" is invalid for the REQUIRED status enum — silent default hid it.
+    actions[0].status = "";
+    // Explicit nulls — malformed under the strict schema, not absent keys.
+    observed[0].value = null;
+    observed[0].measurement = null;
+    actions[0].assignee_user_id = null;
+    meta.title = null;
+
+    const out = sanitizeBody(src, warnings);
+    expect(CanvasBodySchema.safeParse(out).success).toBe(true);
+    expect(warnings.some((w) => w.includes("UNKNOWN BOX"))).toBe(true);
+    expect(warnings.some((w) => w.includes("không phải đối tượng"))).toBe(true);
+    expect(warnings.some((w) => w.includes("not-a-date"))).toBe(true);
+    expect(warnings.some((w) => w.includes("status"))).toBe(true);
+    expect(warnings.filter((w) => w.includes("null")).length).toBeGreaterThanOrEqual(4);
+  });
+
+  it("regenerates duplicate row ids across lists with a warning", () => {
+    const warnings: string[] = [];
+    const src = canonicalWithMeasurement() as unknown as Record<string, unknown>;
+    const dupId = "11111111-2222-4333-8444-555555555555";
+    (src.outputs as Array<Record<string, unknown>>)[0].id = dupId;
+    (src.observed as Array<Record<string, unknown>>)[0].id = dupId;
+    const out = sanitizeBody(src, warnings);
+    const ids = [
+      ...out.outputs, ...out.behaviors, ...out.boxes, ...out.actions,
+      ...out.plan, ...out.observed, ...out.reviews,
+    ].map((r) => r.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(warnings.some((w) => w.includes("id trùng"))).toBe(true);
+  });
+
   it("salvages a fully schema-shaped measurement verbatim through the adapter", () => {
     const warnings: string[] = [];
     const src = canonicalWithMeasurement();

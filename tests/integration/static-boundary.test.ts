@@ -110,8 +110,17 @@ describe("static boundary — allowlisted public build is served", () => {
     expect(res.text).toContain("Đăng nhập");
   });
 
-  it("directory requests do not auto-serve index (index:false)", async () => {
+  it("GET / redirects to the login page (explicit route, not index serving)", async () => {
     const res = await request(app).get("/");
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe("/index.html");
+  });
+
+  it("directory requests do not auto-serve index (index:false)", async () => {
+    // /web/ exists in the build — a directory hit must still fall through
+    // to the JSON 404; only the two explicit routes (/ and /canvas-online)
+    // are exempt.
+    const res = await request(app).get("/web/");
     expect(res.status).toBe(404);
   });
 

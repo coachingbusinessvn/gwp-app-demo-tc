@@ -334,7 +334,16 @@ function mergeRow(dst, src, aliases, warnings, ctx, versioned) {
     if (k === "id" || k === "box") continue;
     let v = src[k];
     if (v == null && aliases && aliases[k] != null) v = src[aliases[k]];
-    if (v == null) continue;
+    if (v === undefined) continue;
+    if (v === null) {
+      // Explicit null is schema-valid ONLY for behavior_id (unconfirmed
+      // link). On every other leaf it is malformed input — normalize to
+      // the row default with a warning instead of silently absorbing it.
+      if (k === "behavior_id") dst[k] = null;
+      else if (versioned)
+        warnings.push(`${ctx}.${k}: giá trị null không hợp lệ — đã bỏ.`);
+      continue;
+    }
     if (k === "behavior_id") {
       if (isUuid(v)) dst[k] = v;
       else if (versioned)
@@ -356,9 +365,12 @@ function mergeRow(dst, src, aliases, warnings, ctx, versioned) {
   // the row types carrying assignee_label). On other row types the strict
   // schema rejects it, so a stray value is dropped with a warning.
   const aid = src.assignee_user_id;
-  if (aid != null) {
+  if (aid !== undefined) {
     handled.add("assignee_user_id");
-    if ("assignee_label" in dst) {
+    if (aid === null) {
+      if (versioned)
+        warnings.push(`${ctx}: assignee_user_id null không hợp lệ — đã bỏ.`);
+    } else if ("assignee_label" in dst) {
       if (isUuid(aid)) dst.assignee_user_id = aid;
       else warnings.push(`${ctx}: assignee_user_id không hợp lệ — đã bỏ.`);
     } else if (versioned) {
@@ -368,10 +380,13 @@ function mergeRow(dst, src, aliases, warnings, ctx, versioned) {
   // Observed rows may carry the strict `measurement` extension — salvage
   // only a schema-shaped object (unknown nested keys would make the
   // strict server reject the whole save); anything else warns + drops.
-  if (src.measurement != null) {
+  if (src.measurement !== undefined) {
     const m = src.measurement;
     handled.add("measurement");
-    if ("value" in dst && "confidence" in dst) {
+    if (m === null) {
+      if (versioned)
+        warnings.push(`${ctx}: measurement null không hợp lệ — đã bỏ.`);
+    } else if ("value" in dst && "confidence" in dst) {
       const mDate = str(m.date).trim();
       const ok =
         m &&
@@ -443,13 +458,24 @@ function checkedDate(v, warnings, ctx) {
     warnings.push(`${ctx}: ngày "${s}" không tồn tại — đã bỏ.`);
     return "";
   }
+  // Supplied content that yields no ISO date at all is still a silent
+  // drop — the strict server allows "" but the user's text is gone.
+  if (!s && str(v).trim() !== "") {
+    warnings.push(
+      `${ctx}: ngày "${str(v).trim().slice(0, 60)}" không đọc được — đã bỏ.`,
+    );
+    return "";
+  }
   return s;
 }
 const enumOr = (v, opts, dft) => (opts.indexOf(v) >= 0 ? v : dft);
-/** enumOr + a warning when a non-empty value is coerced to the default. */
+/** enumOr + a warning on ANY normalization — a supplied invalid value
+ * (including "" where the schema requires a member, e.g. actions.status)
+ * must never silently become the default. Blank defaults the schema
+ * accepts (enumOrBlank fields) pass through quietly since out === v. */
 function enumCheck(v, opts, dft, warnings, ctx) {
   const out = enumOr(v, opts, dft);
-  if (v && typeof v === "string" && out !== v)
+  if (out !== v)
     warnings.push(`${ctx}: giá trị "${v}" không hợp lệ — đã để mặc định.`);
   return out;
 }
@@ -464,14 +490,28 @@ function mergeBoxes(rawBoxes, warnings, versioned = false) {
   const raw = Array.isArray(rawBoxes) ? rawBoxes : [];
   if (versioned && rawBoxes != null && !Array.isArray(rawBoxes))
     warnings.push("boxes: không phải danh sách — đã bỏ, 6 ô để trống.");
-  return SIX_BOXES.map((name) => {
+  // Each source row may satisfy exactly ONE box — otherwise a combined
+  // name like "Kỳ vọng & Phản hồi + Công cụ & Nguồn lực" matches two
+  // canonical boxes and its id lands on both (duplicate_id → 400 save).
+  const consumed = new Set();
+  const boxName = (b) =>
+    b && typeof b === "object" ? str(b.box).trim().toLowerCase() : "";
+  const pick = (pred) => {
+    const i = raw.findIndex(
+      (b, j) => !consumed.has(j) && pred(boxName(b)),
+    );
+    if (i >= 0) consumed.add(i);
+    return i >= 0 ? raw[i] : undefined;
+  };
+  const result = SIX_BOXES.map((name) => {
     const vn = name.split(" | ")[0].toLowerCase();
     const en = name.split(" | ")[1].toLowerCase();
-    const hit = raw.find((b) => {
-      if (!b || typeof b !== "object") return false;
-      const s = str(b.box).toLowerCase();
-      return s.indexOf(vn) >= 0 || s.indexOf(en) >= 0;
-    });
+    const full = name.toLowerCase();
+    // Exact canonical-name match first (full bilingual string or either
+    // half alone), then the legacy substring fallback for name variants.
+    const hit =
+      pick((s) => s === full || s === vn || s === en) ??
+      pick((s) => s !== "" && (s.indexOf(vn) >= 0 || s.indexOf(en) >= 0));
     const b = blankBox(name);
     if (hit) {
       if (isUuid(hit.id)) b.id = hit.id;
@@ -503,6 +543,21 @@ function mergeBoxes(rawBoxes, warnings, versioned = false) {
     }
     return b;
   });
+  // Every supplied row is accounted for: a box that matched nothing
+  // (unknown name, surplus 7th row, non-object) is a silent drop unless
+  // it is named in the warnings.
+  raw.forEach((b, j) => {
+    if (consumed.has(j)) return;
+    if (b && typeof b === "object") {
+      const label = str(b.box).trim();
+      warnings.push(
+        `boxes: ô "${label ? label.slice(0, 60) : "(không tên)"}" không khớp 6 ô chuẩn — đã bỏ.`,
+      );
+    } else {
+      warnings.push(`boxes[${j}]: dòng không phải đối tượng — đã bỏ.`);
+    }
+  });
+  return result;
 }
 
 /** Keys a versioned row may legitimately carry beyond the blank row's —
@@ -602,16 +657,25 @@ export function sanitizeBody(input, warnings = [], trusted = false) {
   const mergeObj = (dst, src, name) => {
     if (src && typeof src === "object") {
       for (const k of Object.keys(dst)) {
-        if (src[k] != null && typeof src[k] === "object") {
+        if (src[k] === undefined) continue;
+        if (src[k] === null) {
+          // No leaf in meta/goal/kr/solution is nullable under the strict
+          // schema — an explicit null is malformed input, not an absent
+          // key, so it earns a warning instead of a silent default.
+          if (versioned)
+            warnings.push(`${name}.${k}: giá trị null không hợp lệ — đã bỏ.`);
+          continue;
+        }
+        if (typeof src[k] === "object") {
           if (versioned)
             warnings.push(`${name}.${k}: giá trị không phải chuỗi — đã bỏ.`);
           continue;
         }
-        if (src[k] != null) dst[k] = str(src[k]);
+        dst[k] = str(src[k]);
       }
       if (versioned) {
         const dropped = Object.keys(src).filter(
-          (k) => !(k in dst) && src[k] != null,
+          (k) => !(k in dst) && src[k] !== undefined,
         );
         if (dropped.length)
           warnings.push(
@@ -679,15 +743,30 @@ export function sanitizeBody(input, warnings = [], trusted = false) {
       } else if (versioned) {
         warnings.push(`${ctx || label}[${i}]: dòng không phải đối tượng — đã bỏ.`);
       }
-      return b;
+      return { b, src: row, i };
     });
-    arr = arr.filter((r) =>
-      Object.entries(r).some(
+    // A supplied row whose ONLY content was dropped as invalid (e.g. a
+    // lone malformed measurement) would vanish silently in the empty-row
+    // filter — name it so the drop is accounted for.
+    arr = arr.filter(({ b, src, i }) => {
+      const keep = Object.entries(b).some(
         ([k, v]) =>
           k !== "id" && k !== "box" && k !== "assignee_user_id" &&
           str(v).trim() !== "",
-      ),
-    );
+      );
+      if (
+        !keep &&
+        versioned &&
+        src &&
+        typeof src === "object" &&
+        Object.keys(src).length > 0
+      )
+        warnings.push(
+          `${ctx || label}[${i}]: dòng không còn nội dung hợp lệ — đã bỏ.`,
+        );
+      return keep;
+    });
+    arr = arr.map(({ b }) => b);
     if (max && arr.length > max) {
       warnings.push(
         `${label}: vượt giới hạn schema (${max} dòng) — giữ ${max} dòng đầu.`,
@@ -755,6 +834,29 @@ export function sanitizeBody(input, warnings = [], trusted = false) {
   // 6 Boxes: always exactly the six canonical rows, matched by box name —
   // count/order anomalies salvage rather than reset supplied data.
   st.boxes = mergeBoxes(p.boxes, warnings, versioned);
+
+  // Row ids must be unique document-wide — a duplicated id breaks keyed
+  // rendering and fails the server's duplicate_id check on the next save.
+  // The first row keeps the id; later duplicates are regenerated + warned.
+  const seenIds = new Set();
+  for (const [label, rows] of [
+    ["outputs", st.outputs],
+    ["behaviors", st.behaviors],
+    ["boxes", st.boxes],
+    ["actions", st.actions],
+    ["plan", st.plan],
+    ["observed", st.observed],
+    ["reviews", st.reviews],
+  ]) {
+    rows.forEach((r, i) => {
+      if (seenIds.has(r.id)) {
+        r.id = newId();
+        warnings.push(`${label}[${i}]: id trùng — đã cấp id mới.`);
+      } else {
+        seenIds.add(r.id);
+      }
+    });
+  }
 
   // Resolve boxes[].behavior_id: canonical uuid → must exist in
   // behaviors[]; legacy name → first exact match wins; anything else →

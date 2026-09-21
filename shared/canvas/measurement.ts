@@ -72,8 +72,21 @@ export function progress(
   baseline: number,
   target: number,
 ): number | null {
-  if (target === baseline) return null;
-  return ((value - baseline) / (target - baseline)) * 100;
+  // Scale to ≤1 before subtracting: the naive (v-b)/(t-b) overflows to
+  // ±Infinity on extreme-but-finite endpoints (e.g. baseline
+  // -Number.MAX_VALUE, target +Number.MAX_VALUE → denominator Infinity,
+  // numerator Infinity → 0 or NaN). Inputs are already finite per the
+  // Measurement schema; this guards the intermediates.
+  const scale = Math.max(
+    Math.abs(value),
+    Math.abs(baseline),
+    Math.abs(target),
+    1,
+  );
+  const d = target / scale - baseline / scale;
+  if (d === 0) return null; // baseline === target (to fp precision) — "maintain"
+  const pct = ((value / scale - baseline / scale) / d) * 100;
+  return Number.isFinite(pct) ? pct : null;
 }
 
 /**

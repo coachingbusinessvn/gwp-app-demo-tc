@@ -176,11 +176,17 @@ function canvasRowHTML(c) {
 }
 
 /* ---------- Employee page renderers ---------- */
-/* Mỗi series là một metric thật (metricId+revision+unit). Trục chung là
- * % tiến độ baseline→target — công thức giống shared/canvas/measurement.ts. */
+/* Mỗi series là một metric thật (metricId+revision+unit+baseline+target).
+ * Trục chung là % tiến độ baseline→target — công thức giống
+ * shared/canvas/measurement.ts (scale trước khi trừ để tránh tràn
+ * ±Infinity với endpoint cực trị; kết quả không finite trả null). */
 function pct(value, baseline, target) {
-  if (target === baseline) return null;
-  return Math.max(-10, Math.min(115, ((value - baseline) / (target - baseline)) * 100));
+  const scale = Math.max(Math.abs(value), Math.abs(baseline), Math.abs(target), 1);
+  const d = target / scale - baseline / scale;
+  if (d === 0) return null;
+  const v = ((value / scale - baseline / scale) / d) * 100;
+  if (!Number.isFinite(v)) return null;
+  return Math.max(-10, Math.min(115, v));
 }
 const LAYER_COLOR = {
   BEHAVIOR: "#12304C",
@@ -217,7 +223,18 @@ function chartHTML(canvas) {
   dates.forEach((d) => {
     g += '<text class="lbl" x="' + x(d) + '" y="' + (H - 12) + '" text-anchor="middle">' + esc(dmy(d)) + "</text>";
   });
-  series.forEach((s) => {
+  // Same-layer series share a color — a re-baselined definition (same
+  // metricId+revision+unit, different endpoints) would otherwise be
+  // indistinguishable, so repeats get a dash variant and the legend
+  // carries revision + baseline→target.
+  const DASHES = ["", ' stroke-dasharray="7 4"', ' stroke-dasharray="2 3"'];
+  const colorUse = {};
+  const dashFor = series.map((s) => {
+    const c = LAYER_COLOR[s.points[0].layer] || "#5A7185";
+    const n = (colorUse[c] = (colorUse[c] || 0) + 1);
+    return DASHES[Math.min(n - 1, DASHES.length - 1)];
+  });
+  series.forEach((s, i) => {
     const color = LAYER_COLOR[s.points[0].layer] || "#5A7185";
     let d = "", started = false, dots = "";
     s.points.forEach((p) => {
@@ -228,13 +245,15 @@ function chartHTML(canvas) {
       dots += '<circle class="dot" cx="' + x(p.date) + '" cy="' + y(v) + '" r="4" fill="' + color + '"><title>' +
         esc(s.metricId) + " — " + esc(dmy(p.date)) + ": " + p.value + esc(s.unit) + "</title></circle>";
     });
-    if (d) g += '<path class="ln" d="' + d + '" stroke="' + color + '"/>' + dots;
+    if (d) g += '<path class="ln" d="' + d + '" stroke="' + color + '"' + dashFor[i] + "/>" + dots;
   });
   const legend = series
     .map(
-      (s) =>
-        '<span><i style="background:' + (LAYER_COLOR[s.points[0].layer] || "#5A7185") + '"></i>' +
-        esc(s.metricId) + (s.unit ? " (" + esc(s.unit) + ")" : "") +
+      (s, i) =>
+        '<span><i style="background:' + (LAYER_COLOR[s.points[0].layer] || "#5A7185") +
+        (dashFor[i] ? ";opacity:.55" : "") + '"></i>' +
+        esc(s.metricId) + " — v" + s.definitionRevision + " · " + s.baseline + "→" + s.target +
+        (s.unit ? " " + esc(s.unit) : "") +
         (s.progressPct != null ? " — " + Math.round(s.progressPct) + "%" : "") + "</span>",
     )
     .join("");
