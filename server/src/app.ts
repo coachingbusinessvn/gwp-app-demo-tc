@@ -142,6 +142,13 @@ export function createApp({
     res.sendFile(path.join(config.publicDir, "canvas-online", "index.html"));
   });
 
+  // Coaching report page (task 4.4): same explicit-route pattern as the
+  // editor — a static artifact served at its pinned directory URL without
+  // weakening the index-disabled static boundary.
+  app.get(["/coaching-report", "/coaching-report/"], (_req, res) => {
+    res.sendFile(path.join(config.publicDir, "coaching-report", "index.html"));
+  });
+
   // Public asset boundary (task 0.5, spec §2): serve ONLY the allowlisted
   // build output at config.publicDir (<repo>/public-build) — never the
   // repository root, never dotfiles, no implicit index.html on directories.

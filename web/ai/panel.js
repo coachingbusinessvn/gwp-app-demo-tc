@@ -35,10 +35,19 @@ async function readError(res) {
 
 /**
  * @param host the <section class="card"> container in canvas-online
- * @param opts {canvasId, getDraftRevision, onApplied}
+ * @param opts {canvasId, getDraftRevision, onApplied, reportId}
  *   onApplied(draftDto) lets the editor adopt the new revision/body.
+ *   reportId (optional, task 4.4) is a coaching report the actor may read —
+ *   when set, the panel offers the whitelisted-field picker and sends
+ *   reportId+reportFields on renderer runs (the report→Renderer bridge;
+ *   the server re-checks both ACLs and extracts server-side).
  */
-export function mountAiPanel(host, { canvasId, getDraftRevision, onApplied }) {
+export function mountAiPanel(host, {
+  canvasId,
+  getDraftRevision,
+  onApplied,
+  reportId = null,
+}) {
   if (!host) return;
 
   const grid = el("div", "grid2");
@@ -65,6 +74,36 @@ export function mountAiPanel(host, { canvasId, getDraftRevision, onApplied }) {
   notes.id = "aiNotes";
   notes.placeholder =
     "Dán ghi chú phiên coaching hoặc báo cáo ORACLE — nội dung chỉ gửi tới endpoint AI nội bộ đã cấu hình.";
+
+  /* ---- report→Renderer bridge field picker (only when opened with one) ---- */
+  let bridgeBox = null;
+  const fieldChecks = [];
+  if (reportId) {
+    bridgeBox = el("div");
+    bridgeBox.dataset.testid = "report-bridge";
+    bridgeBox.hidden = true;
+    bridgeBox.append(
+      el(
+        "p",
+        "note",
+        "Kèm khuyến nghị từ coaching report đã chọn — chỉ các mục đánh dấu được đưa vào prompt (điểm số và trích dẫn transcript không bao giờ đi qua).",
+      ),
+    );
+    for (const [field, label] of [
+      ["priorities", "Ưu tiên cải thiện"],
+      ["followUp", "Follow-up"],
+      ["nextSession", "Chuẩn bị phiên tiếp theo"],
+    ]) {
+      const l = el("label", "ai-consent");
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = true;
+      cb.dataset.field = field;
+      fieldChecks.push(cb);
+      l.append(cb, document.createTextNode(` ${label}`));
+      bridgeBox.append(l);
+    }
+  }
 
   const consentLabel = el("label", "ai-consent");
   const consent = document.createElement("input");
@@ -106,12 +145,22 @@ export function mountAiPanel(host, { canvasId, getDraftRevision, onApplied }) {
     grid,
     notesLabel,
     notes,
+    ...(bridgeBox ? [bridgeBox] : []),
     consentLabel,
     btnRow,
     status,
     streamBox,
     previewHost,
   );
+
+  // The bridge is renderer-only — the picker appears only for it.
+  if (bridgeBox) {
+    const syncBridge = () => {
+      bridgeBox.hidden = assistant.value !== "renderer";
+    };
+    assistant.addEventListener("change", syncBridge);
+    syncBridge();
+  }
 
   let activeAbort = null;
   let currentRunId = null;
@@ -177,6 +226,12 @@ export function mountAiPanel(host, { canvasId, getDraftRevision, onApplied }) {
     streamBox.hidden = true;
     status.textContent = "Đang khởi chạy…";
 
+    // The bridge attaches the report id + the user's field selection —
+    // never report content. The server extracts whitelist prose itself.
+    const bridgeFields =
+      reportId && assistant.value === "renderer"
+        ? fieldChecks.filter((c) => c.checked).map((c) => c.dataset.field)
+        : [];
     const start = await apiFetch("/ai/runs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -186,6 +241,9 @@ export function mountAiPanel(host, { canvasId, getDraftRevision, onApplied }) {
         notes: notes.value,
         consent: true,
         idempotencyKey: crypto.randomUUID(),
+        ...(bridgeFields.length > 0
+          ? { reportId, reportFields: bridgeFields }
+          : {}),
       }),
     });
     if (!start.ok) {

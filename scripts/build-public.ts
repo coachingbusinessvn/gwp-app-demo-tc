@@ -60,7 +60,9 @@ const ALLOWLIST_DIRS = [
   "web/admin",
   "web/canvas",
   "web/ai",
+  "web/coaching",
   "canvas-online",
+  "coaching-report",
 ] as const;
 
 export function buildPublic(): string[] {

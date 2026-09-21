@@ -1150,8 +1150,11 @@ async function init() {
   // Phase 3 — the local-AI card. Apply adopts the returned draft the same
   // way a restore does: pointers advance, the form repopulates, autosave
   // sees a clean saved state. AI never touches publish.
+  // Phase 4.3/4.4 — a ?report=<id> deep link (from a coaching report's
+  // "Dùng trong Renderer" action) turns the panel's bridge picker on.
   mountAiPanel($("aiCard"), {
     canvasId,
+    reportId: params.get("report") || null,
     getDraftRevision: () => revision,
     onApplied: (d) => {
       adoptDraftPointers(d);
