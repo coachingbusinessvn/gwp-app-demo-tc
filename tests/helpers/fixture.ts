@@ -250,6 +250,24 @@ export async function fixture(options?: {
       await maintenanceDb.raw(
         `GRANT DELETE ON TABLE "${schema}".audit_event TO "gwp_maintenance"`,
       );
+      // Retention job (task 4.5): the maintenance role deletes ONLY from
+      // the retention-managed tables — business tables stay read-only.
+      await maintenanceDb.raw(
+        `GRANT DELETE ON TABLE "${schema}".ai_run TO "gwp_maintenance"`,
+      );
+      await maintenanceDb.raw(
+        `GRANT DELETE ON TABLE "${schema}".write_receipt TO "gwp_maintenance"`,
+      );
+      await maintenanceDb.raw(
+        `GRANT DELETE ON TABLE "${schema}".refresh_token TO "gwp_maintenance"`,
+      );
+      await maintenanceDb.raw(
+        `GRANT DELETE ON TABLE "${schema}".one_time_token TO "gwp_maintenance"`,
+      );
+      // rotate-key rewrites stored envelopes — column-scoped UPDATE only.
+      await maintenanceDb.raw(
+        `GRANT UPDATE (value, updated_at) ON TABLE "${schema}".setting TO "gwp_maintenance"`,
+      );
 
       // Per-fixture deployment mode override (test schemas only). migrate()
       // already seeds the singleton with config.mode; this UPDATE via the

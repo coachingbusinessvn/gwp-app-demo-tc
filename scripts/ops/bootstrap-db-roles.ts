@@ -23,7 +23,10 @@ import knex from "knex";
  *                     setup_completed_at/seed_version columns (mode is
  *                     immutable per DB — spec §8)
  *   gwp_maintenance — backup/retention jobs; SELECT everywhere + DELETE on
- *                     audit_event for retention cleanup
+ *                     the retention-managed tables (audit_event, ai_run,
+ *                     write_receipt, refresh_token, one_time_token) and a
+ *                     column-scoped UPDATE (value, updated_at) on setting
+ *                     for rotate-key envelope rewrites
  *
  * Passwords are set ONLY outside production: when NODE_ENV=production the
  * script creates the roles without passwords and never alters them — the
@@ -121,6 +124,35 @@ export async function bootstrapDbRoles(
       );
       await db.raw(
         `GRANT DELETE ON TABLE "${schema}".audit_event TO "gwp_maintenance"`,
+      );
+    }
+    // Retention job (task 4.5): maintenance deletes ONLY from the
+    // retention-managed tables — every other table stays SELECT-only.
+    // Guarded individually for pre-migration schemas.
+    for (const table of [
+      "ai_run",
+      "write_receipt",
+      "refresh_token",
+      "one_time_token",
+    ]) {
+      const exists = await db.raw("SELECT to_regclass(?) AS c", [
+        `${schema}.${table}`,
+      ]);
+      if (exists.rows[0].c !== null) {
+        await db.raw(
+          `GRANT DELETE ON TABLE "${schema}"."${table}" TO "gwp_maintenance"`,
+        );
+      }
+    }
+    // rotate-key rewrites stored BYOK envelopes — column-scoped UPDATE on
+    // `setting` only (value + updated_at); the maintenance role still
+    // cannot touch updated_by or any other column.
+    const setting = await db.raw("SELECT to_regclass(?) AS c", [
+      `${schema}.setting`,
+    ]);
+    if (setting.rows[0].c !== null) {
+      await db.raw(
+        `GRANT UPDATE (value, updated_at) ON TABLE "${schema}".setting TO "gwp_maintenance"`,
       );
     }
     // Published canvas versions are immutable snapshots (spec §5.2): the

@@ -47,6 +47,14 @@ services:
       interval: 5s
       timeout: 3s
       retries: 30
+    # Operational logs are bounded on-disk (spec §9: 30-day ops-log
+    # window) — the local driver rotates by size and logs die with the
+    # container; see docs/operations/security-retention.md.
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: unless-stopped
     # Deliberately NO `ports:` — the database must never be reachable from
     # outside the compose network (spec §9). Verified by the deployment test.
@@ -121,7 +129,30 @@ services:
     # (docs/operations/foundation.md). Override the host side with APP_PORT.
     ports:
       - "${APP_PORT:-8080}:8080"
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: unless-stopped
+
+  # Retention job (task 4.5, spec §9): one-shot container the operator
+  # runs on a schedule — e.g. a daily cron `docker compose run --rm
+  # retention`. It connects as gwp_maintenance (SELECT + scoped DELETE on
+  # the retention-managed tables only) — never the runtime or superuser
+  # credential, and the app service never sees this URL.
+  retention:
+    image: gwp-app:local
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      NODE_ENV: production
+      MAINTENANCE_DATABASE_URL: ${MAINTENANCE_DATABASE_URL}
+    command: ["node", "dist/server/src/jobs/retention.js"]
+    restart: "no"
 
 volumes:
   db-data:

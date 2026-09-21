@@ -44,6 +44,35 @@ export const DEFAULT_BRANDING: Branding = {
   accentColor: "#C9A668", // --gp-gold-400
 };
 
+/**
+ * Retention floors (task 4.5, spec §9): shipped defaults are the spec
+ * minimums; the owner may RAISE them, never lower — the schema enforces
+ * the floor so a lower value is a plain 400, not a silent clamp. The
+ * retention job applies max(default, configured) per company.
+ * logDays covers operational/container logs rotated by the logging
+ * driver — it is stored here so one document is the retention contract.
+ */
+export const RETENTION_FLOORS = {
+  auditDays: 365,
+  aiRunDays: 90,
+  logDays: 30,
+  receiptDays: 7,
+} as const;
+
+export const retentionSchema = z
+  .object({
+    auditDays: z.number().int().min(RETENTION_FLOORS.auditDays),
+    aiRunDays: z.number().int().min(RETENTION_FLOORS.aiRunDays),
+    logDays: z.number().int().min(RETENTION_FLOORS.logDays),
+    receiptDays: z.number().int().min(RETENTION_FLOORS.receiptDays),
+  })
+  .strict();
+export type Retention = z.infer<typeof retentionSchema>;
+
+const RETENTION_KEY = "retention";
+
+export const DEFAULT_RETENTION: Retention = { ...RETENTION_FLOORS };
+
 interface SettingRow {
   value: unknown;
 }
@@ -110,7 +139,75 @@ export function createSettingsService({ db, clock }: { db: Knex; clock: Clock })
     });
   }
 
-  return { getBranding, updateBranding };
+  /**
+   * Owner/admin may read the retention floors (they are operational
+   * policy, not secrets). Missing/malformed rows fall back to defaults.
+   */
+  async function getRetention(actor: ActorContext): Promise<Retention> {
+    return db.transaction(async (tx) => {
+      await lockCompany(tx, actor.companyId);
+      const roles = await loadActorRoles(tx, actor.companyId, actor.userId);
+      if (!roles.includes("owner") && !roles.includes("admin")) {
+        throw new AppError(
+          403,
+          "FORBIDDEN",
+          "Chỉ owner hoặc admin được xem retention",
+        );
+      }
+      await assertActiveActor(tx, actor.companyId, actor.userId);
+      const row = (await tx("setting")
+        .where({ company_id: actor.companyId, key: RETENTION_KEY })
+        .select("value")
+        .first()) as SettingRow | undefined;
+      const parsed = retentionSchema.safeParse(row?.value);
+      return parsed.success ? parsed.data : { ...DEFAULT_RETENTION };
+    });
+  }
+
+  /**
+   * Owner-only write (spec §9: "owner được tăng thời gian giữ") — admin
+   * is deliberately excluded: retention is the data-retention contract,
+   * not an operational toggle. The schema's min() bounds make a decrease
+   * impossible; a stored document only ever raises the floor.
+   */
+  async function updateRetention(
+    actor: ActorContext,
+    input: Retention,
+  ): Promise<Retention> {
+    return db.transaction(async (tx) => {
+      await lockCompany(tx, actor.companyId);
+      const roles = await loadActorRoles(tx, actor.companyId, actor.userId);
+      if (!roles.includes("owner")) {
+        throw new AppError(
+          403,
+          "FORBIDDEN",
+          "Chỉ owner được đổi retention",
+        );
+      }
+      await assertActiveActor(tx, actor.companyId, actor.userId);
+      await tx("setting")
+        .insert({
+          company_id: actor.companyId,
+          key: RETENTION_KEY,
+          value: input,
+          updated_by: actor.userId,
+          updated_at: clock(),
+        })
+        .onConflict(["company_id", "key"])
+        .merge(["value", "updated_by", "updated_at"]);
+      await appendAudit(tx, {
+        companyId: actor.companyId,
+        actorId: actor.userId,
+        action: "settings.retention.update",
+        outcome: "success",
+        requestId: actor.requestId,
+        metadata: { key: RETENTION_KEY },
+      });
+      return input;
+    });
+  }
+
+  return { getBranding, updateBranding, getRetention, updateRetention };
 }
 
 export type SettingsService = ReturnType<typeof createSettingsService>;

@@ -91,6 +91,37 @@ function activeEntry(ring: KeyRingEntry[]): KeyRingEntry {
   return active;
 }
 
+/**
+ * Extend a parsed ring with a new encrypting version (task 4.5 rotation).
+ * The new version must be strictly higher than every existing one — a
+ * downgrade or duplicate is a config error, never a silent reuse. Returns
+ * a NEW ring; the caller's ring is untouched.
+ */
+export function addRingEntry(
+  ring: KeyRingEntry[],
+  version: string,
+  material: string,
+): KeyRingEntry[] {
+  if (!KEY_VERSION_RE.test(version)) {
+    throw new Error(`rotate-key: bad version "${version}" — expected vN`);
+  }
+  if (ring.some((e) => e.version === version)) {
+    throw new Error(`rotate-key: version ${version} already in the ring`);
+  }
+  const top = Number(activeEntry(ring).version.slice(1));
+  if (Number(version.slice(1)) <= top) {
+    throw new Error(
+      `rotate-key: ${version} is not above the current active v${top}`,
+    );
+  }
+  if (material.length < 32) {
+    throw new Error("rotate-key: new material < 32 chars");
+  }
+  return [{ version, key: deriveKey(material) }, ...ring].sort(
+    (a, b) => Number(b.version.slice(1)) - Number(a.version.slice(1)),
+  );
+}
+
 function aadOf(companyId: string, keyVersion: string): Buffer {
   return Buffer.from(`${companyId}:${keyVersion}`, "utf8");
 }
