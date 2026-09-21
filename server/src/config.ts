@@ -1,6 +1,8 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseAllowedHosts, type AllowEntry } from "./security/ai-destination.js";
+import { parseKeyRing, type KeyRingEntry } from "./security/secrets.js";
 
 export type DemoMode = "demo" | "production";
 
@@ -8,11 +10,24 @@ export interface Config {
   databaseUrl: string;
   jwtSecret: string;
   appKey: string;
+  /**
+   * APP_KEY parsed once at boot into a versioned ring (security/secrets.ts):
+   * the highest version encrypts, every retained version decrypts.
+   */
+  appKeyRing: KeyRingEntry[];
   bootstrapToken: string;
   mode: DemoMode;
   appOrigin: string;
   port: number;
   trustProxy: boolean | number | string;
+  /**
+   * Operator allowlist for the BYOK AI base URL host:port pairs (spec §7.1).
+   * Empty means no destination is permitted — saving AI settings then always
+   * 400s, which is the safe default for a deployment without a local LLM.
+   */
+  aiAllowedHosts: AllowEntry[];
+  /** Explicit operator opt-in for http:// AI destinations (trusted nets). */
+  aiAllowHttp: boolean;
   /** Access JWT lifetime — spec §8 default 10 minutes. */
   accessTokenTtlSeconds: number;
   /** Refresh session absolute lifetime — spec §8 max 7 days. */
@@ -140,6 +155,12 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
   const appKey = requireEnv(env, "APP_KEY");
   const bootstrapToken = requireEnv(env, "BOOTSTRAP_TOKEN");
 
+  // Fail fast on a malformed key ring or allowlist at boot, not on the
+  // first AI settings write (config errors are fatal by convention).
+  const appKeyRing = parseKeyRing(appKey);
+  const aiAllowedHosts = parseAllowedHosts(env.AI_ALLOWED_HOSTS);
+  const aiAllowHttp = env.AI_ALLOW_HTTP === "true";
+
   if (env.NODE_ENV === "production") {
     const weak = (
       [
@@ -160,11 +181,14 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     databaseUrl,
     jwtSecret,
     appKey,
+    appKeyRing,
     bootstrapToken,
     mode,
     appOrigin,
     port: parsePort(env.PORT),
     trustProxy: parseTrustProxy(env.TRUST_PROXY),
+    aiAllowedHosts,
+    aiAllowHttp,
     accessTokenTtlSeconds: parsePositiveInt(
       env,
       "ACCESS_TOKEN_TTL_SECONDS",

@@ -1355,6 +1355,129 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/settings/ai:
+    get:
+      tags: [settings]
+      summary: Read the AI (BYOK) settings — public shape only
+      description: >
+        Owner/admin only (spec §4 — unlike branding this read is
+        privileged). Returns safe metadata only: whether a key is
+        configured, the allowlisted endpoint, model and bounds. The API
+        key and its encrypted envelope are NEVER returned.
+      operationId: getAiSettings
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Current AI settings (or unconfigured defaults).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiSettings"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller is neither owner nor admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    put:
+      tags: [settings]
+      summary: Configure the local AI endpoint and BYOK key
+      description: >
+        Owner/admin only. `baseUrl` must resolve to a host:port pair in
+        the operator's AI_ALLOWED_HOSTS deployment allowlist — admins
+        cannot aim the AI client at arbitrary hosts. `apiKey` is stored
+        AES-256-GCM encrypted under APP_KEY and never returned; omitting
+        it preserves the stored key (explicit clear is DELETE
+        /settings/ai/key). Rate-limited per client IP.
+      operationId: putAiSettings
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiSettingsPut"
+      responses:
+        "200":
+          description: Settings saved — public shape only.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiSettings"
+        "400":
+          description: >
+            Body failed validation (strict schema), or baseUrl is not an
+            allowlisted destination / carries userinfo / uses http without
+            the operator AI_ALLOW_HTTP opt-in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller is neither owner nor admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Too many settings writes — retry after the bound.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/settings/ai/key:
+    delete:
+      tags: [settings]
+      summary: Explicitly clear the stored AI key
+      description: >
+        Owner/admin only. Removes the stored credential while keeping the
+        endpoint/model/enabled configuration — the separate command makes
+        key removal a deliberate act, never a side effect of an omitted
+        PUT field.
+      operationId: clearAiKey
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Key cleared — public shape with configured=false.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiSettings"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller is neither owner nor admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Too many settings writes — retry after the bound.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /api/v1/audit:
     get:
       tags: [audit]
@@ -2636,6 +2759,90 @@ components:
           type: string
           pattern: "^#[0-9a-fA-F]{6}$"
           description: Hex color applied as a CSS custom-property value.
+    AiSettings:
+      type: object
+      required:
+        [
+          configured,
+          enabled,
+          baseUrl,
+          model,
+          timeoutSeconds,
+          maxOutputTokens,
+          keyVersion,
+          updatedAt,
+        ]
+      additionalProperties: false
+      description: >
+        Public AI settings shape — safe metadata only. The stored API key
+        and its AES-256-GCM envelope are never serialized: `configured`
+        is the only signal the credential exists.
+      properties:
+        configured:
+          type: boolean
+          description: Whether an API key is stored (server-side).
+        enabled:
+          type: boolean
+        baseUrl:
+          type: string
+          nullable: true
+          description: Allowlisted AI endpoint base URL.
+        model:
+          type: string
+          nullable: true
+        timeoutSeconds:
+          type: integer
+          minimum: 5
+          maximum: 180
+        maxOutputTokens:
+          type: integer
+          minimum: 1
+          maximum: 8192
+        keyVersion:
+          type: string
+          nullable: true
+          description: APP_KEY ring version that sealed the stored key.
+        updatedAt:
+          type: string
+          nullable: true
+          format: date-time
+    AiSettingsPut:
+      type: object
+      required: [enabled, baseUrl, model]
+      additionalProperties: false
+      description: >
+        Writable AI settings. `apiKey` is optional — omitting it
+        preserves the stored key; clearing is the separate DELETE
+        /settings/ai/key command. `null` is rejected for every field.
+      properties:
+        enabled:
+          type: boolean
+        baseUrl:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: >
+            Must be an allowlisted AI_ALLOWED_HOSTS host:port — no
+            userinfo, no query/fragment; http:// needs AI_ALLOW_HTTP.
+        model:
+          type: string
+          minLength: 1
+          maxLength: 200
+        apiKey:
+          type: string
+          minLength: 1
+          maxLength: 512
+          description: Write-only; encrypted at rest, never returned.
+        timeoutSeconds:
+          type: integer
+          minimum: 5
+          maximum: 180
+          default: 180
+        maxOutputTokens:
+          type: integer
+          minimum: 1
+          maximum: 8192
+          default: 8192
     AuditEvent:
       type: object
       description: >

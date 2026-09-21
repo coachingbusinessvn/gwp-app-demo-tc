@@ -67,6 +67,9 @@ export const testEnv: NodeJS.ProcessEnv = {
   BOOTSTRAP_TOKEN: "test-bootstrap-token-0123456789abcdef",
   DEMO_MODE: "demo",
   APP_ORIGIN: "https://gwp.test",
+  // Task 3.1: the destination allowlist the BYOK tests exercise — an
+  // internal hostname, an explicit private IP, and loopback (fake LLM).
+  AI_ALLOWED_HOSTS: "llm.internal:8443,10.20.30.40:11434,127.0.0.1",
   PORT: "8080",
   // Trust loopback X-Forwarded-For so each fixture can present a distinct
   // client IP — otherwise every parallel fixture shares one per-IP rate-limit

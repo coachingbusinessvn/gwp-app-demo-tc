@@ -12,6 +12,7 @@ import type { Knex } from "knex";
 import type { Config } from "./config.js";
 import { migrationStatus } from "./db/migrate.js";
 import { loadOpenApiSpec } from "./openapi.js";
+import { aiRoutes } from "./modules/ai/routes.js";
 import { authRoutes } from "./modules/auth/routes.js";
 import { setupRoutes } from "./modules/auth/setup.routes.js";
 import { auditRoutes } from "./modules/audit/routes.js";
@@ -103,6 +104,7 @@ export function createApp({ db, clock, config }: AppDeps): Express {
   app.use("/api/v1", auditRoutes({ db, clock, config })); // task 1.5
   app.use("/api/v1", canvasRoutes({ db, clock, config })); // task 2.3
   app.use("/api/v1", dashboardRoutes({ db, clock, config })); // task 2.6
+  app.use("/api/v1", aiRoutes({ db, clock, config })); // task 3.1
 
   // Root entry: directory index is disabled boundary-wide, so "/" gets an
   // explicit redirect to the login page instead of weakening the boundary.
