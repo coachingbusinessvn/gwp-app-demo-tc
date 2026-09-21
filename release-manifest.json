@@ -1,0 +1,31 @@
+{
+  "$schema": "release-manifest — curated offline-bundle contents (task 4.6)",
+  "release": "gwp-app",
+  "version": "0.1.0",
+  "images": [
+    { "name": "gwp-app:local", "build": "Dockerfile", "required": true },
+    { "name": "postgres:18-alpine", "required": true }
+  ],
+  "files": [
+    "compose.yaml",
+    ".env.example",
+    "Dockerfile",
+    "docs/operations/foundation.md",
+    "docs/operations/local-ai.md",
+    "docs/operations/pilot.md",
+    "docs/operations/security-retention.md",
+    "docs/operations/deployment-vn.md",
+    "docs/operations/recovery.md",
+    "docs/operations/upgrade.md"
+  ],
+  "never": [
+    ".env",
+    "*.dump",
+    "*.key",
+    "secrets/",
+    "node_modules/",
+    "tests/",
+    "server/prompts/**/evals/"
+  ],
+  "notes": "Image archives ship the compiled app + prompts; no customer data, no .env, no APP_KEY/JWT material, no LLM model weights (the model is customer-provisioned, spec §9/§4)."
+}

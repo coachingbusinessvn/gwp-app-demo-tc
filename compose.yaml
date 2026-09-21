@@ -100,6 +100,10 @@ services:
     restart: "no"
 
   app:
+    # Air-gap install (task 4.6): when gwp-app:local was loaded from the
+    # bundle's images/*.tar, `docker compose up` uses it as-is — compose
+    # only builds when the named image is absent. The build block stays so
+    # a source checkout keeps working; nothing is ever pulled at runtime.
     build:
       context: .
     image: gwp-app:local

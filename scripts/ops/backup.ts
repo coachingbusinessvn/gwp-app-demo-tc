@@ -1,5 +1,6 @@
-import { closeSync, openSync, statSync } from "node:fs";
+import { closeSync, openSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import knex from "knex";
 import {
   composeExecArgv,
   envWithPassword,
@@ -77,7 +78,7 @@ function parseArgs(argv: string[]): BackupArgs {
   return out as BackupArgs;
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const rawUrl =
     args.url ?? process.env.BACKUP_DATABASE_URL ?? process.env.DATABASE_URL;
@@ -144,18 +145,56 @@ function main(): void {
     throw new Error(`pg_dump failed with exit code ${status}`);
   }
   const size = statSync(output).size;
+
+  // Sidecar manifest (spec §9): a backup is DB + release/migration
+  // metadata + recovery config pointers. The dump carries the data; the
+  // manifest records which migrations were applied so restore-test and
+  // upgrade-check can detect a backup that is NEWER than the code.
+  const manifest = {
+    backup: path.basename(output),
+    createdAt: new Date().toISOString(),
+    format: "pg_dump-custom",
+    schemaMigrations: await listSchemaMigrations(rawUrl),
+  };
+  writeFileSync(
+    `${output}.manifest.json`,
+    JSON.stringify(manifest, null, 2) + "\n",
+  );
+
   // Path + size only — never the URL or credentials.
   console.log(
     `backup written: ${output} (${size} bytes, pg_dump -Fc, via ${runner.kind === "local" ? "local pg_dump" : `docker compose exec ${runner.service}`})`,
   );
+  console.log(`manifest written: ${output}.manifest.json`);
 }
 
-try {
-  main();
-} catch (err) {
+/**
+ * Best-effort: the applied migration set at backup time. A pre-migration
+ * database has no tracking table — the manifest still lands, just empty.
+ * Never fails the backup itself.
+ */
+async function listSchemaMigrations(url: string): Promise<string[]> {
+  const db = knex({
+    client: "pg",
+    connection: { connectionString: url },
+    pool: { min: 0, max: 1 },
+    acquireConnectionTimeout: 10_000,
+  });
+  try {
+    if (!(await db.schema.hasTable("schema_migration"))) return [];
+    const rows = await db("schema_migration").select("name").orderBy("name");
+    return rows.map((r: { name: string }) => r.name);
+  } catch {
+    return [];
+  } finally {
+    await db.destroy().catch(() => {});
+  }
+}
+
+main().catch((err: unknown) => {
   console.error(
     "ops:backup failed:",
     err instanceof Error ? err.message : err,
   );
   process.exit(1);
-}
+});

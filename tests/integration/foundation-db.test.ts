@@ -56,6 +56,7 @@ describe("foundation schema (migration 0001)", () => {
         "0007-oracle",
       ]);
       expect(status.pending).toEqual([]);
+      expect(status.unknown).toEqual([]);
     } finally {
       await f.close();
     }
@@ -84,6 +85,7 @@ describe("foundation schema (migration 0001)", () => {
             "0007-oracle",
           ],
           pending: [],
+          unknown: [],
         });
         const count = await migratorDb("schema_migration")
           .count("* as n")

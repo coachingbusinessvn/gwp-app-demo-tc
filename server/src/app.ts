@@ -92,6 +92,19 @@ export function createApp({
         new AppError(503, "DB_UNAVAILABLE", "Cơ sở dữ liệu không sẵn sàng"),
       );
     }
+    if (status.unknown.length > 0) {
+      // The schema was written by a NEWER release — serving traffic now is
+      // the blind-downgrade path spec §9 forbids. Stay unready so the old
+      // container never answers against a newer schema.
+      return next(
+        new AppError(
+          503,
+          "SCHEMA_AHEAD_OF_CODE",
+          "Schema mới hơn phiên bản app — cần nâng cấp app, không downgrade",
+          { unknown: status.unknown },
+        ),
+      );
+    }
     if (status.pending.length > 0) {
       return next(
         new AppError(503, "MIGRATIONS_PENDING", "Chưa chạy đủ migrations", {

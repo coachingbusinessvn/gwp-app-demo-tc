@@ -20,6 +20,9 @@
     "test:e2e": "playwright test",
     "ops:backup": "tsx scripts/ops/backup.ts",
     "ops:restore-test": "tsx scripts/ops/restore-test.ts",
+    "ops:rotate-key": "tsx scripts/ops/rotate-key.ts",
+    "ops:upgrade-check": "tsx scripts/ops/upgrade-check.ts",
+    "ops:bundle": "tsx scripts/ops/bundle.ts",
     "owner:recover": "tsx server/src/cli/recover-owner.ts"
   },
   "dependencies": {

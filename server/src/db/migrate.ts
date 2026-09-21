@@ -63,17 +63,29 @@ async function ensureTrackingTable(db: Knex): Promise<void> {
 export interface MigrationStatus {
   applied: string[];
   pending: string[];
+  /**
+   * Applied names this build does not know — only possible when the schema
+   * was written by a NEWER release. migrate() refuses to run against that
+   * database (spec §9: no blind downgrade — roll back the app only while
+   * the schema stays compatible, else restore the backup).
+   */
+  unknown: string[];
 }
 
 export async function migrationStatus(db: Knex): Promise<MigrationStatus> {
   const known = MIGRATIONS.map((m) => m.name);
-  if (known.length === 0) return { applied: [], pending: [] };
+  if (known.length === 0) return { applied: [], pending: [], unknown: [] };
   const applied = (await db.schema.hasTable(TRACKING_TABLE))
     ? (await db(TRACKING_TABLE).select("name")).map(
         (row: { name: string }) => row.name,
       )
     : [];
-  return { applied, pending: known.filter((n) => !applied.includes(n)) };
+  const knownSet = new Set(known);
+  return {
+    applied,
+    pending: known.filter((n) => !applied.includes(n)),
+    unknown: applied.filter((n) => !knownSet.has(n)),
+  };
 }
 
 function resolveDemoMode(raw: string | undefined): DemoMode {
@@ -96,7 +108,15 @@ export async function migrate(
   db: Knex,
   options?: MigrateOptions,
 ): Promise<void> {
-  const { pending } = await migrationStatus(db);
+  const { pending, unknown } = await migrationStatus(db);
+  if (unknown.length > 0) {
+    throw new Error(
+      `refusing to migrate: schema_migration contains ${unknown.join(", ")} ` +
+        "which this build does not know — the database belongs to a NEWER " +
+        "release. Upgrade the app instead of running migrations against it " +
+        "(no blind downgrade, spec §9).",
+    );
+  }
   if (pending.length > 0) {
     await ensureTrackingTable(db);
     for (const name of pending) {

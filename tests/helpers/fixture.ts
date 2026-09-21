@@ -34,6 +34,9 @@ export interface Fixture {
   db: Knex;
   maintenanceDb: Knex;
   app: Express;
+  /** The per-fixture schema inside gwp_test — isolation boundary for this
+   *  fixture's tenant data; the recovery drill dumps exactly this. */
+  schema: string;
   ids: Record<Persona, Id> & { company: Id; otherCompany: Id };
   actor(persona: Persona): ActorContext;
   api(persona?: Persona): SuperTest<Test>;
@@ -371,6 +374,7 @@ export async function fixture(options?: {
     db,
     maintenanceDb,
     app,
+    schema,
     ids,
     actor(persona: Persona): ActorContext {
       return {

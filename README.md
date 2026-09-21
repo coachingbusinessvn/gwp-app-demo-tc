@@ -7,6 +7,9 @@ Bản demo giao diện (HTML/CSS/JS tĩnh, không backend, không thư viện ng
 > + PostgreSQL, xác thực thật, canvas lưu server-side theo draft/publish bất biến,
 > dashboard dựng từ bằng chứng đã chốt. Chạy bằng `compose.yaml` — xem runbook
 > `docs/operations/foundation.md` và checklist pilot `docs/operations/pilot.md`.
+> Vận hành bàn giao: `deployment-vn.md` (cài offline/air-gap), `recovery.md`
+> (backup/restore drill), `upgrade.md` (nâng cấp/rollback),
+> `security-retention.md` (retention + xoay APP_KEY) — cùng thư mục.
 > Phần mô tả dưới đây kể lại **bản demo tĩnh gốc** mà UI hiện tại được port lên.
 
 ## Xuất file qua ranh giới được kiểm toán (Phase 2.7)

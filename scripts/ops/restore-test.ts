@@ -1,6 +1,8 @@
 import { existsSync, statSync } from "node:fs";
 import path from "node:path";
-import knex from "knex";
+import { pathToFileURL } from "node:url";
+import knex, { type Knex } from "knex";
+import { MIGRATIONS } from "../../server/src/db/migrate.js";
 import {
   composeExecArgv,
   envWithPassword,
@@ -32,7 +34,7 @@ import {
  * never logged or expanded into argv.
  */
 
-const RESTORE_DB = "gwp_restore_test";
+export const RESTORE_DB = "gwp_restore_test";
 
 const DISPOSABLE_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
 
@@ -121,9 +123,83 @@ function assertDisposableTarget(target: PgTarget, iUnderstand: boolean): void {
   );
 }
 
+// --- shared restore core (used by the CLI and the recovery drill) ---
+
+export interface RestoreInfo {
+  companies: number;
+  /** schema_migration names on the restored copy — schema-version check. */
+  migrations: string[];
+  /** APP_KEY versions required by restored BYOK envelopes (never material). */
+  envelopeKeyVersions: string[];
+  /** Cluster roles a pg_dump never carries — must exist before app use. */
+  rolesMissing: string[];
+  /** Applied migrations this build does not know → restored DB is NEWER. */
+  unknownMigrations: string[];
+}
+
+const EXPECTED_ROLES = ["gwp_runtime", "gwp_migrator", "gwp_maintenance"];
+
+function restoredUrl(target: PgTarget): string {
+  const u = new URL(target.url);
+  u.pathname = `/${RESTORE_DB}`;
+  return u.toString();
+}
+
+async function postRestoreChecks(target: PgTarget): Promise<RestoreInfo> {
+  const db = knex({
+    client: "pg",
+    connection: { connectionString: restoredUrl(target) },
+    pool: { min: 0, max: 1 },
+    acquireConnectionTimeout: 10_000,
+  });
+  try {
+    // The dump preserves its source schema name — `public` in production,
+    // the fixture's test_* schema in drills. Discover it via the company
+    // table rather than assuming the search_path default.
+    const found = await db.raw(
+      "select table_schema from information_schema.tables " +
+        "where table_name = 'company' limit 1",
+    );
+    const schema = (found.rows[0]?.table_schema as string | undefined) ?? null;
+    if (!schema) {
+      throw new Error(
+        "restored database has no `company` table — the dump did not " +
+          "contain a GWP schema (or pg_restore dropped it)",
+      );
+    }
+    const { rows } = await db.raw(
+      `select (select count(*) from "${schema}".company) as companies, ` +
+        `(select coalesce(array_agg(name order by name), '{}') from "${schema}".schema_migration) as migrations, ` +
+        `(select coalesce(array_agg(distinct value::jsonb -> 'keyEnvelope' ->> 'keyVersion') ` +
+        `         filter (where jsonb_exists(value::jsonb, 'keyEnvelope')), '{}') ` +
+        `         from "${schema}".setting) as envelope_versions`,
+    );
+    const migrations = (rows[0].migrations as string[]) ?? [];
+    const known = new Set(MIGRATIONS.map((m) => m.name));
+    const roleRows = await db.raw(
+      "select rolname from pg_roles where rolname = any(?)",
+      [EXPECTED_ROLES],
+    );
+    const present = new Set(
+      (roleRows.rows as { rolname: string }[]).map((r) => r.rolname),
+    );
+    return {
+      companies: Number(rows[0].companies),
+      migrations,
+      envelopeKeyVersions: (
+        (rows[0].envelope_versions as (string | null)[]) ?? []
+      ).filter((v): v is string => typeof v === "string"),
+      rolesMissing: EXPECTED_ROLES.filter((r) => !present.has(r)),
+      unknownMigrations: migrations.filter((n) => !known.has(n)),
+    };
+  } finally {
+    await db.destroy().catch(() => {});
+  }
+}
+
 // --- local runner: psql/pg_restore on PATH, knex for DDL + verification ---
 
-async function runLocal(target: PgTarget, backup: string): Promise<void> {
+async function runLocal(target: PgTarget, backup: string): Promise<RestoreInfo> {
   const admin = knex({
     client: "pg",
     connection: { connectionString: target.url },
@@ -163,29 +239,7 @@ async function runLocal(target: PgTarget, backup: string): Promise<void> {
   if (res.status !== 0) {
     throw new Error(`pg_restore failed with exit code ${res.status}`);
   }
-
-  const restored = knex({
-    client: "pg",
-    connection: {
-      connectionString: target.url.replace(
-        `/${target.dbName}`,
-        `/${RESTORE_DB}`,
-      ),
-    },
-    pool: { min: 0, max: 1 },
-    acquireConnectionTimeout: 10_000,
-  });
-  try {
-    const { rows } = await restored.raw(
-      "select (select count(*) from company) as companies, " +
-        "(select count(*) from schema_migration) as migrations",
-    );
-    console.log(
-      `smoke query on ${RESTORE_DB}: companies=${rows[0].companies} schema_migration=${rows[0].migrations}`,
-    );
-  } finally {
-    await restored.destroy().catch(() => {});
-  }
+  return postRestoreChecks(target);
 }
 
 // --- compose runner: tools inside the db service container ---
@@ -200,11 +254,11 @@ function composeExec(
   });
 }
 
-function runCompose(
+async function runCompose(
   runner: Extract<PgRunner, { kind: "compose" }>,
   target: PgTarget,
   backup: string,
-): void {
+): Promise<RestoreInfo> {
   // The --target URL's user is the identity for drop/create/restore —
   // its password travels via PGPASSWORD through envWithPassword(target).
   const base = ["--host", "127.0.0.1", "--username", target.user];
@@ -272,22 +326,30 @@ function runCompose(
   } finally {
     composeExec(runner, target, ["rm", "-f", containerPath]);
   }
+  return postRestoreChecks(target);
+}
 
-  const smoke = composeExec(runner, target, [
-    "psql",
-    ...base,
-    "--dbname",
-    RESTORE_DB,
-    "-tAc",
-    "select (select count(*) from company) as companies, " +
-      "(select count(*) from schema_migration) as migrations",
-  ]);
-  if (smoke.status !== 0) {
-    throw new Error("smoke query failed on the restored database");
-  }
-  console.log(
-    `smoke query on ${RESTORE_DB}: counts(company|schema_migration)=${smoke.stdout.trim()}`,
-  );
+/**
+ * Recreate RESTORE_DB from a pg_dump -Fc archive and run the post-restore
+ * checks. Exported for the recovery drill — the operator-facing wrapper is
+ * main() below, which adds the disposable-target confirmation and prints
+ * the warnings a human must see.
+ */
+export async function restoreArchive(
+  target: PgTarget,
+  backup: string,
+  runner?: PgRunner,
+): Promise<RestoreInfo> {
+  const r =
+    runner ??
+    resolvePgRunner({
+      tools: ["psql", "pg_restore"],
+      composeFile: process.env.GWP_OPS_COMPOSE_FILE,
+      dbService: process.env.GWP_OPS_DB_SERVICE,
+    });
+  return r.kind === "local"
+    ? runLocal(target, backup)
+    : runCompose(r, target, backup);
 }
 
 async function main(): Promise<void> {
@@ -314,20 +376,46 @@ async function main(): Promise<void> {
         : `docker compose exec ${runner.service}`),
   );
 
-  if (runner.kind === "local") {
-    await runLocal(target, backup);
-  } else {
-    runCompose(runner, target, backup);
+  const info = await restoreArchive(target, backup, runner);
+  console.log(
+    `smoke query on ${RESTORE_DB}: companies=${info.companies} ` +
+      `migrations=${info.migrations.length}`,
+  );
+  if (info.rolesMissing.length > 0) {
+    console.error(
+      `warning: cluster roles missing on this server: ${info.rolesMissing.join(", ")} ` +
+        "— a pg_dump never carries roles; run scripts/ops/bootstrap-db-roles " +
+        "before the app can use this database",
+    );
+  }
+  if (info.unknownMigrations.length > 0) {
+    console.error(
+      `warning: restored schema has migrations this build does not know: ` +
+        `${info.unknownMigrations.join(", ")} — the backup is NEWER than this ` +
+        "code; do not run the app/migrator against it (no blind downgrade)",
+    );
+  }
+  if (info.envelopeKeyVersions.length > 0) {
+    console.error(
+      `note: restored BYOK envelopes need APP_KEY version(s) ` +
+        `${info.envelopeKeyVersions.join(", ")} in the ring — without them ` +
+        "the stored AI key cannot be decrypted",
+    );
   }
   console.log(
     `restore-test complete: "${RESTORE_DB}" recreated and verified`,
   );
 }
 
-main().catch((err: unknown) => {
-  console.error(
-    "ops:restore-test failed:",
-    err instanceof Error ? err.message : err,
-  );
-  process.exit(1);
-});
+const invokedDirectly =
+  process.argv[1] !== undefined &&
+  import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
+if (invokedDirectly) {
+  main().catch((err: unknown) => {
+    console.error(
+      "ops:restore-test failed:",
+      err instanceof Error ? err.message : err,
+    );
+    process.exit(1);
+  });
+}
