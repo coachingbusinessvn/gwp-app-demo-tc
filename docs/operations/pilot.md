@@ -82,3 +82,24 @@ plan Phase 2 task 2.7.
   không formula cell từ chuỗi user.
 - `tests/e2e/canvas-export.spec.ts` — toolbar export flush autosave trước,
   history export JSON/Markdown tải đúng, outsider bị 404.
+
+## 6. Pilot Phase 4 — journey đầy đủ & benchmark
+
+Checklist đầy đủ của Phase 4 (auth → phân quyền → canvas → AI → report
+ACL → backup/restore → offline → benchmark) nằm ở
+`docs/operations/acceptance.md`. Tóm tắt lệnh:
+
+```sh
+npm run test:e2e -- tests/e2e/journey.spec.ts   # journey 10 bước, browser thật
+npm run test:performance                        # 50 session, 5k canvas, 100k version
+```
+
+- `test:performance` seed schema `pilot_*` test-only trong `gwp_test`
+  (container disposable `npm run db:test:up` phải chạy trước), in JSON
+  kết quả ra stdout — lưu vào evidence kèm spec phần cứng của máy chạy.
+- Gate: p95 ≤ 500 ms cho API thường trên host ≥ 4 vCPU / 8 GiB; host yếu
+  hơn vẫn báo số đo nhưng không ghi PASS.
+- Login (argon2id) nằm ngoài gate API thường — KDF CPU-bound theo thiết
+  kế bảo mật.
+- RPO ≤ 24 giờ / RTO ≤ 4 giờ là **mục tiêu pilot**, không phải SLA;
+  drill restore tự động: `npm run ops:restore-test` + `tests/ops/`.

@@ -18,6 +18,7 @@
     "db:test:up": "docker compose -f compose.test.yaml up -d --wait",
     "db:test:down": "docker compose -f compose.test.yaml down -v",
     "test:e2e": "playwright test",
+    "test:performance": "tsx tests/performance/pilot.ts",
     "ops:backup": "tsx scripts/ops/backup.ts",
     "ops:restore-test": "tsx scripts/ops/restore-test.ts",
     "ops:rotate-key": "tsx scripts/ops/rotate-key.ts",
