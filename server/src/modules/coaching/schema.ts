@@ -19,3 +19,19 @@ export const createSessionBodySchema = z
   });
 
 export type CreateSessionBody = z.infer<typeof createSessionBodySchema>;
+
+/**
+ * Explicit report save (task 4.2): the request identifies WHICH validated
+ * run preview to persist — the body content comes only from the server's
+ * preview, never from the client. `idempotencyKey` makes a retried save
+ * replay the same report instead of appending a duplicate version.
+ */
+export const saveReportBodySchema = z
+  .object({
+    sessionId: z.string().uuid(),
+    runId: z.string().uuid(),
+    idempotencyKey: z.string().trim().min(8).max(200),
+  })
+  .strict();
+
+export type SaveReportBody = z.infer<typeof saveReportBodySchema>;

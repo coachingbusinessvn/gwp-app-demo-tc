@@ -298,14 +298,19 @@ export function createCoachService({
     input,
   }) => {
     const prompt = loadPrompt();
-    const detail = await canvas.getCanvas(actor, run.canvas_id);
+    // ai_run_target_check guarantees canvas_id on non-oracle runs.
+    const canvasId = run.canvas_id;
+    if (!canvasId) {
+      throw new AppError(500, "AI_INTERNAL", "Run coach thiếu canvas");
+    }
+    const detail = await canvas.getCanvas(actor, canvasId);
     const source =
       detail.draft?.body ??
       (run.base_version_id
         ? (
             await canvas.getVersion(
               actor,
-              run.canvas_id,
+              canvasId,
               run.base_version_id,
             )
           ).body

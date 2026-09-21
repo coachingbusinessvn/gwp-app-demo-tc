@@ -14,6 +14,7 @@ import { migrationStatus } from "./db/migrate.js";
 import { loadOpenApiSpec } from "./openapi.js";
 import { aiRoutes } from "./modules/ai/routes.js";
 import type { AiAssistant, RunDriver } from "./modules/ai/runs.js";
+import { createAiRunsService } from "./modules/ai/runs.js";
 import { authRoutes } from "./modules/auth/routes.js";
 import { setupRoutes } from "./modules/auth/setup.routes.js";
 import { auditRoutes } from "./modules/audit/routes.js";
@@ -118,8 +119,14 @@ export function createApp({
   app.use("/api/v1", auditRoutes({ db, clock, config })); // task 1.5
   app.use("/api/v1", canvasRoutes({ db, clock, config })); // task 2.3
   app.use("/api/v1", dashboardRoutes({ db, clock, config })); // task 2.6
-  app.use("/api/v1", coachingRoutes({ db, clock, config })); // task 4.1
-  app.use("/api/v1", aiRoutes({ db, clock, config, drivers: aiDrivers }));
+  // ONE runs service per app: its preview store is where grader proposals
+  // live, and coaching's saveReport must read the same instance (task 4.2).
+  const aiRuns = createAiRunsService({ db, clock, config });
+  app.use("/api/v1", coachingRoutes({ db, clock, config, runs: aiRuns })); // task 4.1
+  app.use(
+    "/api/v1",
+    aiRoutes({ db, clock, config, drivers: aiDrivers, runs: aiRuns }),
+  );
 
   // Root entry: directory index is disabled boundary-wide, so "/" gets an
   // explicit redirect to the login page instead of weakening the boundary.

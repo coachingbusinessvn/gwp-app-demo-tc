@@ -1,0 +1,22 @@
+{
+  "promptVersion": "oracle-1.0.0",
+  "contractVersion": "oracle-md-3.0",
+  "file": "instruction.md",
+  "sha256": "6307fc31ae72692359cc149cfe3af5b6e42293e54c6e794f803e70e1512d4542",
+  "rubric": {
+    "file": "rubric.json",
+    "sha256": "c0b704530a75fe4dfc7536c3a60b61680decf60b8c13c92f62e7464b8b940080",
+    "rubricVersion": "ORACLE-v3"
+  },
+  "source": {
+    "path": "/Volumes/SS/projects/gwp_chatbot_oracle",
+    "revision": "a3c6c20",
+    "files": [
+      "release/instructions/chatgpt-custom-gpt.md",
+      "release/knowledge/oracle-scoring-rubric.md",
+      "scripts/validate_oracle_output.py"
+    ],
+    "note": "Ported to a single-turn API contract: the interactive consent state machine, upload UX, 3-suggestion navigation and ChatGPT/Claude platform references were removed — consent is enforced by the server's consent flag and the transcript arrives pre-authorized. Retained verbatim: the priority order (safety > consent > untrusted-data > validation > scoring > format), the ORACLE-v3 scoring contract with anchors 1/4/7/9 and total = round(sum*100/60), the three epistemic labels, the verbatim-quote discipline, the no-commitment sentence, and the exact report header."
+  },
+  "licenseReview": "Internal GoWise project asset — same workspace, ported with attribution; no external license required."
+}

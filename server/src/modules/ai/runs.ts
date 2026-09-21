@@ -11,6 +11,10 @@ import {
   findDraftByCanvas,
 } from "../canvas/repository.js";
 import { createPolicy } from "../authorization/policy.js";
+import {
+  assertSessionWrite,
+  findSession,
+} from "../coaching/policy.js";
 import { createAiSettingsService, type AiRuntimeConfig } from "./settings.js";
 import { createPreviewStore, type PreviewStore } from "./preview.js";
 
@@ -43,7 +47,7 @@ export const AI_RUN_FINISHED = "AI_RUN_FINISHED";
 /** spec §7.3 pilot bound: 2 concurrent AI runs per company, no queue. */
 export const AI_MAX_ACTIVE_RUNS = 2;
 
-export type AiAssistant = "renderer" | "coach";
+export type AiAssistant = "renderer" | "coach" | "oracle";
 export type AiRunStatus =
   | "queued"
   | "running"
@@ -57,7 +61,10 @@ export interface AiRunRow {
   company_id: string;
   actor_id: string;
   assistant: AiAssistant;
-  canvas_id: string;
+  /** Set for canvas assistants (renderer/coach); NULL on oracle runs. */
+  canvas_id: string | null;
+  /** Set for oracle runs (task 4.2); NULL on canvas runs. */
+  session_id: string | null;
   status: AiRunStatus;
   input_hash: string;
   base_version_id: string | null;
@@ -77,7 +84,8 @@ export interface AiRunRow {
 export interface AiRunDto {
   runId: string;
   assistant: AiAssistant;
-  canvasId: string;
+  canvasId: string | null;
+  sessionId: string | null;
   status: AiRunStatus;
   createdAt: string;
   startedAt: string | null;
@@ -108,10 +116,11 @@ export type RunDriver = (ctx: {
   signal: AbortSignal;
   config: AiRuntimeConfig;
   /**
-   * Request-scoped input passed through dispatch — notes exist only for
-   * the request lifetime, matching the no-raw-input-persistence rule.
+   * Request-scoped input passed through dispatch — notes and transcripts
+   * exist only for the request+run lifetime, matching the
+   * no-raw-input-persistence rule (spec §6: transcripts are never stored).
    */
-  input: { notes?: string };
+  input: { notes?: string; transcript?: string };
 }) => Promise<RunDriverResult>;
 
 function toDto(r: AiRunRow): AiRunDto {
@@ -119,6 +128,7 @@ function toDto(r: AiRunRow): AiRunDto {
     runId: r.id,
     assistant: r.assistant,
     canvasId: r.canvas_id,
+    sessionId: r.session_id,
     status: r.status,
     createdAt: new Date(r.created_at).toISOString(),
     startedAt: r.started_at ? new Date(r.started_at).toISOString() : null,
@@ -196,7 +206,11 @@ export function createAiRunsService({
     actor: ActorContext,
     input: {
       assistant: AiAssistant;
-      canvasId: string;
+      canvasId?: string;
+      /** Oracle runs bind a coaching session, not a canvas (task 4.2). */
+      sessionId?: string;
+      /** Oracle input — hashed into input_hash, never persisted. */
+      transcript?: string;
       notes?: string;
       consent?: boolean;
       idempotencyKey: string;
@@ -211,13 +225,16 @@ export function createAiRunsService({
         "Cần đồng ý xử lý nội dung bằng AI nội bộ trước khi chạy",
       );
     }
-    // The input hash is the ONLY trace of notes — content never persists.
+    // The input hash is the ONLY trace of notes/transcript — content
+    // never persists anywhere in the database, logs or audit (spec §6).
     const inputHash = createHash("sha256")
       .update(
         JSON.stringify({
           assistant: input.assistant,
-          canvasId: input.canvasId,
+          canvasId: input.canvasId ?? null,
+          sessionId: input.sessionId ?? null,
           notes: input.notes ?? "",
+          transcript: input.transcript ?? "",
         }),
       )
       .digest("hex");
@@ -236,10 +253,25 @@ export function createAiRunsService({
 
     const runId = await db.transaction(async (tx) => {
       await lockCompany(tx, actor.companyId);
-      // Write access because renderer/coach act on the actor's canvas
-      // scope (spec §4 "Chạy AI trên canvas — theo quyền sửa"); also the
-      // uniform 404 for foreign/denied canvases and 409 on archived.
-      await canvas.assertWrite(actor, input.canvasId, tx);
+      if (input.assistant === "oracle") {
+        // Session-scoped run (task 4.2): the actor needs report-write
+        // authority on the session — owner, or the session's coach who
+        // STILL manages the coachee. Same gate saveReport re-checks.
+        if (!input.sessionId) {
+          throw new AppError(400, "INVALID_INPUT", "Thiếu sessionId");
+        }
+        const session = await findSession(tx, actor.companyId, input.sessionId);
+        if (!session) throw notFound();
+        await assertSessionWrite(tx, actor, session);
+      } else {
+        // Write access because renderer/coach act on the actor's canvas
+        // scope (spec §4 "Chạy AI trên canvas — theo quyền sửa"); also the
+        // uniform 404 for foreign/denied canvases and 409 on archived.
+        if (!input.canvasId) {
+          throw new AppError(400, "INVALID_INPUT", "Thiếu canvasId");
+        }
+        await canvas.assertWrite(actor, input.canvasId, tx);
+      }
 
       const existing = (await tx("ai_run")
         .where({
@@ -276,16 +308,13 @@ export function createAiRunsService({
 
       // Base snapshot: the canvas's published pointer + live draft
       // revision at admission — apply (3.4) refuses a moved target.
-      const canvasRow = await findCanvasById(
-        tx,
-        actor.companyId,
-        input.canvasId,
-      );
-      const draft = await findDraftByCanvas(
-        tx,
-        actor.companyId,
-        input.canvasId,
-      );
+      // Oracle runs carry neither (they grade a session, not a canvas).
+      const canvasRow = input.canvasId
+        ? await findCanvasById(tx, actor.companyId, input.canvasId)
+        : undefined;
+      const draft = input.canvasId
+        ? await findDraftByCanvas(tx, actor.companyId, input.canvasId)
+        : undefined;
 
       const id = randomUUID();
       await tx("ai_run").insert({
@@ -293,7 +322,8 @@ export function createAiRunsService({
         company_id: actor.companyId,
         actor_id: actor.userId,
         assistant: input.assistant,
-        canvas_id: input.canvasId,
+        canvas_id: input.canvasId ?? null,
+        session_id: input.sessionId ?? null,
         status: "queued",
         idempotency_key: input.idempotencyKey,
         input_hash: inputHash,
@@ -337,7 +367,7 @@ export function createAiRunsService({
   async function dispatch(
     runId: string,
     companyId: string,
-    input: { notes?: string } = {},
+    input: { notes?: string; transcript?: string } = {},
   ): Promise<void> {
     const run = await loadRun(companyId, runId);
     if (!run || run.status !== "queued") return;

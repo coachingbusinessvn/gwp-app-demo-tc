@@ -452,14 +452,19 @@ export function createRendererService({
     input,
   }) => {
     const prompt = loadPrompt();
-    const detail = await canvas.getCanvas(actor, run.canvas_id);
+    // ai_run_target_check guarantees canvas_id on non-oracle runs.
+    const canvasId = run.canvas_id;
+    if (!canvasId) {
+      throw new AppError(500, "AI_INTERNAL", "Run renderer thiếu canvas");
+    }
+    const detail = await canvas.getCanvas(actor, canvasId);
     const source =
       detail.draft?.body ??
       (run.base_version_id
         ? (
             await canvas.getVersion(
               actor,
-              run.canvas_id,
+              canvasId,
               run.base_version_id,
             )
           ).body
@@ -522,6 +527,11 @@ export function createRendererService({
     if (run.assistant !== "renderer") {
       throw new AppError(400, "INVALID_INPUT", "Run không phải renderer");
     }
+    // ai_run_target_check guarantees canvas_id on non-oracle runs.
+    const canvasId = run.canvas_id;
+    if (!canvasId) {
+      throw new AppError(500, "AI_INTERNAL", "Run renderer thiếu canvas");
+    }
     if (run.status !== "succeeded") {
       throw new AppError(
         409,
@@ -566,8 +576,8 @@ export function createRendererService({
         "Canvas đã thay đổi; hãy so sánh lại",
       );
     }
-    const liveCanvas = await findCanvasById(db, actor.companyId, run.canvas_id);
-    const liveDraft = await findDraftByCanvas(db, actor.companyId, run.canvas_id);
+    const liveCanvas = await findCanvasById(db, actor.companyId, canvasId);
+    const liveDraft = await findDraftByCanvas(db, actor.companyId, canvasId);
     if (
       (liveCanvas?.current_version_id ?? null) !== stored.base.baseVersionId ||
       (liveDraft?.revision ?? null) !== stored.base.draftRevision
@@ -582,13 +592,13 @@ export function createRendererService({
     if (liveDraft === undefined) {
       // No draft at capture and none now: create it carrying the proposal
       // (base = captured published version, still current per the check).
-      return canvas.createDraft(actor, run.canvas_id, {
+      return canvas.createDraft(actor, canvasId, {
         body: preview.proposal,
         source: "ai",
         aiRunId: runId,
       });
     }
-    const dto = await canvas.saveDraft(actor, run.canvas_id, {
+    const dto = await canvas.saveDraft(actor, canvasId, {
       expectedRevision: stored.base.draftRevision!,
       baseVersionId: stored.base.baseVersionId,
       body: preview.proposal,

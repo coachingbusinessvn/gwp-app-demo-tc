@@ -53,6 +53,7 @@ describe("foundation schema (migration 0001)", () => {
         "0004-canvas",
         "0005-ai",
         "0006-coaching",
+        "0007-oracle",
       ]);
       expect(status.pending).toEqual([]);
     } finally {
@@ -80,13 +81,14 @@ describe("foundation schema (migration 0001)", () => {
             "0004-canvas",
             "0005-ai",
             "0006-coaching",
+            "0007-oracle",
           ],
           pending: [],
         });
         const count = await migratorDb("schema_migration")
           .count("* as n")
           .first();
-        expect(count).toMatchObject({ n: "6" });
+        expect(count).toMatchObject({ n: "7" });
       } finally {
         await migratorDb.destroy();
       }
@@ -147,7 +149,7 @@ describe("foundation schema (migration 0001)", () => {
         code: "42501",
       });
       // Runtime keeps SELECT on schema_migration — readiness probe needs it.
-      expect(await f.db("schema_migration").select("name")).toHaveLength(6);
+      expect(await f.db("schema_migration").select("name")).toHaveLength(7);
     } finally {
       await f.close();
     }
@@ -431,6 +433,7 @@ describe("readiness with real migrations", () => {
             "0004-canvas",
             "0005-ai",
             "0006-coaching",
+            "0007-oracle",
           ],
         },
       });

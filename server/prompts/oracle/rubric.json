@@ -1,0 +1,23 @@
+{
+  "rubricVersion": "ORACLE-v3",
+  "graderVersion": "3.0.0",
+  "reportHeader": "# ORACLE Coaching Grader v3.0.0 — rubric_version: ORACLE-v3",
+  "steps": [
+    { "key": "O", "name": "Objective", "max": 10 },
+    { "key": "R", "name": "Reflection", "max": 10 },
+    { "key": "A", "name": "Awareness", "max": 10 },
+    { "key": "C", "name": "Creation", "max": 10 },
+    { "key": "L", "name": "Leverage", "max": 10 },
+    { "key": "E", "name": "Encouragement", "max": 10 }
+  ],
+  "scoreRange": [0, 10],
+  "anchors": { "absent": 1, "shallow": 4, "met": 7, "excellent": 9 },
+  "totalFormula": "round(sum(steps) * 100 / 60)",
+  "totalMax": 100,
+  "labels": ["Bằng chứng trực tiếp", "Diễn giải", "Thiếu bằng chứng"],
+  "forbiddenLabels": ["Suy diễn"],
+  "confidenceLevels": ["Cao", "Trung bình", "Thấp"],
+  "noCommitmentSentence": "[Thiếu bằng chứng] Chưa có cam kết hành động trong phạm vi transcript",
+  "quoteRule": "verbatim substring of the normalized transcript; ellipsis (… or ...) may join matched parts",
+  "source": "release/knowledge/oracle-scoring-rubric.md @ gwp_chatbot_oracle"
+}

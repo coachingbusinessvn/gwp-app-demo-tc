@@ -17,10 +17,12 @@ import {
   AI_RUN_FINISHED,
   type AiAssistant,
   type AiRunEvent,
+  type AiRunsService,
   type RunDriver,
 } from "./runs.js";
 import { createRendererService } from "./renderer.js";
 import { createCoachService } from "./coach.js";
+import { createOracleService } from "../coaching/grader.js";
 
 /**
  * /api/v1 AI surface (task 3.1, spec §7.1):
@@ -85,16 +87,24 @@ export function aiRoutes(deps: {
    * lifecycle tests can observe the state machine deterministically.
    */
   drivers?: Partial<Record<AiAssistant, RunDriver>>;
+  /**
+   * Shared runs service (app.ts creates ONE so the preview store is the
+   * same instance saveReport reads — task 4.2). Tests that omit it get a
+   * private instance; standalone routers stay self-contained.
+   */
+  runs?: AiRunsService;
 }): Router {
   const { db, clock, config } = deps;
   const auth = createAuthService({ db, clock, config });
   const ai = createAiSettingsService({ db, clock, config });
-  const aiRuns = createAiRunsService({ db, clock, config });
+  const aiRuns = deps.runs ?? createAiRunsService({ db, clock, config });
   const renderer = createRendererService({ db, clock, config, runs: aiRuns });
   const coach = createCoachService({ db, clock, config, runs: aiRuns });
+  const oracle = createOracleService({ db, clock, config, runs: aiRuns });
   const drivers = deps.drivers ?? {
     renderer: renderer.driver,
     coach: coach.driver,
+    oracle: oracle.driver,
   };
   for (const [assistant, driver] of Object.entries(drivers)) {
     aiRuns.registerDriver(assistant as AiAssistant, driver);
@@ -166,9 +176,14 @@ export function aiRoutes(deps: {
       // record, the client follows progress on /events. A run whose
       // assistant has no registered driver simply stays queued.
       if (!started.replayed) {
-        // Notes live only for this request+run — never persisted.
+        // Notes/transcript live only for this request+run — the dispatch
+        // closure holds them in memory until the driver returns; neither
+        // is persisted anywhere (spec §6).
         void aiRuns
-          .dispatch(started.runId, actor.companyId, { notes: body.notes })
+          .dispatch(started.runId, actor.companyId, {
+            notes: body.notes,
+            transcript: body.transcript,
+          })
           .catch(() => {});
       }
       res.status(started.replayed ? 200 : 201).json(started);

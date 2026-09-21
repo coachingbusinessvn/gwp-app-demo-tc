@@ -9,6 +9,7 @@ import { oneTimeTokenMigration } from "./migrations/0003-one-time-token.js";
 import { canvasMigration } from "./migrations/0004-canvas.js";
 import { aiMigration } from "./migrations/0005-ai.js";
 import { coachingMigration } from "./migrations/0006-coaching.js";
+import { oracleMigration } from "./migrations/0007-oracle.js";
 
 /**
  * Migration runner: every migration is a named `up(db)` applied in
@@ -39,6 +40,7 @@ export const MIGRATIONS: readonly Migration[] = [
   canvasMigration,
   aiMigration,
   coachingMigration,
+  oracleMigration,
 ];
 
 const TRACKING_TABLE = "schema_migration";

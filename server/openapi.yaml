@@ -1549,11 +1549,15 @@ paths:
   /api/v1/ai/runs:
     post:
       tags: [ai]
-      summary: Start a consented AI run on a canvas
+      summary: Start a consented AI run on a canvas or coaching session
       description: >
-        Any authenticated actor with write access to the target canvas
-        (spec §4 "Chạy AI trên canvas — theo quyền sửa"; foreign/denied
-        canvases answer the uniform 404, archived 409). Requires
+        Canvas assistants (renderer, coach) require `canvasId` and write
+        access to the target canvas (spec §4 "Chạy AI trên canvas — theo
+        quyền sửa"; foreign/denied canvases answer the uniform 404,
+        archived 409). The `oracle` assistant instead requires
+        `sessionId` + `transcript` and current report-write authority on
+        the coaching session — owner, or the session coach who still
+        manages the coachee (spec §6). Requires
         `consent: true` — the caller has seen the internal-AI notice and
         the server re-enforces it. `idempotencyKey` is REQUIRED: a
         retried POST with the same key and same input replays the same
@@ -1562,9 +1566,12 @@ paths:
         AI_IDEMPOTENCY_CONFLICT. At most 2 active (queued|running) runs
         per company — a third is 429 AI_BUSY. The run row stores metadata
         only (status, input hash, provenance, captured canvas base);
-        `notes` and canvas content are never persisted. Progress is
-        streamed on GET /ai/runs/{runId}/events; the finished proposal is
-        staged into a 15-minute in-memory preview, never auto-applied.
+        `notes`, `transcript`, and canvas content are never persisted —
+        the transcript exists only inside the request/run and is destroyed
+        when inference ends. Progress is streamed on
+        GET /ai/runs/{runId}/events; the finished proposal is staged into
+        a 15-minute in-memory preview, never auto-applied — an ORACLE
+        preview becomes a report only through POST /reports.
       operationId: startAiRun
       security:
         - bearerAuth: []
@@ -1600,8 +1607,16 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "403":
+          description: Related actor who lost report-write authority on
+            the session (oracle only — unrelated actors get 404).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "404":
-          description: Canvas missing, foreign, or not writable.
+          description: Canvas or session missing, foreign, or not
+            writable.
           content:
             application/json:
               schema:
@@ -2727,6 +2742,91 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+    post:
+      tags: [coaching]
+      summary: Save a validated ORACLE preview as an immutable report
+      description: >
+        Explicit save (spec §6) — the ONLY way a grader preview becomes a
+        report. The request carries ids and an idempotency key, never a
+        report body: the server re-reads its own validated in-memory
+        preview, re-checks CURRENT write authority (owner, or the session
+        coach who still manages the coachee — checked again at save time,
+        not just run start), and inserts the next immutable
+        `report_version` under the company lock. Provenance is copied onto
+        the report row so retention may later delete the `ai_run`
+        (FK ON DELETE SET NULL) without losing it. Replaying the same
+        idempotencyKey returns the same report; a re-grade under a new key
+        appends a new version. Audited as `coaching.report.save` with
+        metadata only — body and transcript never enter audit or logs.
+      operationId: saveCoachingReport
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CoachingReportSaveRequest"
+      responses:
+        "201":
+          description: Report version created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CoachingReportSaveResponse"
+        "200":
+          description: Idempotent replay — same key, same ids.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CoachingReportSaveResponse"
+        "400":
+          description: Invalid body shape (unknown/malformed fields).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Related actor who lost current report-write
+            authority (e.g. the coach no longer manages the coachee).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Session or run missing, foreign, or owned by
+            another user — uniform, no existence disclosure.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: AI_RUN_MISMATCH (not this session's oracle run) or
+            AI_RUN_NOT_SUCCEEDED.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "410":
+          description: PREVIEW_EXPIRED — the validated preview is gone
+            (TTL or restart); grade again.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: ORACLE_REPORT_INVALID — the preview is not a
+            validated grader output.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /api/v1/reports/{id}:
     get:
@@ -3423,19 +3523,35 @@ components:
           minimum: 0
     AiRunStart:
       type: object
-      required: [assistant, canvasId, idempotencyKey]
+      required: [assistant, idempotencyKey]
       additionalProperties: false
       description: >
         Run admission. `consent` must be true (absent/false →
         AI_CONSENT_REQUIRED). `notes` is optional free text for the run —
-        hashed into input_hash, never persisted.
+        hashed into input_hash, never persisted. Canvas assistants
+        (renderer, coach) require `canvasId` and reject `sessionId` /
+        `transcript`; `oracle` requires `sessionId` + `transcript` and
+        rejects `canvasId` — mixing the two families is INVALID_INPUT.
       properties:
         assistant:
           type: string
-          enum: [renderer, coach]
+          enum: [renderer, coach, oracle]
         canvasId:
           type: string
           format: uuid
+        sessionId:
+          type: string
+          format: uuid
+          description: Coaching session — required for oracle, forbidden
+            for canvas assistants.
+        transcript:
+          type: string
+          minLength: 1
+          maxLength: 500000
+          description: >
+            Raw coaching transcript — required for oracle, forbidden for
+            canvas assistants. Hashed into input_hash and passed to the
+            driver in-memory only; NEVER persisted.
         notes:
           type: string
           maxLength: 20000
@@ -3464,8 +3580,8 @@ components:
     AiRun:
       type: object
       required:
-        [runId, assistant, canvasId, status, createdAt, startedAt,
-         finishedAt, errorCode, usage]
+        [runId, assistant, canvasId, sessionId, status, createdAt,
+         startedAt, finishedAt, errorCode, usage]
       additionalProperties: false
       description: Run metadata — never raw input, output, or content.
       properties:
@@ -3474,10 +3590,17 @@ components:
           format: uuid
         assistant:
           type: string
-          enum: [renderer, coach]
+          enum: [renderer, coach, oracle]
         canvasId:
           type: string
           format: uuid
+          nullable: true
+          description: Set on canvas-assistant runs; null for oracle.
+        sessionId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Set on oracle runs; null for canvas assistants.
         status:
           $ref: "#/components/schemas/AiRunStatus"
         createdAt:
@@ -4274,3 +4397,36 @@ components:
             provenance:
               type: object
               description: Grader provenance metadata (model, rubric, timing).
+    CoachingReportSaveRequest:
+      type: object
+      required: [sessionId, runId, idempotencyKey]
+      additionalProperties: false
+      description: >
+        Explicit save — ids only, never a report body. The body is read
+        from the server's own validated preview; a client-supplied report
+        is not accepted.
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+        runId:
+          type: string
+          format: uuid
+          description: The caller's own succeeded oracle run on sessionId.
+        idempotencyKey:
+          type: string
+          minLength: 8
+          maxLength: 200
+          description: Same key + same ids replay the original report.
+    CoachingReportSaveResponse:
+      type: object
+      required: [reportId, reportVersion]
+      additionalProperties: false
+      properties:
+        reportId:
+          type: string
+          format: uuid
+        reportVersion:
+          type: integer
+          description: Immutable per-session version, assigned under the
+            company lock.

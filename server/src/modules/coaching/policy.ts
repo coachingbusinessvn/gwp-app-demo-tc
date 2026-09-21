@@ -1,7 +1,10 @@
 import type { Knex } from "knex";
 import type { ActorContext, Id } from "../../shared/contracts.js";
 import { AppError } from "../../shared/errors.js";
-import { loadActorRoles } from "../authorization/repository.js";
+import {
+  listSubtreeUserIds,
+  loadActorRoles,
+} from "../authorization/repository.js";
 
 /**
  * Report-read ACL (task 4.1, spec §6) — deliberately INDEPENDENT of the
@@ -104,4 +107,66 @@ export async function assertReportRead(
   const row = await findReadableReport(qb, actor, reportId);
   if (!row) throw notFound();
   return row;
+}
+
+/* ------------------------------------------------------------------ */
+/* Session rows and the report WRITE gate (task 4.2)                   */
+/* ------------------------------------------------------------------ */
+
+export interface CoachingSessionRow {
+  id: string;
+  coach_user_id: string;
+  coachee_user_id: string;
+  created_by: string;
+}
+
+export async function findSession(
+  qb: Qb,
+  companyId: Id,
+  sessionId: Id,
+): Promise<CoachingSessionRow | undefined> {
+  return (await qb("coaching_session")
+    .where({ company_id: companyId, id: sessionId })
+    .select("id", "coach_user_id", "coachee_user_id", "created_by")
+    .first()) as CoachingSessionRow | undefined;
+}
+
+/**
+ * Report-write authority (grader run start AND saveReport — a run that
+ * can never be saved is wasted compute, so both share this gate):
+ *
+ *   owner OR (session coach AND still holding the manager role AND the
+ *   coachee still inside the CURRENT subtree).
+ *
+ * Read rights are facts of record (the session's coach keeps them
+ * forever); WRITE rights follow current authority — a coach whose
+ * reporting line moved keeps reading old reports but cannot append new
+ * ones. An actor with no relation at all gets 404 (existence hidden);
+ * a related-but-revoked actor gets an honest 403.
+ */
+export async function assertSessionWrite(
+  qb: Qb,
+  actor: ActorContext,
+  session: CoachingSessionRow,
+): Promise<void> {
+  const roles = await loadActorRoles(qb, actor.companyId, actor.userId);
+  if (roles.includes("owner")) return;
+  const related =
+    session.coach_user_id === actor.userId ||
+    session.created_by === actor.userId;
+  if (!related) throw notFound();
+  if (
+    session.coach_user_id === actor.userId &&
+    roles.includes("manager") &&
+    (await listSubtreeUserIds(qb, actor.companyId, actor.userId)).includes(
+      session.coachee_user_id,
+    )
+  ) {
+    return;
+  }
+  throw new AppError(
+    403,
+    "FORBIDDEN",
+    "Không còn thẩm quyền ghi report cho phiên này",
+  );
 }

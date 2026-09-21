@@ -7,8 +7,12 @@ import { keysetCursorParam, pageLimit } from "../../shared/pagination.js";
 import { createAuthService } from "../auth/service.js";
 import { requireAuth } from "../auth/middleware.js";
 import { createPolicy } from "../authorization/policy.js";
+import type { AiRunsService } from "../ai/runs.js";
 import { createCoachingService } from "./service.js";
-import { createSessionBodySchema } from "./schema.js";
+import {
+  createSessionBodySchema,
+  saveReportBodySchema,
+} from "./schema.js";
 
 /**
  * /api/v1 coaching surface (task 4.1, spec §6):
@@ -75,13 +79,16 @@ export function coachingRoutes(deps: {
   db: Knex;
   clock: Clock;
   config: Config;
+  /** Shared AI runs service — owns the preview store saveReport reads. */
+  runs: AiRunsService;
 }): Router {
-  const { db, clock, config } = deps;
+  const { db, clock, config, runs } = deps;
   const auth = createAuthService({ db, clock, config });
   const coaching = createCoachingService({
     db,
     policy: createPolicy(db),
     clock,
+    runs,
   });
   const router = Router();
 
@@ -92,6 +99,22 @@ export function coachingRoutes(deps: {
       const body = parseBody(createSessionBodySchema, req.body);
       const created = await coaching.createSession(actorOf(res), body);
       res.status(201).json(created);
+    },
+  );
+
+  /**
+   * Save the validated grader preview as an immutable report version.
+   * The body is taken from the SERVER's preview for the run — the request
+   * identifies it, it cannot supply content (spec §6/§7.3).
+   */
+  router.post(
+    "/reports",
+    requireAuth(auth),
+    async (req: Request, res: Response) => {
+      const body = parseBody(saveReportBodySchema, req.body);
+      const saved = await coaching.saveReport(actorOf(res), body);
+      const { replayed, ...dto } = saved;
+      res.status(replayed ? 200 : 201).json(dto);
     },
   );
 

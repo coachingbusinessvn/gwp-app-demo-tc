@@ -1,9 +1,10 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { Knex } from "knex";
 import type { ActorContext, Clock, Id, Page } from "../../shared/contracts.js";
 import { AppError } from "../../shared/errors.js";
 import { lockCompany } from "../../shared/company-lock.js";
 import type { KeysetCursor } from "../../shared/pagination.js";
+import { withReceipt } from "../../shared/write-receipt.js";
 import { appendAudit } from "../audit/service.js";
 import {
   assertActiveActor,
@@ -12,10 +13,14 @@ import {
   loadActorRoles,
 } from "../authorization/repository.js";
 import type { SubjectPolicy } from "../authorization/policy.js";
+import type { AiRunsService } from "../ai/runs.js";
+import type { OraclePreview } from "./grader.js";
 import {
   actorIsOwner,
   applyReportReadScope,
   assertReportRead as assertReportReadOn,
+  assertSessionWrite,
+  findSession,
 } from "./policy.js";
 import type { CreateSessionBody } from "./schema.js";
 
@@ -142,9 +147,20 @@ export interface CoachingDeps {
   db: Knex;
   policy: SubjectPolicy;
   clock: Clock;
+  /**
+   * The AI runs service — shared instance (its preview store is where
+   * grader previews live for the process lifetime). saveReport reads
+   * previews from it; it is never used to persist transcript content.
+   */
+  runs: AiRunsService;
 }
 
-export function createCoachingService({ db, policy, clock }: CoachingDeps) {
+export function createCoachingService({
+  db,
+  policy,
+  clock,
+  runs,
+}: CoachingDeps) {
   /**
    * Record a coaching session. The declared coach is the actor — a forged
    * coachUserId is impersonation and only an owner may do it (historical
@@ -348,7 +364,143 @@ export function createCoachingService({ db, policy, clock }: CoachingDeps) {
     });
   }
 
-  return { createSession, assertReportRead, getReport, listReports };
+  /**
+   * Persist a graded report from the SERVER's validated preview — never
+   * from client bytes (spec §6/§7.3). All of these must hold inside the
+   * company lock:
+   *
+   * - the session exists and the actor still has write authority on it
+   *   (owner, or the session's coach with a CURRENT manage relation —
+   *   a coach whose reporting line moved keeps read but loses save);
+   * - the run belongs to the actor, is an oracle run FOR this session and
+   *   finished `succeeded`;
+   * - the run's preview is alive (TTL/in-process → 410 after restart or
+   *   expiry — the user runs again);
+   * - the preview carried a valid ORACLE report (issues → 422).
+   *
+   * Idempotent on (actor, session, idempotencyKey): a retried save replays
+   * the stored report id; a re-grade with a new key appends the next
+   * immutable report_version. Provenance (model/key/prompt/rubric) is
+   * COPIED onto the report row so retention may later delete ai_run
+   * without losing it (FK is ON DELETE SET NULL).
+   */
+  async function saveReport(
+    actor: ActorContext,
+    input: { sessionId: Id; runId: Id; idempotencyKey: string },
+  ): Promise<{ reportId: string; reportVersion: number; replayed: boolean }> {
+    return db.transaction(async (tx) => {
+      await lockCompany(tx, actor.companyId);
+      await assertActiveActor(tx, actor.companyId, actor.userId);
+      const session = await findSession(tx, actor.companyId, input.sessionId);
+      if (!session) throw notFound();
+      await assertSessionWrite(tx, actor, session);
+
+      const run = await runs.loadOwnedRun(actor, input.runId);
+      if (run.assistant !== "oracle" || run.session_id !== session.id) {
+        throw new AppError(
+          409,
+          "AI_RUN_MISMATCH",
+          "Run không phải grader ORACLE của phiên này",
+        );
+      }
+      if (run.status !== "succeeded") {
+        throw new AppError(
+          409,
+          "AI_RUN_NOT_SUCCEEDED",
+          "Run chưa hoàn tất thành công — không thể lưu report",
+        );
+      }
+
+      const requestHash = createHash("sha256")
+        .update(
+          JSON.stringify({ sessionId: input.sessionId, runId: input.runId }),
+        )
+        .digest("hex");
+      const receipt = await withReceipt(
+        tx,
+        `coaching.report.save:${actor.userId}:${input.sessionId}`,
+        input.idempotencyKey,
+        requestHash,
+        async () => {
+          // 410 PREVIEW_EXPIRED covers missing, expired and post-restart —
+          // existence of a preview is never revealed through a distinct
+          // code. Read inside write(): a same-key replay is answered by the
+          // durable receipt and does NOT depend on the ephemeral preview
+          // still being alive.
+          const entry = runs.previews.get(input.runId);
+          const preview = entry.value as OraclePreview | undefined;
+          if (preview?.kind !== "oracle" || preview.output === null) {
+            throw new AppError(
+              422,
+              "ORACLE_REPORT_INVALID",
+              "Preview không chứa report hợp lệ — chạy lại grader",
+            );
+          }
+          const output = preview.output;
+          const max = (await tx("coaching_report")
+            .where({ session_id: input.sessionId })
+            .max("report_version as n")
+            .first()) as { n: string | number | null } | undefined;
+          const version = Number(max?.n ?? 0) + 1;
+          const id = randomUUID();
+          await tx("coaching_report").insert({
+            id,
+            company_id: actor.companyId,
+            session_id: input.sessionId,
+            ai_run_id: input.runId,
+            report_version: version,
+            rubric_version: output.rubricVersion,
+            body: JSON.stringify(output),
+            // Immutable provenance copy — the ai_run row may be purged by
+            // retention later; the saved report keeps its own record.
+            provenance: JSON.stringify({
+              model: run.config_model,
+              key_version: run.config_key_version,
+              prompt_version: run.prompt_version,
+              rubric_version: output.rubricVersion,
+              ai_run_id: input.runId,
+              run_finished_at: run.finished_at,
+            }),
+            created_by: actor.userId,
+            created_at: clock(),
+          });
+          return id;
+        },
+      );
+
+      const row = (await tx("coaching_report")
+        .where({ id: receipt.resultId, company_id: actor.companyId })
+        .select("report_version")
+        .first()) as { report_version: number } | undefined;
+      if (!row) {
+        throw new AppError(500, "INTERNAL", "Mất report đã ghi nhận");
+      }
+      if (!receipt.replayed) {
+        // Metadata only — never the report body, never transcript quotes.
+        await appendAudit(tx, {
+          companyId: actor.companyId,
+          actorId: actor.userId,
+          action: "coaching.report.save",
+          targetType: "coaching_report",
+          targetId: receipt.resultId,
+          outcome: "success",
+          requestId: actor.requestId,
+          metadata: {
+            session_id: input.sessionId,
+            ai_run_id: input.runId,
+            report_version: row.report_version,
+          },
+        });
+      }
+      return {
+        reportId: receipt.resultId,
+        reportVersion: row.report_version,
+        replayed: receipt.replayed,
+      };
+    });
+  }
+
+  return { createSession, assertReportRead, getReport, listReports, saveReport };
 }
 
 export type CoachingService = ReturnType<typeof createCoachingService>;

@@ -48,16 +48,46 @@ export type AiSettingsInput = z.infer<typeof aiSettingsPutSchema>;
  *   input_hash and never persisted (spec: no raw prompts in the DB).
  */
 export const AI_NOTES_MAX_CHARS = 20_000;
+/** Transcripts are long-form user data; the driver's byte cap is the real bound. */
+export const AI_TRANSCRIPT_MAX_CHARS = 500_000;
 
 export const aiRunStartSchema = z
   .object({
-    assistant: z.enum(["renderer", "coach"]),
-    canvasId: z.string().uuid(),
+    assistant: z.enum(["renderer", "coach", "oracle"]),
+    canvasId: z.string().uuid().optional(),
+    sessionId: z.string().uuid().optional(),
+    transcript: z.string().trim().min(1).max(AI_TRANSCRIPT_MAX_CHARS).optional(),
     notes: z.string().max(AI_NOTES_MAX_CHARS).optional(),
     consent: z.boolean().optional(),
     idempotencyKey: z.string().trim().min(8).max(200),
   })
-  .strict();
+  .strict()
+  .superRefine((v, ctx) => {
+    // The oracle grades a coaching SESSION (task 4.2): sessionId+transcript
+    // are required and canvas fields must not be mixed in. Canvas
+    // assistants still require canvasId and take no session input.
+    if (v.assistant === "oracle") {
+      if (!v.sessionId) {
+        ctx.addIssue({ code: "custom", path: ["sessionId"], message: "required" });
+      }
+      if (!v.transcript) {
+        ctx.addIssue({ code: "custom", path: ["transcript"], message: "required" });
+      }
+      if (v.canvasId !== undefined) {
+        ctx.addIssue({ code: "custom", path: ["canvasId"], message: "forbidden" });
+      }
+    } else {
+      if (!v.canvasId) {
+        ctx.addIssue({ code: "custom", path: ["canvasId"], message: "required" });
+      }
+      if (v.sessionId !== undefined) {
+        ctx.addIssue({ code: "custom", path: ["sessionId"], message: "forbidden" });
+      }
+      if (v.transcript !== undefined) {
+        ctx.addIssue({ code: "custom", path: ["transcript"], message: "forbidden" });
+      }
+    }
+  });
 
 export type AiRunStartInput = z.infer<typeof aiRunStartSchema>;
 
