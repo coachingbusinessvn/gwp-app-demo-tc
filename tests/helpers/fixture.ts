@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Express } from "express";
 import type { Knex } from "knex";
 import request, { type SuperTest, type Test } from "supertest";
-import { createApp } from "../../server/src/app.js";
+import { createApp, type AppDeps } from "../../server/src/app.js";
 import { loadConfig, type DemoMode } from "../../server/src/config.js";
 import { createDb } from "../../server/src/db/connection.js";
 import { migrate } from "../../server/src/db/migrate.js";
@@ -129,6 +129,11 @@ export async function fixture(options?: {
   seeded?: boolean;
   migrated?: boolean;
   mode?: DemoMode;
+  /** Extra env merged over testEnv for this fixture's app (e.g. a
+   *  per-test AI_ALLOW_HTTP + allowlisted fake-LLM port). */
+  env?: NodeJS.ProcessEnv;
+  /** AI driver override — pass {} to keep runs queued deterministically. */
+  aiDrivers?: AppDeps["aiDrivers"];
 }): Promise<Fixture> {
   for (const url of [
     TEST_DATABASE_URL,
@@ -145,6 +150,7 @@ export async function fixture(options?: {
   const config = loadConfig({
     ...testEnv,
     DEMO_MODE: options?.mode ?? testEnv.DEMO_MODE,
+    ...(options?.env ?? {}),
   });
   const runtimeRole = urlUser(TEST_DATABASE_URL);
   const migratorRole = urlUser(TEST_MIGRATOR_DATABASE_URL);
@@ -252,7 +258,12 @@ export async function fixture(options?: {
   }
 
   const db = createDb(TEST_DATABASE_URL, { searchPath: schema, poolMax: 5 });
-  const app = createApp({ db, clock: () => new Date(), config });
+  const app = createApp({
+    db,
+    clock: () => new Date(),
+    config,
+    aiDrivers: options?.aiDrivers,
+  });
 
   // Real login per persona through the mounted routes — the cached access
   // token is indistinguishable from a browser's (spec §8: tests do not fake

@@ -55,6 +55,9 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/public-build ./public-build
 # Hand-maintained OpenAPI contract — read at startup by server/src/openapi.
 COPY --from=builder /app/server/openapi.yaml ./server/openapi.yaml
+# Versioned AI prompt assets — read at runtime by the AI module (resolved
+# from cwd=/app, integrity-checked against each prompt's manifest sha256).
+COPY --from=builder /app/server/prompts ./server/prompts
 
 # node:24 images ship an unprivileged `node` user (uid 1000).
 USER node

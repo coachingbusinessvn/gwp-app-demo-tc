@@ -163,6 +163,7 @@ export async function updateDraftCas(
     body: CanvasBody;
     base_version_id?: string | null;
     schema_version?: number;
+    source?: "manual" | "import" | "ai";
     updated_by: string;
   },
 ): Promise<CanvasDraftRow | undefined> {
@@ -176,6 +177,7 @@ export async function updateDraftCas(
     set.base_version_id = patch.base_version_id;
   if (patch.schema_version !== undefined)
     set.schema_version = patch.schema_version;
+  if (patch.source !== undefined) set.source = patch.source;
   const rows = (await tx("canvas_draft")
     .where({
       company_id: companyId,

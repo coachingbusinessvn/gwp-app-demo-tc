@@ -13,6 +13,7 @@ import type { Config } from "./config.js";
 import { migrationStatus } from "./db/migrate.js";
 import { loadOpenApiSpec } from "./openapi.js";
 import { aiRoutes } from "./modules/ai/routes.js";
+import type { AiAssistant, RunDriver } from "./modules/ai/runs.js";
 import { authRoutes } from "./modules/auth/routes.js";
 import { setupRoutes } from "./modules/auth/setup.routes.js";
 import { auditRoutes } from "./modules/audit/routes.js";
@@ -28,6 +29,13 @@ export interface AppDeps {
   db: Knex;
   clock: Clock;
   config: Config;
+  /**
+   * AI driver override (tests only): when provided, the ai router
+   * registers exactly these drivers — an empty record keeps runs queued
+   * so lifecycle assertions are deterministic. Production omits it and
+   * gets the real renderer driver.
+   */
+  aiDrivers?: Partial<Record<AiAssistant, RunDriver>>;
 }
 
 const JSON_LIMIT = 2 * 1024 * 1024; // 2 MiB — global constraint.
@@ -40,7 +48,12 @@ const JSON_LIMIT = 2 * 1024 * 1024; // 2 MiB — global constraint.
  * - The final error handler is registered last, after the JSON parser and
  *   every router — anything thrown/notFound flows through it.
  */
-export function createApp({ db, clock, config }: AppDeps): Express {
+export function createApp({
+  db,
+  clock,
+  config,
+  aiDrivers,
+}: AppDeps): Express {
   const app = express();
   app.disable("x-powered-by");
   app.set("trust proxy", config.trustProxy);
@@ -104,7 +117,7 @@ export function createApp({ db, clock, config }: AppDeps): Express {
   app.use("/api/v1", auditRoutes({ db, clock, config })); // task 1.5
   app.use("/api/v1", canvasRoutes({ db, clock, config })); // task 2.3
   app.use("/api/v1", dashboardRoutes({ db, clock, config })); // task 2.6
-  app.use("/api/v1", aiRoutes({ db, clock, config })); // task 3.1
+  app.use("/api/v1", aiRoutes({ db, clock, config, drivers: aiDrivers }));
 
   // Root entry: directory index is disabled boundary-wide, so "/" gets an
   // explicit redirect to the login page instead of weakening the boundary.

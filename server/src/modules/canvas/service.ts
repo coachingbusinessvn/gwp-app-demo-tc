@@ -601,6 +601,12 @@ export function createCanvasService({ db, policy, clock }: CanvasDeps) {
   async function createDraft(
     actor: ActorContext,
     canvasId: Id,
+    opts: {
+      /** Override the starting body (default: published base or blank). */
+      body?: unknown;
+      source?: "manual" | "import" | "ai";
+      aiRunId?: string;
+    } = {},
   ): Promise<DraftDto> {
     return db.transaction(async (tx) => {
       await lockCompany(tx, actor.companyId);
@@ -621,7 +627,15 @@ export function createCanvasService({ db, policy, clock }: CanvasDeps) {
               canvasId,
               canvas.current_version_id,
             );
-      const body: CanvasBody = base ? base.body : blankCanvas(clock);
+      const body: CanvasBody =
+        opts.body !== undefined
+          ? requireValidDraftBody(opts.body)
+          : base
+            ? base.body
+            : blankCanvas(clock);
+      if (opts.body !== undefined) {
+        await requireCompanyAssignees(tx, actor.companyId, body);
+      }
       const draft = await insertDraft409(tx, {
         company_id: actor.companyId,
         canvas_id: canvasId,
@@ -629,7 +643,7 @@ export function createCanvasService({ db, policy, clock }: CanvasDeps) {
         revision: 1,
         schema_version: body.schema_version,
         body,
-        source: "manual",
+        source: opts.source ?? "manual",
         created_by: actor.userId,
         updated_by: actor.userId,
       });
@@ -641,7 +655,11 @@ export function createCanvasService({ db, policy, clock }: CanvasDeps) {
         targetId: canvasId,
         outcome: "success",
         requestId: actor.requestId,
-        metadata: { version: draft.revision },
+        metadata: {
+          version: draft.revision,
+          ...(opts.source ? { source: opts.source } : {}),
+          ...(opts.aiRunId ? { run_id: opts.aiRunId } : {}),
+        },
       });
       return toDraftDto(draft);
     });
@@ -663,6 +681,9 @@ export function createCanvasService({ db, policy, clock }: CanvasDeps) {
       expectedRevision: number;
       baseVersionId: Id | null;
       body: unknown;
+      /** Draft provenance stamp — 'ai' marks AI-applied proposals. */
+      source?: "manual" | "import" | "ai";
+      aiRunId?: string;
     },
   ): Promise<DraftDto> {
     return db.transaction(async (tx) => {
@@ -693,7 +714,11 @@ export function createCanvasService({ db, policy, clock }: CanvasDeps) {
         actor.companyId,
         canvasId,
         input.expectedRevision,
-        { body, updated_by: actor.userId },
+        {
+          body,
+          updated_by: actor.userId,
+          ...(input.source ? { source: input.source } : {}),
+        },
       );
       // Unreachable while the company lock serializes writers — the CAS
       // predicate stays so a lock-free future caller still cannot clobber.
@@ -712,7 +737,11 @@ export function createCanvasService({ db, policy, clock }: CanvasDeps) {
         targetId: canvasId,
         outcome: "success",
         requestId: actor.requestId,
-        metadata: { version: updated.revision },
+        metadata: {
+          version: updated.revision,
+          ...(input.source ? { source: input.source } : {}),
+          ...(input.aiRunId ? { run_id: input.aiRunId } : {}),
+        },
       });
       return toDraftDto(updated);
     });

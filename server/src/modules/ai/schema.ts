@@ -60,3 +60,18 @@ export const aiRunStartSchema = z
   .strict();
 
 export type AiRunStartInput = z.infer<typeof aiRunStartSchema>;
+
+/**
+ * Apply a staged renderer proposal (task 3.4). The request carries NO
+ * body — the server applies the preview it validated. `expectedRevision`
+ * must equal the revision captured at run start (null when no draft
+ * existed); `acceptedWarnings` lists the issue ids the user acknowledged.
+ */
+export const aiRunApplySchema = z
+  .object({
+    expectedRevision: z.number().int().min(1).nullable(),
+    acceptedWarnings: z.array(z.string().max(64)).max(200).default([]),
+  })
+  .strict();
+
+export type AiRunApplyInput = z.infer<typeof aiRunApplySchema>;

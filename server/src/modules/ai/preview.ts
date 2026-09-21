@@ -143,7 +143,14 @@ export function createPreviewStore({ now }: StoreDeps = {}) {
     return e;
   }
 
-  return { put, get };
+  /** Get + drop — a successful apply consumes the preview one-shot. */
+  function take(runId: string): PreviewEntry {
+    const e = get(runId);
+    drop(runId);
+    return e;
+  }
+
+  return { put, get, take };
 }
 
 export type PreviewStore = ReturnType<typeof createPreviewStore>;

@@ -5,7 +5,6 @@ import type { ActorContext, Clock } from "../../shared/contracts.js";
 import { AppError } from "../../shared/errors.js";
 import { lockCompany } from "../../shared/company-lock.js";
 import { appendAudit } from "../audit/service.js";
-import { assertActiveActor } from "../authorization/repository.js";
 import { createCanvasService } from "../canvas/service.js";
 import {
   findCanvasById,
@@ -98,6 +97,8 @@ export interface RunDriverResult {
   /** When set, the result is staged into the bounded preview store. */
   preview?: unknown;
   usage?: { inputTokens: number; outputTokens: number };
+  /** Versioned prompt id recorded on the run row for provenance. */
+  promptVersion?: string;
 }
 
 export type RunDriver = (ctx: {
@@ -106,6 +107,11 @@ export type RunDriver = (ctx: {
   emit: (e: AiRunEvent) => void;
   signal: AbortSignal;
   config: AiRuntimeConfig;
+  /**
+   * Request-scoped input passed through dispatch — notes exist only for
+   * the request lifetime, matching the no-raw-input-persistence rule.
+   */
+  input: { notes?: string };
 }) => Promise<RunDriverResult>;
 
 function toDto(r: AiRunRow): AiRunDto {
@@ -328,7 +334,11 @@ export function createAiRunsService({
    * the run row is the durable record, the events bus streams progress.
    * A missing driver leaves the run queued (3.4/3.5 plug in).
    */
-  async function dispatch(runId: string, companyId: string): Promise<void> {
+  async function dispatch(
+    runId: string,
+    companyId: string,
+    input: { notes?: string } = {},
+  ): Promise<void> {
     const run = await loadRun(companyId, runId);
     if (!run || run.status !== "queued") return;
     const driver = drivers.get(run.assistant);
@@ -354,6 +364,7 @@ export function createAiRunsService({
         emit: (e) => emit(runId, e),
         signal: controller.signal,
         config: cfg,
+        input,
       });
       // CAS: a cancel that raced ahead already wrote 'cancelled' — a
       // late success must not overwrite the terminal state.
@@ -362,6 +373,7 @@ export function createAiRunsService({
         .update({
           status: "succeeded",
           finished_at: clock(),
+          prompt_version: result.promptVersion ?? run.prompt_version,
           usage_input_tokens: result.usage?.inputTokens ?? null,
           usage_output_tokens: result.usage?.outputTokens ?? null,
         });

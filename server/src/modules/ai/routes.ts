@@ -6,13 +6,20 @@ import { AppError } from "../../shared/errors.js";
 import { rateLimit } from "../../shared/rate-limit.js";
 import { createAuthService } from "../auth/service.js";
 import { requireAuth } from "../auth/middleware.js";
-import { aiSettingsPutSchema, aiRunStartSchema } from "./schema.js";
+import {
+  aiSettingsPutSchema,
+  aiRunStartSchema,
+  aiRunApplySchema,
+} from "./schema.js";
 import { createAiSettingsService } from "./settings.js";
 import {
   createAiRunsService,
   AI_RUN_FINISHED,
+  type AiAssistant,
   type AiRunEvent,
+  type RunDriver,
 } from "./runs.js";
+import { createRendererService } from "./renderer.js";
 
 /**
  * /api/v1 AI surface (task 3.1, spec §7.1):
@@ -71,11 +78,22 @@ export function aiRoutes(deps: {
   db: Knex;
   clock: Clock;
   config: Config;
+  /**
+   * Driver override for tests: when given, ONLY these drivers are
+   * registered — an empty object keeps every run queued forever so
+   * lifecycle tests can observe the state machine deterministically.
+   */
+  drivers?: Partial<Record<AiAssistant, RunDriver>>;
 }): Router {
   const { db, clock, config } = deps;
   const auth = createAuthService({ db, clock, config });
   const ai = createAiSettingsService({ db, clock, config });
   const aiRuns = createAiRunsService({ db, clock, config });
+  const renderer = createRendererService({ db, clock, config, runs: aiRuns });
+  const drivers = deps.drivers ?? { renderer: renderer.driver };
+  for (const [assistant, driver] of Object.entries(drivers)) {
+    aiRuns.registerDriver(assistant as AiAssistant, driver);
+  }
   const router = Router();
 
   // Config writes are rare admin operations — a tight per-IP bound is
@@ -140,10 +158,13 @@ export function aiRoutes(deps: {
       const actor = actorOf(res);
       const started = await aiRuns.startRun(actor, body);
       // The dispatcher is fire-and-forget: the run row is the durable
-      // record, the client follows progress on /events. No driver
-      // registered yet (3.4/3.5) → the run simply stays queued.
+      // record, the client follows progress on /events. A run whose
+      // assistant has no registered driver simply stays queued.
       if (!started.replayed) {
-        void aiRuns.dispatch(started.runId, actor.companyId).catch(() => {});
+        // Notes live only for this request+run — never persisted.
+        void aiRuns
+          .dispatch(started.runId, actor.companyId, { notes: body.notes })
+          .catch(() => {});
       }
       res.status(started.replayed ? 200 : 201).json(started);
     },
@@ -173,6 +194,24 @@ export function aiRoutes(deps: {
     runLimiter,
     async (req: Request, res: Response) => {
       res.json(await aiRuns.cancelRun(actorOf(res), pathId(req.params.runId)));
+    },
+  );
+
+  /**
+   * Apply the staged renderer proposal to the canvas draft. The request
+   * carries no body — the server applies what IT validated (spec §7.3:
+   * AI output is previewed and explicitly applied, never trusted from
+   * the client). Permission + captured base are re-checked inside.
+   */
+  router.post(
+    "/ai/runs/:runId/apply",
+    requireAuth(auth),
+    runLimiter,
+    async (req: Request, res: Response) => {
+      const body = parseBody(aiRunApplySchema, req.body);
+      res.json(
+        await renderer.apply(actorOf(res), pathId(req.params.runId), body),
+      );
     },
   );
 

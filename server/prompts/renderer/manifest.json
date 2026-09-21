@@ -1,0 +1,13 @@
+{
+  "promptVersion": "renderer-1.0.0",
+  "contractVersion": "canvas-md-3.0",
+  "file": "instruction.md",
+  "sha256": "753301f6383e86d45601c8c44ca7b33f35d6d4a8a2424a2e4f7445fb764e12d0",
+  "source": {
+    "path": "/Volumes/SS/projects/gwp-canvas-performance-architecture/canvas-session-renderer/01_project_instruction.md",
+    "revision": "978a224",
+    "sha256": "9c51fa9b207b669e243bacf39a9099ce0ac1a7f408fc123e460177bdabf43419",
+    "note": "Ported from the interactive Claude-Project instruction (v2.3.0). Removed: code-execution/file-creation requirements and the interactive WAIT/options workflow (this integration is single-turn — ⭐ proposals render marked for human review instead of blocking). Retained verbatim: the ORACLE-report mapping, epistemic discipline (Fact vs ⭐ proposal), the canonical Markdown output contract and enum constraints the server parser enforces."
+  },
+  "licenseReview": "Internal GoWise project asset — same workspace, ported with attribution; no external license required."
+}

@@ -107,7 +107,7 @@ git commit -m "feat: configure encrypted local AI BYOK"
 - `complete({config,messages,maxOutputTokens,signal,onDelta}): Promise<{text,usage?:{inputTokens,outputTokens}}>`.
 - `testConnection(actor): Promise<{ok,streaming,model}>` synthetic only; config context limit operator-provided, probe verifies supported capabilities not arbitrary discovery.
 
-- [ ] **Step 1: Viết test đỏ** trong `tests/unit/ai-adapter.test.ts`. Fake LLM split UTF8/SSE frames, [DONE], non-stream, upstream401/429/5xx, oversized output, timeout180s via fake clock, aborted signal closes connection.
+- [x] **Step 1: Viết test đỏ** trong `tests/unit/ai-adapter.test.ts`. Fake LLM split UTF8/SSE frames, [DONE], non-stream, upstream401/429/5xx, oversized output, timeout180s via fake clock, aborted signal closes connection.
 
 ```ts
 const controller=new AbortController();
@@ -118,13 +118,13 @@ await expect(task).rejects.toMatchObject({code:"AI_CANCELLED"});
 expect(fakeLlm.requests[0]?.body?.messages).not.toContainEqual({content:"customer data"});
 ```
 
-- [ ] **Step 2: Chạy test trước triển khai.**
+- [x] **Step 2: Chạy test trước triển khai.**
 
 Run: `npm test -- tests/unit/ai-adapter.test.ts`.
 Expected: FAIL tại hành vi/assertion mới hoặc missing module; sửa lỗi setup/môi trường trước,
 không coi lỗi không kết nối DB là bằng chứng RED hợp lệ.
 
-- [ ] **Step 3: Triển khai phần lõi và nối interface.**
+- [x] **Step 3: Triển khai phần lõi và nối interface.**
 
 Implement fake HTTP local server with request capture redacted in fixture, configure exact allowed address. Fetch redirect:error, AbortSignal combines timeout/client abort; incremental TextDecoder and SSE line buffering, limit bytes as well tokens. Content/role only, never enable tools/functions. Test uses small synthetic prompt. Error envelope has stable AI_* code and redacted upstream status, no raw provider error/key. Usage optional, don't estimate fake counts.
 
@@ -138,12 +138,12 @@ const response=await fetch(new URL("chat/completions",baseWithTrailingSlash),{
 // Parse text/event-stream incrementally; if configured non-stream parse bounded JSON instead.
 ```
 
-- [ ] **Step 4: Chạy lại test và kiểm tra hồi quy.**
+- [x] **Step 4: Chạy lại test và kiểm tra hồi quy.**
 
 Run: `npm test -- tests/unit/ai-adapter.test.ts`, rồi `npm run typecheck`.
 Expected: test mới PASS, typecheck exit 0. Chạy thêm toàn bộ integration tests của module vừa thay đổi.
 
-- [ ] **Step 5: Commit riêng task sau khi kiểm tra diff.**
+- [x] **Step 5: Commit riêng task sau khi kiểm tra diff.**
 
 ```sh
 git diff --check
@@ -165,7 +165,7 @@ git commit -m "feat: add bounded and cancellable local inference adapter"
 - `putPreview(runId,actorId,value,base):void`; `getPreview(actor,runId)` TTL900s and bounded byte budget.
 - `GET /ai/runs/:id` trả metadata cho actor tạo run; GET events và cancel kiểm cùng actor/session hiện hành. Restart chuyển cả queued lẫn running sang interrupted để không giữ slot vô hạn.
 
-- [ ] **Step 1: Viết test đỏ** trong `tests/integration/ai-runs.test.ts`. No consent400, invalid rights404; 2 active/company third429; samekey no duplicate; changedhash409; expiry410; restart marks interrupted; raw notes absent DB/log.
+- [x] **Step 1: Viết test đỏ** trong `tests/integration/ai-runs.test.ts`. No consent400, invalid rights404; 2 active/company third429; samekey no duplicate; changedhash409; expiry410; restart marks interrupted; raw notes absent DB/log.
 
 ```ts
 const body={assistant:"renderer",canvasId,notes:"private-note-unique",consent:true,idempotencyKey:"same-run"};
@@ -176,13 +176,13 @@ expect((await f.api("member").post("/api/v1/ai/runs").send({...body,notes:"diffe
 expect(JSON.stringify(await f.db("ai_run").select("*"))).not.toContain("private-note-unique");
 ```
 
-- [ ] **Step 2: Chạy test trước triển khai.**
+- [x] **Step 2: Chạy test trước triển khai.**
 
 Run: `npm test -- tests/integration/ai-runs.test.ts`.
 Expected: FAIL tại hành vi/assertion mới hoặc missing module; sửa lỗi setup/môi trường trước,
 không coi lỗi không kết nối DB là bằng chứng RED hợp lệ.
 
-- [ ] **Step 3: Triển khai phần lõi và nối interface.**
+- [x] **Step 3: Triển khai phần lõi và nối interface.**
 
 Persist metadata/hash only. Admission serialized company lock (queued/running count<2); no waiting queue, queued is brief admitted state. Capture base version/draft revision/input hash/config revision at start; read allowed snapshot server-side. Temporary preview actor-scoped TTL15m, cap32MiB/company and 128MiB/process; evict completed oldest with explicit410. Validate1MiB before inference/context token budget from adapter config. Streaming subscribers authenticated owner of run, periodically session check; disconnect cancels upstream. Restart running→interrupted. Transcript/notes memory disposed at completion/cancel.
 
@@ -198,12 +198,12 @@ await db.transaction(async tx=>{
 // If preview expired return 410 PREVIEW_EXPIRED; never auto-repeat a succeeded run.
 ```
 
-- [ ] **Step 4: Chạy lại test và kiểm tra hồi quy.**
+- [x] **Step 4: Chạy lại test và kiểm tra hồi quy.**
 
 Run: `npm test -- tests/integration/ai-runs.test.ts`, rồi `npm run typecheck`.
 Expected: test mới PASS, typecheck exit 0. Chạy thêm toàn bộ integration tests của module vừa thay đổi.
 
-- [ ] **Step 5: Commit riêng task sau khi kiểm tra diff.**
+- [x] **Step 5: Commit riêng task sau khi kiểm tra diff.**
 
 ```sh
 git diff --check

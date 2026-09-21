@@ -74,7 +74,7 @@ function startBody(canvasId: string, extra: Record<string, unknown> = {}) {
 
 describe("AI runs (task 3.3)", () => {
   it("rejects missing/false consent and a missing idempotency key", async () => {
-    const f = await fixture({ seeded: true });
+    const f = await fixture({ seeded: true, aiDrivers: {} });
     try {
       await configureAi(f);
       const canvasId = await createCanvasFor(f, "member");
@@ -105,7 +105,7 @@ describe("AI runs (task 3.3)", () => {
   });
 
   it("503 AI_NOT_CONFIGURED before settings; 409 AI_DISABLED when disabled", async () => {
-    const f = await fixture({ seeded: true });
+    const f = await fixture({ seeded: true, aiDrivers: {} });
     try {
       const canvasId = await createCanvasFor(f, "member");
       const un = await f
@@ -133,7 +133,7 @@ describe("AI runs (task 3.3)", () => {
   });
 
   it("starts a queued run; metadata only — notes never reach the row", async () => {
-    const f = await fixture({ seeded: true });
+    const f = await fixture({ seeded: true, aiDrivers: {} });
     try {
       await configureAi(f);
       const canvasId = await createCanvasFor(f, "member");
@@ -172,7 +172,7 @@ describe("AI runs (task 3.3)", () => {
   });
 
   it("idempotent replay returns the same run; different input → 409", async () => {
-    const f = await fixture({ seeded: true });
+    const f = await fixture({ seeded: true, aiDrivers: {} });
     try {
       await configureAi(f);
       const canvasId = await createCanvasFor(f, "member");
@@ -207,7 +207,7 @@ describe("AI runs (task 3.3)", () => {
   });
 
   it("caps at 2 active runs per company → 429 AI_BUSY", async () => {
-    const f = await fixture({ seeded: true });
+    const f = await fixture({ seeded: true, aiDrivers: {} });
     try {
       await configureAi(f);
       const canvasId = await createCanvasFor(f, "member");
@@ -233,7 +233,7 @@ describe("AI runs (task 3.3)", () => {
   });
 
   it("foreign canvas → 404; archived canvas → 409; other personas → 404", async () => {
-    const f = await fixture({ seeded: true });
+    const f = await fixture({ seeded: true, aiDrivers: {} });
     try {
       await configureAi(f);
       const foreign = randomUUID();
@@ -281,7 +281,7 @@ describe("AI runs (task 3.3)", () => {
   });
 
   it("cancel: queued → cancelled; finished → 409; preview → 410", async () => {
-    const f = await fixture({ seeded: true });
+    const f = await fixture({ seeded: true, aiDrivers: {} });
     try {
       await configureAi(f);
       const canvasId = await createCanvasFor(f, "member");
@@ -310,7 +310,7 @@ describe("AI runs (task 3.3)", () => {
   });
 
   it("terminal run's events stream emits its status then ends", async () => {
-    const f = await fixture({ seeded: true });
+    const f = await fixture({ seeded: true, aiDrivers: {} });
     try {
       await configureAi(f);
       const canvasId = await createCanvasFor(f, "member");
@@ -340,7 +340,7 @@ describe("AI runs (task 3.3)", () => {
   });
 
   it("boot sweep marks leftover queued/running rows interrupted", async () => {
-    const f = await fixture({ seeded: true });
+    const f = await fixture({ seeded: true, aiDrivers: {} });
     try {
       await configureAi(f);
       const canvasId = await createCanvasFor(f, "member");
@@ -368,7 +368,7 @@ describe("AI runs (task 3.3)", () => {
   });
 
   it("registered driver: dispatch runs to succeeded, preview readable by creator only", async () => {
-    const f = await fixture({ seeded: true });
+    const f = await fixture({ seeded: true, aiDrivers: {} });
     try {
       await configureAi(f);
       const canvasId = await createCanvasFor(f, "member");

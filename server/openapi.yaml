@@ -1801,6 +1801,80 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/ai/runs/{runId}/apply:
+    post:
+      tags: [ai]
+      summary: Apply the staged proposal to the draft (creator only, one-shot)
+      description: >
+        Applies the SERVER-HELD preview — the request carries no canvas
+        body, so generated content can never be injected or forged. The
+        preview must have no error-severity issues (409
+        AI_PROPOSAL_INVALID), every warning must be listed in
+        `acceptedWarnings` by issue id (400 AI_WARNINGS_UNACCEPTED), and
+        the captured base must still match: a draft that moved since the
+        run is 409 AI_BASE_CHANGED, a new published version is 409
+        VERSION_CONFLICT. Apply consumes the preview — a second call is
+        410 PREVIEW_EXPIRED. The draft is stamped source="ai" with the
+        run id; publish remains a separate human step.
+      operationId: applyAiRun
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiRunApplyRequest"
+      responses:
+        "200":
+          description: Proposal applied to the draft (draft DTO).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CanvasDraft"
+        "400":
+          description: >
+            INVALID_INPUT (malformed body — including any client-sent
+            canvas body) or AI_WARNINGS_UNACCEPTED.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Run missing, owned by another actor, or canvas access lost.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: >
+            AI_RUN_NOT_READY (run not succeeded), AI_PROPOSAL_INVALID
+            (error-severity issues), AI_BASE_CHANGED (draft moved), or
+            VERSION_CONFLICT (published base changed).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "410":
+          description: PREVIEW_EXPIRED — expired, consumed, or absent.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /api/v1/audit:
     get:
       tags: [audit]
@@ -3295,6 +3369,30 @@ components:
               nullable: true
         value:
           description: The assistant-specific validated proposal payload.
+    AiRunApplyRequest:
+      type: object
+      required: [expectedRevision]
+      additionalProperties: false
+      description: >
+        Apply carries NO canvas body — the server applies its own held
+        preview. `expectedRevision` is the draft revision the caller last
+        saw (null when there was no draft at run start); the stronger
+        guarantee is the captured-base check, which refuses any draft
+        that moved since the run began.
+      properties:
+        expectedRevision:
+          type: integer
+          minimum: 1
+          nullable: true
+        acceptedWarnings:
+          type: array
+          description: >
+            Issue ids from the preview the caller explicitly accepts —
+            every warning-severity issue must appear here.
+          maxItems: 200
+          items:
+            type: string
+            maxLength: 64
     AuditEvent:
       type: object
       description: >

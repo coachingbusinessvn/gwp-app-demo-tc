@@ -34,6 +34,8 @@ export const AUDIT_METADATA_ALLOWLIST: ReadonlySet<string> = new Set([
   "reason", // short reason code, e.g. "reused_refresh_token"
   "result", // coarse result label
   "role", // role key granted/revoked
+  "run_id", // AI run id — an opaque UUID, never run content
+  "source", // draft provenance: manual|import|ai
   "status", // resulting status string
   "to", // destination id for transfer/move events — an opaque UUID
   "version", // version number (canvas/report/rubric/prompt)
