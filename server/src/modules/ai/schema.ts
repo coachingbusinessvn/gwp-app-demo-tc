@@ -35,3 +35,28 @@ export const aiSettingsPutSchema = z
   .strict();
 
 export type AiSettingsInput = z.infer<typeof aiSettingsPutSchema>;
+
+/**
+ * AI run admission (task 3.3, spec §7.3).
+ *
+ * - `consent` must be literally true — the client shows the notice and
+ *   sends the flag; the server re-enforces it, so a UI that skips the
+ *   step cannot start a run.
+ * - `idempotencyKey` is REQUIRED: a retried POST must replay, not launch
+ *   a second upstream call. Same key + different input → 409.
+ * - `notes` is optional free text that shapes the run; it is hashed into
+ *   input_hash and never persisted (spec: no raw prompts in the DB).
+ */
+export const AI_NOTES_MAX_CHARS = 20_000;
+
+export const aiRunStartSchema = z
+  .object({
+    assistant: z.enum(["renderer", "coach"]),
+    canvasId: z.string().uuid(),
+    notes: z.string().max(AI_NOTES_MAX_CHARS).optional(),
+    consent: z.boolean().optional(),
+    idempotencyKey: z.string().trim().min(8).max(200),
+  })
+  .strict();
+
+export type AiRunStartInput = z.infer<typeof aiRunStartSchema>;

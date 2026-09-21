@@ -6,8 +6,13 @@ import { AppError } from "../../shared/errors.js";
 import { rateLimit } from "../../shared/rate-limit.js";
 import { createAuthService } from "../auth/service.js";
 import { requireAuth } from "../auth/middleware.js";
-import { aiSettingsPutSchema } from "./schema.js";
+import { aiSettingsPutSchema, aiRunStartSchema } from "./schema.js";
 import { createAiSettingsService } from "./settings.js";
+import {
+  createAiRunsService,
+  AI_RUN_FINISHED,
+  type AiRunEvent,
+} from "./runs.js";
 
 /**
  * /api/v1 AI surface (task 3.1, spec §7.1):
@@ -50,6 +55,18 @@ function parseBody<T>(
   return parsed.data as T;
 }
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** A path id that cannot be a uuid is a nonexistent resource → 404. */
+function pathId(raw: string | string[]): string {
+  const id = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof id !== "string" || !UUID_RE.test(id)) {
+    throw new AppError(404, "NOT_FOUND", "Không tìm thấy tài nguyên");
+  }
+  return id;
+}
+
 export function aiRoutes(deps: {
   db: Knex;
   clock: Clock;
@@ -58,6 +75,7 @@ export function aiRoutes(deps: {
   const { db, clock, config } = deps;
   const auth = createAuthService({ db, clock, config });
   const ai = createAiSettingsService({ db, clock, config });
+  const aiRuns = createAiRunsService({ db, clock, config });
   const router = Router();
 
   // Config writes are rare admin operations — a tight per-IP bound is
@@ -100,6 +118,118 @@ export function aiRoutes(deps: {
     probeLimiter,
     async (_req: Request, res: Response) => {
       res.json(await ai.testConnection(actorOf(res)));
+    },
+  );
+
+  /* ------------------------------------------------------------------
+   * Runs (task 3.3): consented start, idempotent replay, SSE progress,
+   * cancel, and the 15-minute preview read.
+   * ------------------------------------------------------------------ */
+
+  // Runs are interactive user operations — a looser bound than config
+  // writes, but still capped so scripted run-spam can't exhaust the
+  // per-company concurrency window.
+  const runLimiter = rateLimit({ windowMs: 60_000, max: 30 });
+
+  router.post(
+    "/ai/runs",
+    requireAuth(auth),
+    runLimiter,
+    async (req: Request, res: Response) => {
+      const body = parseBody(aiRunStartSchema, req.body);
+      const actor = actorOf(res);
+      const started = await aiRuns.startRun(actor, body);
+      // The dispatcher is fire-and-forget: the run row is the durable
+      // record, the client follows progress on /events. No driver
+      // registered yet (3.4/3.5) → the run simply stays queued.
+      if (!started.replayed) {
+        void aiRuns.dispatch(started.runId, actor.companyId).catch(() => {});
+      }
+      res.status(started.replayed ? 200 : 201).json(started);
+    },
+  );
+
+  router.get(
+    "/ai/runs/:runId",
+    requireAuth(auth),
+    async (req: Request, res: Response) => {
+      res.json(await aiRuns.getRun(actorOf(res), pathId(req.params.runId)));
+    },
+  );
+
+  router.get(
+    "/ai/runs/:runId/preview",
+    requireAuth(auth),
+    async (req: Request, res: Response) => {
+      const runId = pathId(req.params.runId);
+      const p = await aiRuns.getPreview(actorOf(res), runId);
+      res.json({ runId, base: p.base, value: p.value });
+    },
+  );
+
+  router.post(
+    "/ai/runs/:runId/cancel",
+    requireAuth(auth),
+    runLimiter,
+    async (req: Request, res: Response) => {
+      res.json(await aiRuns.cancelRun(actorOf(res), pathId(req.params.runId)));
+    },
+  );
+
+  /**
+   * SSE progress stream (spec §7.3). Events: {type:"status"|"delta"|
+   * "done"|"error"}. A client disconnect cancels a still-active run —
+   * spec: "Disconnect phải dừng run upstream khi có thể" — runs never
+   * continue consuming upstream capacity after the caller is gone.
+   */
+  router.get(
+    "/ai/runs/:runId/events",
+    requireAuth(auth),
+    async (req: Request, res: Response) => {
+      const actor = actorOf(res);
+      const runId = pathId(req.params.runId);
+      // Ownership gate before any bytes go out — foreign runs are 404.
+      const run = await aiRuns.loadOwnedRun(actor, runId);
+
+      res.status(200);
+      res.setHeader("content-type", "text/event-stream; charset=utf-8");
+      res.setHeader("cache-control", "no-store");
+      res.setHeader("connection", "keep-alive");
+      res.setHeader("x-accel-buffering", "no");
+      res.flushHeaders();
+
+      let closed = false;
+      const send = (e: AiRunEvent): void => {
+        if (closed) return;
+        res.write(`data: ${JSON.stringify(e)}\n\n`);
+        if (e.type === "done" || e.type === "error") {
+          closed = true;
+          res.end();
+        }
+      };
+      const unsubscribe = aiRuns.subscribe(runId, send);
+      // Current status first, so a late subscriber sees where it is.
+      send({ type: "status", status: run.status });
+      if (run.status !== "queued" && run.status !== "running") {
+        closed = true;
+        res.end();
+      }
+
+      req.on("close", () => {
+        unsubscribe();
+        if (closed) return;
+        closed = true;
+        // The client went away mid-run → stop the run (upstream abort
+        // happens through the run's AbortController).
+        void aiRuns
+          .cancelRun(actor, runId)
+          .catch((err) => {
+            if (!(err instanceof AppError && err.code === AI_RUN_FINISHED)) {
+              throw err;
+            }
+          })
+          .catch(() => {});
+      });
     },
   );
 

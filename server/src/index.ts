@@ -46,6 +46,25 @@ try {
   );
 }
 
+// AI run sweep (spec §7.3): runs left queued/running by a dead process
+// become 'interrupted' — previews were memory-only, so nothing can be
+// resumed and nothing retries silently. Skipped when the ai_run table
+// doesn't exist yet (migrator still running); the next healthy boot
+// performs it.
+try {
+  const { createAiRunsService } = await import("./modules/ai/runs.js");
+  const interrupted = await createAiRunsService({
+    db,
+    clock: () => new Date(),
+    config,
+  }).markInterruptedRuns();
+  if (interrupted > 0) {
+    console.log(`marked ${interrupted} stale AI run(s) interrupted`);
+  }
+} catch {
+  // Non-fatal: pre-migration or unreachable DB — degraded serving stands.
+}
+
 const app = createApp({ db, clock: () => new Date(), config });
 
 const server = app.listen(config.port, "0.0.0.0", () => {

@@ -7,6 +7,7 @@ import { foundationMigration } from "./migrations/0001-foundation.js";
 import { organizationMigration } from "./migrations/0002-organization.js";
 import { oneTimeTokenMigration } from "./migrations/0003-one-time-token.js";
 import { canvasMigration } from "./migrations/0004-canvas.js";
+import { aiMigration } from "./migrations/0005-ai.js";
 
 /**
  * Migration runner: every migration is a named `up(db)` applied in
@@ -35,6 +36,7 @@ export const MIGRATIONS: readonly Migration[] = [
   organizationMigration,
   oneTimeTokenMigration,
   canvasMigration,
+  aiMigration,
 ];
 
 const TRACKING_TABLE = "schema_migration";

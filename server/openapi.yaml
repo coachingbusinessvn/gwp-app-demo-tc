@@ -1546,6 +1546,261 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/ai/runs:
+    post:
+      tags: [ai]
+      summary: Start a consented AI run on a canvas
+      description: >
+        Any authenticated actor with write access to the target canvas
+        (spec §4 "Chạy AI trên canvas — theo quyền sửa"; foreign/denied
+        canvases answer the uniform 404, archived 409). Requires
+        `consent: true` — the caller has seen the internal-AI notice and
+        the server re-enforces it. `idempotencyKey` is REQUIRED: a
+        retried POST with the same key and same input replays the same
+        run (200, replayed:true) instead of launching a second upstream
+        call; the same key with different input is 409
+        AI_IDEMPOTENCY_CONFLICT. At most 2 active (queued|running) runs
+        per company — a third is 429 AI_BUSY. The run row stores metadata
+        only (status, input hash, provenance, captured canvas base);
+        `notes` and canvas content are never persisted. Progress is
+        streamed on GET /ai/runs/{runId}/events; the finished proposal is
+        staged into a 15-minute in-memory preview, never auto-applied.
+      operationId: startAiRun
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiRunStart"
+      responses:
+        "201":
+          description: Run admitted and queued.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiRunStartResult"
+        "200":
+          description: Idempotent replay — same key, same input.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiRunStartResult"
+        "400":
+          description: INVALID_INPUT (bad fields, missing key) or
+            AI_CONSENT_REQUIRED (consent absent/false).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Canvas missing, foreign, or not writable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: AI_IDEMPOTENCY_CONFLICT, AI_DISABLED, or
+            CANVAS_ARCHIVED.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: AI_BUSY — the per-company active-run cap (2) is
+            reached; retry after a run finishes. Also the per-IP rate
+            bound.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: AI_NOT_CONFIGURED — no endpoint/key saved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/ai/runs/{runId}:
+    get:
+      tags: [ai]
+      summary: Read run status (creator only)
+      description: >
+        Returns the run's metadata DTO — status, timestamps, error code,
+        usage counters when the endpoint reported them. Only the actor
+        who created the run may read it; everyone else gets the uniform
+        404 (existence is not revealed).
+      operationId: getAiRun
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Run metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiRun"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Run missing or owned by another actor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/ai/runs/{runId}/events:
+    get:
+      tags: [ai]
+      summary: Stream run progress (SSE, creator only)
+      description: >
+        `text/event-stream` of {type:"status"|"delta"|"done"|"error"}
+        events. The current status is sent first so a late subscriber
+        sees where the run is; the stream ends after a terminal event.
+        A client disconnect CANCELS a still-active run (spec §7.3 —
+        upstream work stops when the caller is gone); terminal runs are
+        unaffected.
+      operationId: streamAiRunEvents
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: SSE stream; each `data:` frame is a JSON
+            AiRunEvent.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Run missing or owned by another actor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/ai/runs/{runId}/preview:
+    get:
+      tags: [ai]
+      summary: Read the staged AI proposal (creator only, 15-min TTL)
+      description: >
+        The validated proposal held in process memory for 15 minutes
+        after the run succeeds — never persisted, never in a log. The
+        response carries the `base` (published version + draft revision)
+        captured at admission so apply can refuse a moved target. 410
+        PREVIEW_EXPIRED covers expired, missing, and never-finished
+        alike — the caller must run again.
+      operationId: getAiRunPreview
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The staged proposal plus its captured base.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiRunPreview"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Run missing or owned by another actor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "410":
+          description: PREVIEW_EXPIRED — expired or absent.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/ai/runs/{runId}/cancel:
+    post:
+      tags: [ai]
+      summary: Cancel a queued/running run (creator only)
+      description: >
+        Queued runs become cancelled immediately; a running run's abort
+        signal propagates to the upstream call, which stops when the
+        endpoint honors it. Terminal runs answer 409 AI_RUN_FINISHED —
+        cancellation is not retroactive.
+      operationId: cancelAiRun
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Run cancelled.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiRun"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Run missing or owned by another actor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: AI_RUN_FINISHED — run already terminal.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /api/v1/audit:
     get:
       tags: [audit]
@@ -2930,6 +3185,116 @@ components:
         latencyMs:
           type: integer
           minimum: 0
+    AiRunStart:
+      type: object
+      required: [assistant, canvasId, idempotencyKey]
+      additionalProperties: false
+      description: >
+        Run admission. `consent` must be true (absent/false →
+        AI_CONSENT_REQUIRED). `notes` is optional free text for the run —
+        hashed into input_hash, never persisted.
+      properties:
+        assistant:
+          type: string
+          enum: [renderer, coach]
+        canvasId:
+          type: string
+          format: uuid
+        notes:
+          type: string
+          maxLength: 20000
+        consent:
+          type: boolean
+        idempotencyKey:
+          type: string
+          minLength: 8
+          maxLength: 200
+    AiRunStartResult:
+      type: object
+      required: [runId, status, replayed]
+      additionalProperties: false
+      properties:
+        runId:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/AiRunStatus"
+        replayed:
+          type: boolean
+          description: true when this POST replayed an existing run.
+    AiRunStatus:
+      type: string
+      enum: [queued, running, succeeded, failed, cancelled, interrupted]
+    AiRun:
+      type: object
+      required:
+        [runId, assistant, canvasId, status, createdAt, startedAt,
+         finishedAt, errorCode, usage]
+      additionalProperties: false
+      description: Run metadata — never raw input, output, or content.
+      properties:
+        runId:
+          type: string
+          format: uuid
+        assistant:
+          type: string
+          enum: [renderer, coach]
+        canvasId:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/AiRunStatus"
+        createdAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        finishedAt:
+          type: string
+          format: date-time
+          nullable: true
+        errorCode:
+          type: string
+          nullable: true
+        usage:
+          type: object
+          nullable: true
+          description: Present only when the endpoint reported usage —
+            never fabricated.
+          required: [inputTokens, outputTokens]
+          additionalProperties: false
+          properties:
+            inputTokens:
+              type: integer
+            outputTokens:
+              type: integer
+    AiRunPreview:
+      type: object
+      required: [runId, base, value]
+      additionalProperties: false
+      description: >
+        The staged proposal (in-memory, 15-minute TTL) plus the canvas
+        base captured at admission — apply compares against `base`.
+      properties:
+        runId:
+          type: string
+          format: uuid
+        base:
+          type: object
+          required: [baseVersionId, draftRevision]
+          additionalProperties: false
+          properties:
+            baseVersionId:
+              type: string
+              format: uuid
+              nullable: true
+            draftRevision:
+              type: integer
+              nullable: true
+        value:
+          description: The assistant-specific validated proposal payload.
     AuditEvent:
       type: object
       description: >
