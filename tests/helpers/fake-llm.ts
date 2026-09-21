@@ -58,6 +58,9 @@ const DEFAULT_RESPONSE: FakeLlmResponse = {
 export async function fakeLlm(options?: {
   expectedApiKey?: string;
   respondWith?: FakeLlmResponse;
+  /** Fixed port for e2e (the app server's allowlist is set before the
+   *  test knows a port). Default 0 = ephemeral. */
+  port?: number;
 }): Promise<FakeLlm> {
   const requests: CapturedRequest[] = [];
   const queue: FakeLlmResponse[] = [];
@@ -140,7 +143,9 @@ export async function fakeLlm(options?: {
     });
   });
 
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  await new Promise<void>((resolve) =>
+    server.listen(options?.port ?? 0, "127.0.0.1", resolve),
+  );
   const { port } = server.address() as AddressInfo;
 
   return {

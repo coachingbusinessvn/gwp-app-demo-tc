@@ -195,6 +195,27 @@ ol.guide .sub-note{color:var(--gp-ink-soft)}
 #versionView .pfoot{margin-top:20px;text-align:center;font-size:11px;color:var(--gp-ink-soft);
   border-top:1px solid var(--gp-line-gold-strong);padding-top:8px}
 
+/* ===== AI nội bộ ===== */
+.ai-consent{display:flex;align-items:center;gap:8px;margin:12px 0 4px;
+  font-weight:600;font-size:13px}
+.ai-consent input{width:auto}
+.ai-stream{max-height:180px;overflow:auto;background:var(--gp-navy-950);
+  color:var(--gp-mist);border-radius:var(--gp-radius-sm);padding:10px 12px;
+  font-size:12px;white-space:pre-wrap;margin:10px 0 0}
+.ai-issues{margin:10px 0;padding-left:0;list-style:none}
+.ai-issue{margin:6px 0;font-size:13px}
+.ai-issue.ai-error{color:#8a4a1c}
+.ai-warn{display:flex;align-items:flex-start;gap:8px;font-weight:500}
+.ai-warn input{margin-top:4px}
+.ai-diff ul{margin:6px 0;padding-left:20px}
+.ai-diff-rows{margin-top:2px !important}
+.ai-row-added{color:#2a6e3f}
+.ai-row-removed{color:#8a4a1c}
+.ai-row-changed{color:var(--gp-ink-soft)}
+.ai-rubric td{font-size:12px}
+.ai-advice{margin:6px 0;padding-left:20px;font-size:13px}
+#aiApply{margin-top:10px}
+
 /* ===== Denied / load states ===== */
 .denied-card{text-align:center;padding:60px 30px}
 .denied-card h2{font-family:var(--gp-font-serif);color:var(--gp-navy-950);margin:0 0 8px}
@@ -365,6 +386,13 @@ footer.app .gold{color:var(--gp-gold-500)}
           <p class="sub-note">Lưu ý riêng tư: nội dung canvas lưu trên máy chủ nội bộ của công ty và chỉ những người được phân quyền mới xem được; vẫn nên ẩn danh hóa tên người và số liệu nhạy cảm trước khi chia sẻ file ra ngoài.</p>
         </div>
       </details>
+    </section>
+
+    <!-- AI nội bộ (Phase 3): consent-gated run → streamed preview → apply -->
+    <section class="card" id="aiCard" data-testid="ai-panel">
+      <div class="step-en">AI nội bộ</div>
+      <h2 class="step-title">Trợ lý AI nội bộ</h2>
+      <p class="note">Chỉ gọi endpoint do công ty cấu hình (không cloud). Mỗi lần chạy cần đánh dấu đồng ý — kết quả luôn xem trước và chỉ vào bản nháp khi bạn bấm "Áp dụng".</p>
     </section>
 
     <section class="card" id="metaCard">

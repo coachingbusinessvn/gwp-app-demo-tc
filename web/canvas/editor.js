@@ -38,6 +38,7 @@ import {
   slug,
 } from "./model.js";
 import { createAutosave } from "./autosave.js";
+import { mountAiPanel } from "../ai/panel.js";
 import { diffBodies, renderDiff } from "./diff.js";
 import { exportDraftPreview } from "./export.js";
 import { createHistoryPanel } from "./history.js";
@@ -1145,6 +1146,20 @@ async function init() {
     download,
   });
   $("btnHistory").addEventListener("click", () => historyPanel.open());
+
+  // Phase 3 — the local-AI card. Apply adopts the returned draft the same
+  // way a restore does: pointers advance, the form repopulates, autosave
+  // sees a clean saved state. AI never touches publish.
+  mountAiPanel($("aiCard"), {
+    canvasId,
+    getDraftRevision: () => revision,
+    onApplied: (d) => {
+      adoptDraftPointers(d);
+      state = sanitizeBody(d.body, [], true);
+      populateForm();
+      setSaveState("saved");
+    },
+  });
 
   bindToolbar();
   bindConflictUI();

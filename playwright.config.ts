@@ -44,6 +44,11 @@ export default defineConfig({
       // rate limiters (spec §8) would otherwise see the whole suite as one
       // 127.0.0.1 client and start 429-ing refresh calls mid-run.
       TRUST_PROXY: "loopback",
+      // AI e2e (task 3.6): the fake local LLM listens on a FIXED loopback
+      // port so the server's destination allowlist can name it before the
+      // test starts. HTTP is opt-in — production keeps HTTPS+allowlist.
+      AI_ALLOW_HTTP: "true",
+      AI_ALLOWED_HOSTS: "127.0.0.1:18923",
     },
   },
 });

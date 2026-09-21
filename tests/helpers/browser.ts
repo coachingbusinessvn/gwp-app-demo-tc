@@ -56,7 +56,7 @@ export async function loginAs(page: Page, persona: Persona): Promise<void> {
  */
 export async function apiAsPage(
   page: Page,
-  method: "GET" | "POST" | "PUT" | "PATCH",
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
   path: string,
   body?: unknown,
 ): Promise<{ status: number; body: unknown }> {

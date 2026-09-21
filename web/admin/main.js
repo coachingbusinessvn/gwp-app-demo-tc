@@ -17,6 +17,7 @@ import { el, reqJson } from "./http.js";
 import { mountOrg } from "./org.js";
 import { mountUsers } from "./users.js";
 import { mountAudit } from "./audit.js";
+import { mountAi } from "./ai.js";
 
 const LOGO =
   "data:image/svg+xml;utf8," +
@@ -100,6 +101,7 @@ function wireTabs() {
     ["tab-org", "panel-org"],
     ["tab-users", "panel-users"],
     ["tab-audit", "panel-audit"],
+    ["tab-ai", "panel-ai"],
   ];
   for (const [tid] of tabs) {
     document.getElementById(tid)?.addEventListener("click", () => {
@@ -140,6 +142,7 @@ async function init() {
     selfId: me.id,
   });
   mountAudit(document.getElementById("panel-audit"));
+  mountAi(document.getElementById("panel-ai"));
   if (branding) applyBranding(branding);
   renderFooter();
 }

@@ -224,7 +224,7 @@ git commit -m "feat: add consented idempotent AI runs and ephemeral previews"
 - `applyRenderer(actor,runId,{expectedRevision,acceptedWarnings}): Promise<DraftDTO>` only; never publish.
 - `manifest.json`: source path/revision/SHA256,promptVersion,contractVersion,licenseReview.
 
-- [ ] **Step 1: Viết test đỏ** trong `tests/integration/renderer.test.ts`. Broken Markdown no draft, unsupported refs, changed existing draft409, revoked permission404, unchanged fields preserved, stage not auto-upgrade, tampered preview client rejected.
+- [x] **Step 1: Viết test đỏ** trong `tests/integration/renderer.test.ts`. Broken Markdown no draft, unsupported refs, changed existing draft409, revoked permission404, unchanged fields preserved, stage not auto-upgrade, tampered preview client rejected.
 
 ```ts
 await f.api("member").put("/api/v1/canvases/"+canvasId+"/draft")
@@ -235,13 +235,13 @@ expect(apply.status).toBe(409);
 expect((await f.db("canvas_draft").where({canvas_id:canvasId}).first()).body).toEqual(changedBody);
 ```
 
-- [ ] **Step 2: Chạy test trước triển khai.**
+- [x] **Step 2: Chạy test trước triển khai.**
 
 Run: `npm test -- tests/integration/renderer.test.ts`.
 Expected: FAIL tại hành vi/assertion mới hoặc missing module; sửa lỗi setup/môi trường trước,
 không coi lỗi không kết nối DB là bằng chứng RED hợp lệ.
 
-- [ ] **Step 3: Triển khai phần lõi và nối interface.**
+- [x] **Step 3: Triển khai phần lõi và nối interface.**
 
 Read actual Renderer instruction source from spec §11, copy versioned with sha; remove code execution/download requirements, retain canonical content/evidence labels. Parser validates full proposal, preserve stable IDs by matching original unique rows, no fabricated observed. Apply server cached proposal only, check captured revision/base against current including null no-draft case; conflict if changed. User accepts warnings by IDs tied preview hash; source/provenance copy to draft then published snapshot. Manual edit proposal through normal editor service after valid apply.
 
@@ -253,12 +253,12 @@ if(currentDraft?.revision !== preview.capturedDraftRevision ||
 // persist proposal bằng canvas service trong company/canvas lock; không gọi publish ở đây.
 ```
 
-- [ ] **Step 4: Chạy lại test và kiểm tra hồi quy.**
+- [x] **Step 4: Chạy lại test và kiểm tra hồi quy.**
 
 Run: `npm test -- tests/integration/renderer.test.ts`, rồi `npm run typecheck`.
 Expected: test mới PASS, typecheck exit 0. Chạy thêm toàn bộ integration tests của module vừa thay đổi.
 
-- [ ] **Step 5: Commit riêng task sau khi kiểm tra diff.**
+- [x] **Step 5: Commit riêng task sau khi kiểm tra diff.**
 
 ```sh
 git diff --check
@@ -277,7 +277,7 @@ git commit -m "feat: integrate reviewed Renderer proposals with canvas drafts"
 - `CoachOutput` schema: rubricVersion, criteria[{id,score,max,evidenceRefs}], total, advice[{kind,text,sourceRefs}].
 - `validateCoachOutput(raw,canvas): CoachOutput`; no canvas mutation method.
 
-- [ ] **Step 1: Viết test đỏ** trong `tests/unit/coach-output.test.ts`. Điểm vượt max, sum mismatch, missing evidence, invented reference, labels ngoài enum, incomplete JSON rejected; no confidence laundering.
+- [x] **Step 1: Viết test đỏ** trong `tests/unit/coach-output.test.ts`. Điểm vượt max, sum mismatch, missing evidence, invented reference, labels ngoài enum, incomplete JSON rejected; no confidence laundering.
 
 ```ts
 expect(()=>validateCoachOutput({...validCoach,total:99},canonicalBody))
@@ -287,13 +287,13 @@ expect(()=>validateCoachOutput({...validCoach,
  .toThrow("UNKNOWN_EVIDENCE_REFERENCE");
 ```
 
-- [ ] **Step 2: Chạy test trước triển khai.**
+- [x] **Step 2: Chạy test trước triển khai.**
 
 Run: `npm test -- tests/unit/coach-output.test.ts`.
 Expected: FAIL tại hành vi/assertion mới hoặc missing module; sửa lỗi setup/môi trường trước,
 không coi lỗi không kết nối DB là bằng chứng RED hợp lệ.
 
-- [ ] **Step 3: Triển khai phần lõi và nối interface.**
+- [x] **Step 3: Triển khai phần lõi và nối interface.**
 
 Read 04_master_instruction/05_prompt_stack/knowledge from source; freeze actual rubric criterion IDs/max, do not invent weights. JSON contract follows source rubric + evidence refs into input IDs. Sum server computed and model total compared. No observations -> missing-evidence explicit, not made-up score justification. Validate structured output server; escape rendered text, no raw model HTML. Cache preview only15m, no persistent chat.
 
@@ -307,12 +307,12 @@ for(const c of parsed.criteria) {
 // criterion max phải khớp bảng rubric versioned, không tin max do model tự chọn.
 ```
 
-- [ ] **Step 4: Chạy lại test và kiểm tra hồi quy.**
+- [x] **Step 4: Chạy lại test và kiểm tra hồi quy.**
 
 Run: `npm test -- tests/unit/coach-output.test.ts`, rồi `npm run typecheck`.
 Expected: test mới PASS, typecheck exit 0. Chạy thêm toàn bộ integration tests của module vừa thay đổi.
 
-- [ ] **Step 5: Commit riêng task sau khi kiểm tra diff.**
+- [x] **Step 5: Commit riêng task sau khi kiểm tra diff.**
 
 ```sh
 git diff --check
@@ -333,7 +333,7 @@ git commit -m "feat: validate Canvas Coach rubric and evidence output"
 - `readEvents(response,onEvent,signal)` fetch-SSE không EventSource bearer trong URL.
 - consent checkbox resets each run; request ID errors rendered without provider secrets.
 
-- [ ] **Step 1: Viết test đỏ** trong `tests/e2e/ai.spec.ts`. AIoff edit works, streaming cancellation, missingkey, timeout, invalid proposal, consent unchecked can't run, explicit diff/apply, no auto-publish.
+- [x] **Step 1: Viết test đỏ** trong `tests/e2e/ai.spec.ts`. AIoff edit works, streaming cancellation, missingkey, timeout, invalid proposal, consent unchecked can't run, explicit diff/apply, no auto-publish.
 
 ```ts
 await page.goto("/canvas.html?id="+canvasId);
@@ -345,13 +345,13 @@ await expect(page.getByTestId("ai-preview")).toBeVisible();
 await expect(page.getByTestId("published-version")).toHaveText("v1");
 ```
 
-- [ ] **Step 2: Chạy test trước triển khai.**
+- [x] **Step 2: Chạy test trước triển khai.**
 
 Run: `npm run test:e2e -- tests/e2e/ai.spec.ts`.
 Expected: FAIL tại hành vi/assertion mới hoặc missing module; sửa lỗi setup/môi trường trước,
 không coi lỗi không kết nối DB là bằng chứng RED hợp lệ.
 
-- [ ] **Step 3: Triển khai phần lõi và nối interface.**
+- [x] **Step 3: Triển khai phần lõi và nối interface.**
 
 Escape stream text, parse only after complete, render invalid output as plain text diagnostic not trusted Markdown HTML. Mask key input, no echo on reopen. Document local gateway auth/TLS/body logs disabled, model context/output limitations. Evaluation at least12 Việt fixtures: valid, thiếu evidence, mâu thuẫn, injection, long, duplicated names; record actual outcomes/model/prompt hash. Safety invalid-output/revocation cases all pass; business owner reviews rubric and proposed changes before phase accepted.
 
@@ -362,12 +362,12 @@ npm run test:e2e -- tests/e2e/ai.spec.ts
 # Ghi pass/fail từng fixture; không thay đánh giá chất lượng bằng tỷ lệ parse thành công.
 ```
 
-- [ ] **Step 4: Chạy lại test và kiểm tra hồi quy.**
+- [x] **Step 4: Chạy lại test và kiểm tra hồi quy.**
 
 Run: `npm run test:e2e -- tests/e2e/ai.spec.ts`, rồi `npm run typecheck`.
 Expected: test mới PASS, typecheck exit 0. Chạy thêm toàn bộ integration tests của module vừa thay đổi.
 
-- [ ] **Step 5: Commit riêng task sau khi kiểm tra diff.**
+- [x] **Step 5: Commit riêng task sau khi kiểm tra diff.**
 
 ```sh
 git diff --check
@@ -377,10 +377,10 @@ git commit -m "feat: complete local AI experience and evaluation gate"
 
 ## Exit gate và bằng chứng bàn giao
 
-- [ ] Tất cả test adapter/run/Renderer/Coach/UI PASS; APIoff không cản canvas.
-- [ ] Model local thật qua connection test + bộ12 mẫu được business reviewer duyệt; chưa có endpoint thì ghi blocked evaluation, không khẳng định chất lượng đạt.
-- [ ] Timeout/cancel/restart/no-consent/revocation/stale draft có bằng chứng không ghi dữ liệu sai.
-- [ ] `docs/superpowers/evidence/phase-3.md` gồm provenance redacted và quyết định reviewer.
+- [x] Tất cả test adapter/run/Renderer/Coach/UI PASS; APIoff không cản canvas.
+- [x] Model local thật qua connection test + bộ12 mẫu được business reviewer duyệt; chưa có endpoint thì ghi blocked evaluation, không khẳng định chất lượng đạt.
+- [x] Timeout/cancel/restart/no-consent/revocation/stale draft có bằng chứng không ghi dữ liệu sai.
+- [x] `docs/superpowers/evidence/phase-3.md` gồm provenance redacted và quyết định reviewer.
 
 ## Self-review coverage
 

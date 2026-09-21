@@ -59,6 +59,7 @@ const ALLOWLIST_DIRS = [
   "assets/fonts",
   "web/admin",
   "web/canvas",
+  "web/ai",
   "canvas-online",
 ] as const;
 
