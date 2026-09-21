@@ -20,6 +20,7 @@ import {
   type RunDriver,
 } from "./runs.js";
 import { createRendererService } from "./renderer.js";
+import { createCoachService } from "./coach.js";
 
 /**
  * /api/v1 AI surface (task 3.1, spec §7.1):
@@ -90,7 +91,11 @@ export function aiRoutes(deps: {
   const ai = createAiSettingsService({ db, clock, config });
   const aiRuns = createAiRunsService({ db, clock, config });
   const renderer = createRendererService({ db, clock, config, runs: aiRuns });
-  const drivers = deps.drivers ?? { renderer: renderer.driver };
+  const coach = createCoachService({ db, clock, config, runs: aiRuns });
+  const drivers = deps.drivers ?? {
+    renderer: renderer.driver,
+    coach: coach.driver,
+  };
   for (const [assistant, driver] of Object.entries(drivers)) {
     aiRuns.registerDriver(assistant as AiAssistant, driver);
   }

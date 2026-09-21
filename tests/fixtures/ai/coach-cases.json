@@ -1,0 +1,71 @@
+{
+  "description": "Coach rubric v3.0 fixtures — `valid` cites real row ids from tests/fixtures/canvas/canonical.json; `truncated` is an incomplete-JSON model answer.",
+  "valid": {
+    "rubricVersion": "3.0",
+    "criteria": [
+      {
+        "id": "goal",
+        "score": 6,
+        "max": 8,
+        "evidenceRefs": ["goal"],
+        "note": "Outcome rõ, phạm vi còn rộng."
+      },
+      {
+        "id": "key_result_critical_outputs",
+        "score": 14,
+        "max": 20,
+        "evidenceRefs": ["kr", "fe2b3457-20c2-4656-bb9c-d2db10b94dd9"]
+      },
+      {
+        "id": "solution_direction_lever_behaviors",
+        "score": 21,
+        "max": 30,
+        "evidenceRefs": [
+          "solution",
+          "3df051ab-39e0-457d-988b-29c3c428efe1"
+        ]
+      },
+      {
+        "id": "conditions_six_boxes",
+        "score": 9,
+        "max": 12,
+        "evidenceRefs": ["2d057854-7cbf-4494-9467-e8d3d179d920"]
+      },
+      {
+        "id": "action_experiment",
+        "score": 7,
+        "max": 10,
+        "evidenceRefs": ["1e20b1a6-90c1-41b4-a0b4-8b1e9e6c0dd3"]
+      },
+      {
+        "id": "follow_up_evidence",
+        "score": 12,
+        "max": 20,
+        "evidenceRefs": [
+          "782e89eb-a4a7-46cc-9c8c-48009f6c1327",
+          "10c00408-edc6-4b2c-94ea-fa5b36d4fa7d"
+        ]
+      }
+    ],
+    "total": 69,
+    "advice": [
+      {
+        "kind": "Fact",
+        "text": "Key Result có baseline 12% và target 8%.",
+        "sourceRefs": ["kr"]
+      },
+      {
+        "kind": "Hypothesis",
+        "text": "Nếu tăng nhịp liên hệ sớm, tỷ lệ chuyển nhóm giảm.",
+        "sourceRefs": ["3df051ab-39e0-457d-988b-29c3c428efe1"],
+        "confidence": "medium"
+      },
+      {
+        "kind": "Recommendation",
+        "text": "Bổ sung người xác nhận cho Observed Evidence tuần 4.",
+        "sourceRefs": ["10c00408-edc6-4b2c-94ea-fa5b36d4fa7d"]
+      }
+    ]
+  },
+  "truncated": "{\"rubricVersion\":\"3.0\",\"criteria\":[{\"id\":\"goal\",\"score\":6,\"max\":8"
+}

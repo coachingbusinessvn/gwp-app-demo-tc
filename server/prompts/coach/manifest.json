@@ -1,0 +1,11 @@
+{
+  "promptVersion": "coach-1.0.0",
+  "contractVersion": "coach-json-3.0",
+  "file": "instruction.md",
+  "sha256": "cf314e44160d970b6afdd8f8ba944acf900b11eea923eec06e3f9d966a433dbf",
+  "source": {
+    "path": "/Volumes/SS/projects/gwp-canvas-performance-architecture/Skill/canvas-coach/references/grading.md",
+    "note": "Ported to a single-turn JSON contract. Retained verbatim: rubric v3.0 criterion ids and frozen allocations (8+20+30+12+10+20=100), stage-specific follow-up subscores, epistemic labels. Adapted: the mandatory prose grade report becomes the criteria/advice JSON the server validates; evidence must cite input canvas row ids or section tokens so invented references are rejected."
+  },
+  "licenseReview": "Internal GoWise project asset — same workspace, ported with attribution; no external license required."
+}
