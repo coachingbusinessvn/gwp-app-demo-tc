@@ -27,6 +27,9 @@ export interface ReportAclRow {
   session_id: string;
   created_by: string;
   coach_user_id: string;
+  /** Needed by task 4.3 manage ops: preview purge + audit metadata. */
+  ai_run_id: string | null;
+  report_version: number;
 }
 
 function notFound(): AppError {
@@ -92,7 +95,14 @@ export async function findReadableReport(
       this.on("s.id", "r.session_id").andOn("s.company_id", "r.company_id");
     })
     .where({ "r.id": reportId, "r.company_id": actor.companyId })
-    .select("r.id", "r.session_id", "r.created_by", "s.coach_user_id");
+    .select(
+      "r.id",
+      "r.session_id",
+      "r.created_by",
+      "s.coach_user_id",
+      "r.ai_run_id",
+      "r.report_version",
+    );
   return (await applyReportReadScope(qb, q, actor, isOwner).first()) as
     | ReportAclRow
     | undefined;
@@ -106,6 +116,36 @@ export async function assertReportRead(
 ): Promise<ReportAclRow> {
   const row = await findReadableReport(qb, actor, reportId);
   if (!row) throw notFound();
+  return row;
+}
+
+/**
+ * Report MANAGE gate (task 4.3 share/revoke/delete): stricter than read.
+ * The read ACL runs first — an actor who cannot read the report gets the
+ * uniform 404, so existence stays hidden. A readable actor who is neither
+ * the session's coach nor an owner gets an honest 403: a sharee reads but
+ * never re-shares, and an on-behalf creator holds no grant rights (spec §6:
+ * "creator nhập hộ không tự có quyền share"). Unlike write-authority this
+ * does NOT require the current reporting line — the coach of record keeps
+ * managing their historical reports.
+ */
+export async function assertReportManage(
+  qb: Qb,
+  actor: ActorContext,
+  reportId: Id,
+): Promise<ReportAclRow> {
+  const row = await findReadableReport(qb, actor, reportId);
+  if (!row) throw notFound();
+  if (
+    row.coach_user_id !== actor.userId &&
+    !(await actorIsOwner(qb, actor))
+  ) {
+    throw new AppError(
+      403,
+      "FORBIDDEN",
+      "Chỉ coach của phiên hoặc owner mới quản lý report này",
+    );
+  }
   return row;
 }
 

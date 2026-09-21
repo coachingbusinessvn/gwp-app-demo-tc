@@ -35,3 +35,15 @@ export const saveReportBodySchema = z
   .strict();
 
 export type SaveReportBody = z.infer<typeof saveReportBodySchema>;
+
+/**
+ * Confirmed report delete (task 4.3, spec §6): the body must literally be
+ * `{confirm:true}` — an absent or false flag is a 400, never a deletion.
+ */
+export const deleteReportBodySchema = z
+  .object({
+    confirm: z.literal(true),
+  })
+  .strict();
+
+export type DeleteReportBody = z.infer<typeof deleteReportBodySchema>;

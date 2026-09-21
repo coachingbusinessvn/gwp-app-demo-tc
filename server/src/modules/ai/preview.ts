@@ -150,7 +150,16 @@ export function createPreviewStore({ now }: StoreDeps = {}) {
     return e;
   }
 
-  return { put, get, take };
+  /**
+   * Silent eviction for lifecycle events outside the store (task 4.3:
+   * deleting a report purges the grader preview that produced it). Missing
+   * entries are a no-op — there is nothing to report.
+   */
+  function purge(runId: string): void {
+    drop(runId);
+  }
+
+  return { put, get, take, purge };
 }
 
 export type PreviewStore = ReturnType<typeof createPreviewStore>;

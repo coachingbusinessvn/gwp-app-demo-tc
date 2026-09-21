@@ -482,7 +482,13 @@ export function createRendererService({
       const v1md = toMarkdown(src).text;
       const userContent =
         `## Canvas hiện tại (v1)\n\n${v1md}\n\n` +
-        `## Dữ liệu phiên\n\n${input.notes?.trim() || "(không có ghi chú)"}`;
+        `## Dữ liệu phiên\n\n${input.notes?.trim() || "(không có ghi chú)"}` +
+        // Report→Renderer bridge (task 4.3): whitelisted recommendation
+        // prose extracted server-side — never scores, evidence or raw
+        // transcript. The label tells the model this is derived input.
+        (input.sessionNotes
+          ? `\n\n## Trích xuất từ coaching report (khuyến nghị đã chọn)\n\n${input.sessionNotes}`
+          : "");
       if (Buffer.byteLength(userContent, "utf8") > AI_INPUT_MAX_BYTES) {
         throw new AppError(
           413,

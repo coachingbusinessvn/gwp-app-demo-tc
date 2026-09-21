@@ -13,11 +13,18 @@ import {
   loadActorRoles,
 } from "../authorization/repository.js";
 import type { SubjectPolicy } from "../authorization/policy.js";
+import { createCanvasService } from "../canvas/service.js";
 import type { AiRunsService } from "../ai/runs.js";
 import type { OraclePreview } from "./grader.js";
 import {
+  extractRendererNotes,
+  REPORT_BRIDGE_FIELDS,
+  type ReportBridgeField,
+} from "./renderer-input.js";
+import {
   actorIsOwner,
   applyReportReadScope,
+  assertReportManage,
   assertReportRead as assertReportReadOn,
   assertSessionWrite,
   findSession,
@@ -161,6 +168,7 @@ export function createCoachingService({
   clock,
   runs,
 }: CoachingDeps) {
+  const canvas = createCanvasService({ db, policy, clock });
   /**
    * Record a coaching session. The declared coach is the actor — a forged
    * coachUserId is impersonation and only an owner may do it (historical
@@ -473,7 +481,10 @@ export function createCoachingService({
         .select("report_version")
         .first()) as { report_version: number } | undefined;
       if (!row) {
-        throw new AppError(500, "INTERNAL", "Mất report đã ghi nhận");
+        // The receipt outlived its result: a confirmed delete removed the
+        // report row. The replay must answer 404 — a receipt never
+        // resurrects deleted content (task 4.3, spec §6).
+        throw notFound();
       }
       if (!receipt.replayed) {
         // Metadata only — never the report body, never transcript quotes.
@@ -486,9 +497,8 @@ export function createCoachingService({
           outcome: "success",
           requestId: actor.requestId,
           metadata: {
-            session_id: input.sessionId,
-            ai_run_id: input.runId,
-            report_version: row.report_version,
+            run_id: input.runId,
+            version: row.report_version,
           },
         });
       }
@@ -500,7 +510,182 @@ export function createCoachingService({
     });
   }
 
-  return { createSession, assertReportRead, getReport, listReports, saveReport };
+  /* ---------------------------------------------------------------- */
+  /* Task 4.3 — shares, confirmed delete, renderer bridge              */
+  /* ---------------------------------------------------------------- */
+
+  /**
+   * Grant one user a read share on exactly this report row (this version —
+   * a re-grade creates a new row with an empty share set). Manage gate:
+   * the session's coach of record or an owner; anyone else the ACL hides
+   * the report from gets 404, a readable non-manager gets 403. Re-sharing
+   * a revoked row re-activates it; sharing an active share is a no-op.
+   */
+  async function shareReport(
+    actor: ActorContext,
+    reportId: Id,
+    userId: Id,
+  ): Promise<{ reportId: string; userId: string }> {
+    return db.transaction(async (tx) => {
+      await lockCompany(tx, actor.companyId);
+      await assertActiveActor(tx, actor.companyId, actor.userId);
+      await assertReportManage(tx, actor, reportId);
+      const target = await findCompanyUser(tx, actor.companyId, userId);
+      if (!target || target.status !== "active") throw notFound();
+
+      const existing = (await tx("report_share")
+        .where({ report_id: reportId, user_id: userId })
+        .first()) as { revoked_at: Date | string | null } | undefined;
+      if (existing) {
+        await tx("report_share")
+          .where({ report_id: reportId, user_id: userId })
+          .update({
+            revoked_at: null,
+            granted_by: actor.userId,
+            granted_at: clock(),
+          });
+      } else {
+        await tx("report_share").insert({
+          company_id: actor.companyId,
+          report_id: reportId,
+          user_id: userId,
+          granted_by: actor.userId,
+          granted_at: clock(),
+        });
+      }
+      await appendAudit(tx, {
+        companyId: actor.companyId,
+        actorId: actor.userId,
+        action: "coaching.report.share",
+        targetType: "coaching_report",
+        targetId: reportId,
+        outcome: "success",
+        requestId: actor.requestId,
+        metadata: { to: userId },
+      });
+      return { reportId, userId };
+    });
+  }
+
+  /**
+   * Revoke an active share — effective from the next request. Revoking a
+   * share that does not exist (or is already revoked) is a plain 404.
+   */
+  async function revokeShare(
+    actor: ActorContext,
+    reportId: Id,
+    userId: Id,
+  ): Promise<void> {
+    await db.transaction(async (tx) => {
+      await lockCompany(tx, actor.companyId);
+      await assertActiveActor(tx, actor.companyId, actor.userId);
+      await assertReportManage(tx, actor, reportId);
+      const n = await tx("report_share")
+        .where({ company_id: actor.companyId, report_id: reportId, user_id: userId })
+        .whereNull("revoked_at")
+        .update({ revoked_at: clock() });
+      if (n !== 1) throw notFound();
+      await appendAudit(tx, {
+        companyId: actor.companyId,
+        actorId: actor.userId,
+        action: "coaching.report.revoke",
+        targetType: "coaching_report",
+        targetId: reportId,
+        outcome: "success",
+        requestId: actor.requestId,
+        metadata: { to: userId },
+      });
+    });
+  }
+
+  /**
+   * Confirmed delete (spec §6): removes the report body and its shares
+   * (FK cascade), purges the grader preview that produced it, and keeps
+   * only the audit event — deleted content never survives in audit.
+   * The route enforces {confirm:true}; the service sees only confirmed
+   * calls.
+   */
+  async function deleteReport(
+    actor: ActorContext,
+    reportId: Id,
+  ): Promise<void> {
+    await db.transaction(async (tx) => {
+      await lockCompany(tx, actor.companyId);
+      await assertActiveActor(tx, actor.companyId, actor.userId);
+      const row = await assertReportManage(tx, actor, reportId);
+      await tx("coaching_report")
+        .where({ company_id: actor.companyId, id: reportId })
+        .delete();
+      if (row.ai_run_id) runs.previews.purge(row.ai_run_id);
+      await appendAudit(tx, {
+        companyId: actor.companyId,
+        actorId: actor.userId,
+        action: "coaching.report.delete",
+        targetType: "coaching_report",
+        targetId: reportId,
+        outcome: "success",
+        requestId: actor.requestId,
+        metadata: { version: row.report_version },
+      });
+    });
+  }
+
+  /**
+   * The report→Renderer bridge (spec §6): the actor needs BOTH gates —
+   * report read ACL AND write access on the destination canvas — re-checked
+   * fresh inside the company lock. Only the selected whitelist fields cross
+   * as recommendation prose; scores, evidence labels, quoted spans and the
+   * transcript never enter the canvas prompt. The bridge read is audited
+   * like any authorized report read (metadata only).
+   */
+  async function loadReportForRenderer(
+    actor: ActorContext,
+    reportId: Id,
+    canvasId: Id,
+    fields?: readonly ReportBridgeField[],
+  ): Promise<{ sessionNotes: string; sourceReportId: string }> {
+    const body = await db.transaction(async (tx) => {
+      await lockCompany(tx, actor.companyId);
+      await assertActiveActor(tx, actor.companyId, actor.userId);
+      await assertReportReadOn(tx, actor, reportId);
+      await canvas.assertWrite(actor, canvasId, tx);
+      const row = (await tx("coaching_report")
+        .where({ company_id: actor.companyId, id: reportId })
+        .select("body")
+        .first()) as { body: unknown } | undefined;
+      if (!row) throw notFound();
+      await appendAudit(tx, {
+        companyId: actor.companyId,
+        actorId: actor.userId,
+        action: "coaching.report.read",
+        targetType: "coaching_report",
+        targetId: reportId,
+        outcome: "success",
+        requestId: actor.requestId,
+        metadata: { source: "renderer_bridge" },
+      });
+      return row.body;
+    });
+    return {
+      sessionNotes: extractRendererNotes(
+        body,
+        fields ?? [...REPORT_BRIDGE_FIELDS],
+      ),
+      sourceReportId: reportId,
+    };
+  }
+
+  return {
+    createSession,
+    assertReportRead,
+    getReport,
+    listReports,
+    saveReport,
+    shareReport,
+    revokeShare,
+    deleteReport,
+    loadReportForRenderer,
+  };
 }
 
 export type CoachingService = ReturnType<typeof createCoachingService>;

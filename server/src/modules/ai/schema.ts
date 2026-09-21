@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { REPORT_BRIDGE_FIELDS } from "../coaching/renderer-input.js";
 
 /**
  * BYOK AI settings input (spec §7.1/§7.3, task 3.1).
@@ -58,6 +59,18 @@ export const aiRunStartSchema = z
     sessionId: z.string().uuid().optional(),
     transcript: z.string().trim().min(1).max(AI_TRANSCRIPT_MAX_CHARS).optional(),
     notes: z.string().max(AI_NOTES_MAX_CHARS).optional(),
+    /**
+     * Report→Renderer bridge (task 4.3): a coaching report the actor may
+     * read may feed a RENDERER run on a canvas the actor may write. The
+     * server extracts only the selected whitelist fields — the client can
+     * never push report content into the prompt directly.
+     */
+    reportId: z.string().uuid().optional(),
+    reportFields: z
+      .array(z.enum(REPORT_BRIDGE_FIELDS))
+      .min(1)
+      .max(REPORT_BRIDGE_FIELDS.length)
+      .optional(),
     consent: z.boolean().optional(),
     idempotencyKey: z.string().trim().min(8).max(200),
   })
@@ -86,6 +99,13 @@ export const aiRunStartSchema = z
       if (v.transcript !== undefined) {
         ctx.addIssue({ code: "custom", path: ["transcript"], message: "forbidden" });
       }
+    }
+    // The bridge is renderer-only: coach and oracle never take a report.
+    if (v.assistant !== "renderer" && v.reportId !== undefined) {
+      ctx.addIssue({ code: "custom", path: ["reportId"], message: "forbidden" });
+    }
+    if (v.reportFields !== undefined && v.reportId === undefined) {
+      ctx.addIssue({ code: "custom", path: ["reportFields"], message: "requires reportId" });
     }
   });
 

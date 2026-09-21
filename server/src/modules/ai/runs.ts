@@ -12,6 +12,7 @@ import {
 } from "../canvas/repository.js";
 import { createPolicy } from "../authorization/policy.js";
 import {
+  assertReportRead,
   assertSessionWrite,
   findSession,
 } from "../coaching/policy.js";
@@ -120,7 +121,7 @@ export type RunDriver = (ctx: {
    * exist only for the request+run lifetime, matching the
    * no-raw-input-persistence rule (spec §6: transcripts are never stored).
    */
-  input: { notes?: string; transcript?: string };
+  input: { notes?: string; transcript?: string; sessionNotes?: string };
 }) => Promise<RunDriverResult>;
 
 function toDto(r: AiRunRow): AiRunDto {
@@ -211,6 +212,13 @@ export function createAiRunsService({
       sessionId?: string;
       /** Oracle input — hashed into input_hash, never persisted. */
       transcript?: string;
+      /**
+       * Report→Renderer bridge (task 4.3): renderer runs may name one
+       * coaching report — admission re-checks the report read ACL; the
+       * extracted notes travel to the driver via dispatch input only.
+       */
+      reportId?: string;
+      reportFields?: readonly string[];
       notes?: string;
       consent?: boolean;
       idempotencyKey: string;
@@ -235,6 +243,8 @@ export function createAiRunsService({
           sessionId: input.sessionId ?? null,
           notes: input.notes ?? "",
           transcript: input.transcript ?? "",
+          reportId: input.reportId ?? null,
+          reportFields: [...(input.reportFields ?? [])].sort(),
         }),
       )
       .digest("hex");
@@ -271,6 +281,19 @@ export function createAiRunsService({
           throw new AppError(400, "INVALID_INPUT", "Thiếu canvasId");
         }
         await canvas.assertWrite(actor, input.canvasId, tx);
+        // The bridge admits only when BOTH gates pass at admission: the
+        // report must be readable by this actor (uniform 404 otherwise) —
+        // the extraction itself re-checks both before dispatch (task 4.3).
+        if (input.reportId !== undefined) {
+          if (input.assistant !== "renderer") {
+            throw new AppError(
+              400,
+              "INVALID_INPUT",
+              "reportId chỉ dùng cho renderer",
+            );
+          }
+          await assertReportRead(tx, actor, input.reportId);
+        }
       }
 
       const existing = (await tx("ai_run")
@@ -367,7 +390,7 @@ export function createAiRunsService({
   async function dispatch(
     runId: string,
     companyId: string,
-    input: { notes?: string; transcript?: string } = {},
+    input: { notes?: string; transcript?: string; sessionNotes?: string } = {},
   ): Promise<void> {
     const run = await loadRun(companyId, runId);
     if (!run || run.status !== "queued") return;

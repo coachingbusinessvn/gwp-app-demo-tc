@@ -11,22 +11,29 @@ import type { AiRunsService } from "../ai/runs.js";
 import { createCoachingService } from "./service.js";
 import {
   createSessionBodySchema,
+  deleteReportBodySchema,
   saveReportBodySchema,
 } from "./schema.js";
 
 /**
  * /api/v1 coaching surface (task 4.1, spec §6):
  *
- *   POST /coaching-sessions  — record a session (self-coach, or owner on
- *                              behalf — audited either way)
- *   GET  /reports            — report list scoped by the report ACL
- *   GET  /reports/:id        — one report; every authorized read is audited
+ *   POST /coaching-sessions             — record a session (self-coach, or
+ *                                         owner on behalf — audited)
+ *   GET  /reports                       — report list scoped by report ACL
+ *   GET  /reports/:id                   — one report; authorized reads audited
+ *   POST /reports                       — explicit save from a validated
+ *                                         grader preview (task 4.2)
+ *   PUT    /reports/:id/shares/:userId  — grant a same-company read share
+ *   DELETE /reports/:id/shares/:userId  — revoke it (next request denies)
+ *   DELETE /reports/:id  {confirm:true} — delete body+shares (task 4.3)
  *
  * Report rights come only from the report ACL — never from canvas access
  * or the reporting tree (spec §6). Handlers stay thin: parse → service.
- * There is deliberately no session update/delete route (sessions are
- * records of fact) and no report mutation here — share/delete land in
- * task 4.3, save via the AI grader in task 4.2.
+ * Share/delete are coach-of-record or owner only — a sharee reads but
+ * never re-shares, and an on-behalf creator holds no grant rights. There
+ * is deliberately no session update/delete route (sessions are records
+ * of fact).
  */
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -137,6 +144,48 @@ export function coachingRoutes(deps: {
     requireAuth(auth),
     async (req: Request, res: Response) => {
       res.json(await coaching.getReport(actorOf(res), pathId(req.params.id)));
+    },
+  );
+
+  /**
+   * Explicit per-version share grants (task 4.3). PUT upserts the grant —
+   * sharing twice or re-sharing after revoke just re-activates the row.
+   */
+  router.put(
+    "/reports/:id/shares/:userId",
+    requireAuth(auth),
+    async (req: Request, res: Response) => {
+      res.json(
+        await coaching.shareReport(
+          actorOf(res),
+          pathId(req.params.id),
+          pathId(req.params.userId),
+        ),
+      );
+    },
+  );
+
+  router.delete(
+    "/reports/:id/shares/:userId",
+    requireAuth(auth),
+    async (req: Request, res: Response) => {
+      await coaching.revokeShare(
+        actorOf(res),
+        pathId(req.params.id),
+        pathId(req.params.userId),
+      );
+      res.status(204).end();
+    },
+  );
+
+  /** Confirmed delete: body must be exactly {confirm:true} (spec §6). */
+  router.delete(
+    "/reports/:id",
+    requireAuth(auth),
+    async (req: Request, res: Response) => {
+      parseBody(deleteReportBodySchema, req.body ?? {});
+      await coaching.deleteReport(actorOf(res), pathId(req.params.id));
+      res.status(204).end();
     },
   );
 

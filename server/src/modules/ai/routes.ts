@@ -23,6 +23,8 @@ import {
 import { createRendererService } from "./renderer.js";
 import { createCoachService } from "./coach.js";
 import { createOracleService } from "../coaching/grader.js";
+import { createCoachingService } from "../coaching/service.js";
+import { createPolicy } from "../authorization/policy.js";
 
 /**
  * /api/v1 AI surface (task 3.1, spec §7.1):
@@ -98,6 +100,12 @@ export function aiRoutes(deps: {
   const auth = createAuthService({ db, clock, config });
   const ai = createAiSettingsService({ db, clock, config });
   const aiRuns = deps.runs ?? createAiRunsService({ db, clock, config });
+  const coaching = createCoachingService({
+    db,
+    policy: createPolicy(db),
+    clock,
+    runs: aiRuns,
+  });
   const renderer = createRendererService({ db, clock, config, runs: aiRuns });
   const coach = createCoachService({ db, clock, config, runs: aiRuns });
   const oracle = createOracleService({ db, clock, config, runs: aiRuns });
@@ -179,10 +187,24 @@ export function aiRoutes(deps: {
         // Notes/transcript live only for this request+run — the dispatch
         // closure holds them in memory until the driver returns; neither
         // is persisted anywhere (spec §6).
+        let sessionNotes: string | undefined;
+        if (body.reportId !== undefined) {
+          // The bridge re-reads the report under BOTH ACLs (report read ∧
+          // canvas write) and extracts only the whitelisted fields — the
+          // client cannot push report content into the prompt directly.
+          const bridge = await coaching.loadReportForRenderer(
+            actor,
+            body.reportId,
+            body.canvasId as string,
+            body.reportFields,
+          );
+          sessionNotes = bridge.sessionNotes;
+        }
         void aiRuns
           .dispatch(started.runId, actor.companyId, {
             notes: body.notes,
             transcript: body.transcript,
+            sessionNotes,
           })
           .catch(() => {});
       }

@@ -2868,6 +2868,172 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+    delete:
+      tags: [coaching]
+      summary: Delete a report (confirmed, body + shares)
+      description: >
+        Coach of record or owner only — decided AFTER the read ACL, so
+        unreadable ids still answer 404 while a readable non-manager gets
+        403. The body MUST be `{"confirm": true}` — anything else is 400.
+        Removes the report row and cascades its shares; the audit trail
+        keeps `coaching.report.delete` with metadata only — deleted
+        content never survives in audit.
+      operationId: deleteCoachingReport
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [confirm]
+              additionalProperties: false
+              properties:
+                confirm:
+                  type: boolean
+                  enum: [true]
+      responses:
+        "204":
+          description: Deleted — body and shares gone.
+        "400":
+          description: Missing or false confirm flag.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Readable but not coach-of-record or owner.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Missing, foreign, or not shared with the caller.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/reports/{id}/shares/{userId}:
+    put:
+      tags: [coaching]
+      summary: Share one report version with a company user
+      description: >
+        Explicit share grant (spec §6) on THIS report row — a new
+        report_version gets a fresh empty share set. Coach of record or
+        owner only (read ACL first: unreadable → 404, readable
+        non-manager → 403). The target must be an active same-company
+        user; sharing a user who already holds ACL access is harmless.
+        Re-sharing a revoked grant re-activates it.
+      operationId: shareCoachingReport
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: userId
+          in: path
+          required: true
+          description: Same-company active user to grant read access.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Share active (fresh or re-activated).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [reportId, userId]
+                properties:
+                  reportId:
+                    type: string
+                    format: uuid
+                  userId:
+                    type: string
+                    format: uuid
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Readable but not coach-of-record or owner.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Report unreadable/missing, or target user unknown
+            or inactive.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      tags: [coaching]
+      summary: Revoke a report share
+      description: >
+        Same manage gate as the grant. Revocation is effective from the
+        next request; revoking a grant that does not exist (or is already
+        revoked) is a plain 404.
+      operationId: revokeCoachingReportShare
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Share revoked.
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Readable but not coach-of-record or owner.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Report unreadable/missing, or no active share.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
 components:
   parameters:
@@ -3552,6 +3718,26 @@ components:
             Raw coaching transcript — required for oracle, forbidden for
             canvas assistants. Hashed into input_hash and passed to the
             driver in-memory only; NEVER persisted.
+        reportId:
+          type: string
+          format: uuid
+          description: >
+            Report→Renderer bridge (renderer only): a coaching report the
+            caller may read. Admission requires BOTH report-read ACL and
+            write access on canvasId — either failure is the uniform 404.
+            The server extracts only the whitelist fields into the prompt;
+            report content can never be pushed by the client.
+        reportFields:
+          type: array
+          minItems: 1
+          maxItems: 3
+          items:
+            type: string
+            enum: [priorities, followUp, nextSession]
+          description: >
+            Whitelisted report sections to feed the renderer (defaults to
+            all three when reportId is set). Scores, evidence labels,
+            quoted spans and transcript text can never be selected.
         notes:
           type: string
           maxLength: 20000
