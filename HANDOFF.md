@@ -1,86 +1,60 @@
-# Handoff — Phase 2 gate-review loop
+# Handoff — Phase 4 (reports & delivery) complete
 
-Date: 2026-09-21. Branch: `feat/real-app-design`. HEAD: `09d0cdc`.
+Date: 2026-09-21. Branch: `feat/real-app-design`. HEAD: `489cd79`.
 
 ## Where things stand
 
-Phase 2 (canvas + pilot) is implemented and locally verified. Three rounds of
-Codex `gpt-5.6-sol` high-reasoning review have run; round 3's four Important
-findings are fixed in `09d0cdc`. **Round 4 review is dispatched but blocked:**
-the local Codex proxy account pool (`http://localhost:53936`) returns
-`503 auth_unavailable: No available account` — an auth/quota issue on the
-user's side ("Check account pool diagnostics in Cockpit Tools"). Not a code
-problem. Re-dispatch once an account is back.
+Phase 4 is implemented and locally verified — the app now covers the
+full journey: coaching sessions → ephemeral-transcript ORACLE grading →
+explicit save → immutable report versions → independent report ACL
+(share/revoke/delete) → Renderer bridge → retention + APP_KEY rotation →
+backup/restore drill + offline bundle + upgrade gate → e2e journey +
+pilot benchmark.
 
-## Round-4 review command
+Evidence: `docs/superpowers/evidence/phase-4.md` (per-gate mapping,
+measured numbers, open exceptions). Progress ledger:
+`.superpowers/sdd/2026-09-20-phase-4-reports-delivery/progress.md`.
 
-```bash
-cd /Volumes/SS/projects/gwp-app-demo-tc
-nohup codex exec -m gpt-5.6-sol -c model_reasoning_effort=high \
-  --dangerously-bypass-approvals-and-sandbox \
-  -C /Volumes/SS/projects/gwp-app-demo-tc \
-  -o /tmp/codex-round4-last.md \
-  "$(cat /tmp/codex-round4-prompt.txt)" > /tmp/codex-round4-full.log 2>&1 &
-```
+## Open items — require human decision, not auto-waived
 
-The prompt file `/tmp/codex-round4-prompt.txt` still exists; regenerate it
-from git history/session if gone — it asks Codex to verify the four fixes
-adversarially, re-scan the whole `910546d..HEAD` Phase 2 range, run all gates,
-and end with `Verdict: SHIP|NEEDS-FIXES` + findings tagged
-Critical/Important/Minor with file:line + repro.
+1. **Real local-model quality acceptance** — fake-LLM tests prove the
+   plumbing only. Run the checklists in `docs/evaluation/oracle.md` and
+   `docs/evaluation/canvas-ai.md` against an operator-approved local
+   endpoint before customer delivery.
+2. **PDF/A4 manual checklist** — `docs/operations/pilot.md` §3.
+3. **Benchmark on real pilot hardware** — current numbers are from a
+   12-CPU/32-GiB dev host; re-run `npm run test:performance` on the
+   deployment box.
+4. **Docs approval** — `phase-4.md` + the Vietnamese runbooks
+   (`docs/operations/*.md`) need human sign-off per the exit gate.
 
-## Round-3 fixes landed in `09d0cdc`
-
-1. **Unload overwrite** (`web/canvas/editor.js` `bindUnload`): the unsent body
-   is dispatched synchronously via keepalive PUT at the **current** revision N —
-   never speculative N+1, never through a `.then()` continuation. Server CAS
-   (company lock + `FOR UPDATE` + revision predicate in `saveDraft`) makes a
-   same-revision PUT unable to overwrite a committed N+1. The dispatch is gated
-   on `unsent` (deepEqual vs `lastSentBody`), not `saveState` — `schedule()`
-   resets the label to `"dirty"` on every edit, so a state-label gate was dead
-   code exactly when it mattered. `autosave.flush()` still runs for pipeline
-   coherence on a canceled unload.
-2. **Untrusted versioned imports** (`web/canvas/model.js` `sanitizeBody`
-   untrusted path): object-valued string fields, `assignee_user_id` /
-   `measurement` on wrong row types, malformed measurement objects (8 keys
-   validated, no unknown nested keys, real calendar date), non-RFC4122 uuids
-   (`isUuid` tightened to match zod), impossible dates, bad enums, non-array
-   containers, and unknown keys at every level are all dropped/coerced **with
-   warnings**. Regression test asserts the adapted body passes
-   `CanvasBodySchema.safeParse` (tests/unit/canvas-model.test.ts).
-3. **Measurement series** (`shared/canvas/measurement.ts`): `metricKey` is now
-   the `[metricId, definitionRevision, unit, baseline, target]` quintuple — a
-   re-baselined metric is a separate series; no point is scored against foreign
-   endpoints.
-4. **Uniform 404 ordering** (`server/src/modules/canvas/routes.ts` +
-   `service.ts` `assertCanvasAccess`): draft/publish/restore/transfer/export
-   gate subject access **before** envelope/format validation — denied+malformed
-   → 404, authorized+malformed → 400 (both directions tested in
-   `tests/integration/canvas-access.test.ts`).
-
-## Last verified gates (on `09d0cdc`)
+## Last verified gates (on `489cd79`)
 
 | Check | Result |
 |---|---|
-| `npm test` | 321/321 |
+| `npm test` | 407/407 (34 files) |
+| `npm run test:e2e` | 29/29 |
+| `npm run test:performance` | PASS — p95 ≤160ms ordinary APIs, 0 errors (50 sessions, 100k versions) |
 | `npm run typecheck` | 0 errors |
-| `npm run build` | clean, 32 files |
-| `npm run test:e2e` | 22/22 |
+| `npm run build` | 42 files |
+| `docker compose config` | valid |
+| `npm run ops:bundle -- --no-images` | all checksums verify |
 | `git diff --check` | clean |
 
-## Resume checklist
+## Conventions that matter
 
-1. Restore a Codex account in the proxy pool, re-run the command above.
-2. If verdict is SHIP → Phase 2 done; report to user, stop.
-3. If NEEDS-FIXES → fix findings (TDD where practical), re-run all gates,
-   commit, dispatch round 5. Repeat until SHIP.
-4. e2e caveat: Playwright `reuseExistingServer` — kill stale `serve.ts`
-   processes on :8901 before a fresh run or stale DB state produces
-   phantom failures.
-5. Codex CLI caveat: `codex exec` output may truncate with `tail` — always
-   pass `-o <file>` for the final message.
+- E2E: real login only (`loginAs`/`apiAsPage` in `tests/helpers/browser.ts`);
+  `isolateClientIp(ctx)` before login — rate limits are per-IP; the e2e
+  DB (`gwp_e2e`) persists between runs — use per-run UUID idempotency keys.
+- The fake LLM (`tests/helpers/fake-llm.ts`) is FIFO `enqueue` + a default
+  `respondWith`; pinned to `127.0.0.1:18923` via `AI_ALLOWED_HOSTS`.
+- Reporting tree: `setManager` is owner-only and rejects non-active
+  subjects (`USER_NOT_ACTIVE`) — attach managers after activation.
+- Restore drill always targets `gwp_restore_test`; offline bundles never
+  carry customer data/secrets/model weights (`release-manifest.json` is
+  the include-list).
 
 ## Task queue state
 
-All Phase 2 subtasks (2.1–2.7) sit at done gates in the 1DevTool Tasks queue
-awaiting user review. Phase 3 (local AI BYOK) is next once gates clear.
+All Phase 4 tasks (4.1–4.7) are committed. Umbrella task `t-cwbh9pwvnm54x`
+awaits user review of the exit-gate exceptions above before closure.
