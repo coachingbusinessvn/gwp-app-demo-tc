@@ -50,7 +50,7 @@
 - `saveAiSettings(actor,input): Promise<PublicAiSettings>`; public returns configured, never key/ciphertext.
 - `validateAiDestination(url,allowedHosts): URL`; allow host+port, explicit HTTP opt-in.
 
-- [ ] **Step 1: Viết test đỏ** trong `tests/integration/ai-settings.test.ts`. Member403/admin200; key absent public/log; wrongAPP_KEY decryption controlled error; external/redirect denied; private allowlisted address valid.
+- [x] **Step 1: Viết test đỏ** trong `tests/integration/ai-settings.test.ts`. Member403/admin200; key absent public/log; wrongAPP_KEY decryption controlled error; external/redirect denied; private allowlisted address valid.
 
 ```ts
 const r=await f.api("admin").put("/api/v1/settings/ai").send({
@@ -62,13 +62,13 @@ expect(r.body.configured).toBe(true);
 expect((await f.api("member").get("/api/v1/settings/ai")).status).toBe(403);
 ```
 
-- [ ] **Step 2: Chạy test trước triển khai.**
+- [x] **Step 2: Chạy test trước triển khai.**
 
 Run: `npm test -- tests/integration/ai-settings.test.ts`.
 Expected: FAIL tại hành vi/assertion mới hoặc missing module; sửa lỗi setup/môi trường trước,
 không coi lỗi không kết nối DB là bằng chứng RED hợp lệ.
 
-- [ ] **Step 3: Triển khai phần lõi và nối interface.**
+- [x] **Step 3: Triển khai phần lõi và nối interface.**
 
 AES-256-GCM random nonce + key-version envelope; APP_KEY decoded expected32bytes. Version config on changes, preserve key if omitted, explicit clear separate command. Bounds timeout<=180s default, output8192, concurrency2. Resolve/connect destination against operator network/host policy; no userinfo/redirect, no blanket block private IP. No browser direct AI calls or disable TLS verification. Add rate limit settings test.
 
@@ -82,12 +82,12 @@ const envelope={ciphertext:encrypted.toString("base64"),iv:iv.toString("base64")
 // Bind decrypt AAD to company; GET settings projects fields, never returns envelope.
 ```
 
-- [ ] **Step 4: Chạy lại test và kiểm tra hồi quy.**
+- [x] **Step 4: Chạy lại test và kiểm tra hồi quy.**
 
 Run: `npm test -- tests/integration/ai-settings.test.ts`, rồi `npm run typecheck`.
 Expected: test mới PASS, typecheck exit 0. Chạy thêm toàn bộ integration tests của module vừa thay đổi.
 
-- [ ] **Step 5: Commit riêng task sau khi kiểm tra diff.**
+- [x] **Step 5: Commit riêng task sau khi kiểm tra diff.**
 
 ```sh
 git diff --check

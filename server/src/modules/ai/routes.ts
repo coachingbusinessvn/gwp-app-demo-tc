@@ -91,5 +91,17 @@ export function aiRoutes(deps: {
     },
   );
 
+  // Connection probe — synthetic prompt only, hits the configured upstream.
+  // Tight per-IP bound: this invokes the external endpoint every call.
+  const probeLimiter = rateLimit({ windowMs: 60_000, max: 5 });
+  router.post(
+    "/settings/ai/test",
+    requireAuth(auth),
+    probeLimiter,
+    async (_req: Request, res: Response) => {
+      res.json(await ai.testConnection(actorOf(res)));
+    },
+  );
+
   return router;
 }

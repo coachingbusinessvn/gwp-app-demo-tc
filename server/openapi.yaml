@@ -1478,6 +1478,74 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/settings/ai/test:
+    post:
+      tags: [settings]
+      summary: Probe the configured local AI endpoint
+      description: >
+        Owner/admin only. Sends a fixed synthetic prompt ("Reply with the
+        word OK.", 16 output tokens) — never customer data — and reports
+        whether the upstream answered, whether it streams SSE, and the
+        latency. Failures surface as stable AI_* error codes
+        (AI_NOT_CONFIGURED, AI_AUTH_FAILED, AI_BUSY, AI_UNAVAILABLE,
+        AI_TIMEOUT, AI_BAD_RESPONSE, AI_REDIRECT_DENIED); upstream error
+        bodies are never echoed. Rate-limited per client IP.
+      operationId: testAiConnection
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The endpoint answered.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiTestResult"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller is neither owner nor admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Too many probes — retry after the bound.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "499":
+          description: Client cancelled the probe.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: >
+            Endpoint reachable but failed: AI_AUTH_FAILED (bad key),
+            AI_BAD_RESPONSE (malformed/unsupported answer),
+            AI_REDIRECT_DENIED.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: AI_NOT_CONFIGURED / AI_BUSY / AI_UNAVAILABLE.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "504":
+          description: AI_TIMEOUT — upstream exceeded the configured bound.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /api/v1/audit:
     get:
       tags: [audit]
@@ -2843,6 +2911,25 @@ components:
           minimum: 1
           maximum: 8192
           default: 8192
+    AiTestResult:
+      type: object
+      required: [ok, streaming, model, latencyMs]
+      additionalProperties: false
+      description: >
+        Result of the synthetic connection probe — never carries the
+        prompt, the response text, or any credential.
+      properties:
+        ok:
+          type: boolean
+          enum: [true]
+        streaming:
+          type: boolean
+          description: Whether the endpoint answered with an SSE stream.
+        model:
+          type: string
+        latencyMs:
+          type: integer
+          minimum: 0
     AuditEvent:
       type: object
       description: >

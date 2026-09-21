@@ -16,6 +16,7 @@ import {
   SECRET_KEY_UNKNOWN_VERSION,
 } from "../../security/secrets.js";
 import { validateAiDestination } from "../../security/ai-destination.js";
+import { AI_BAD_RESPONSE, complete } from "./adapter.js";
 import {
   AI_MAX_OUTPUT_TOKENS,
   AI_TIMEOUT_MAX_SECONDS,
@@ -274,9 +275,10 @@ export function createAiSettingsService({
     companyId: string,
   ): Promise<AiRuntimeConfig | null> {
     const parsed = storedAiSchema.safeParse((await readRow(companyId))?.value);
-    if (!parsed.success || parsed.data.keyEnvelope === null) return null;
+    if (!parsed.success) return null;
     const s = parsed.data;
     const envelope = s.keyEnvelope;
+    if (envelope === null) return null;
     let apiKey: string;
     try {
       apiKey = decryptSecret(envelope, config.appKeyRing, companyId);
@@ -305,7 +307,69 @@ export function createAiSettingsService({
     };
   }
 
-  return { getAiSettings, saveAiSettings, clearAiKey, loadAiConfig };
+  /**
+   * Connection probe (task 3.2): synthetic prompt only — never customer
+   * content (spec §7.1). Verifies auth + model + completion, and detects
+   * streaming support by trying SSE first then a bounded non-stream call.
+   * Owner/admin gated in a short transaction; the network call itself runs
+   * OUTSIDE any DB transaction (spec: no AI HTTP inside a tx).
+   */
+  async function testConnection(actor: ActorContext): Promise<{
+    ok: true;
+    streaming: boolean;
+    model: string;
+    latencyMs: number;
+  }> {
+    await db.transaction(async (tx) => {
+      await assertAiAdmin(tx, actor);
+    });
+    const cfg = await loadAiConfig(actor.companyId);
+    if (!cfg) {
+      throw new AppError(
+        503,
+        "AI_NOT_CONFIGURED",
+        "Chưa cấu hình endpoint/key AI — lưu settings trước",
+      );
+    }
+    const probe = (stream: boolean) =>
+      complete({
+        config: cfg,
+        messages: [{ role: "user", content: "Reply with the word OK." }],
+        maxOutputTokens: 16,
+        stream,
+      });
+    const started = Date.now();
+    try {
+      const r = await probe(true);
+      return {
+        ok: true,
+        streaming: r.streamed,
+        model: cfg.model,
+        latencyMs: Date.now() - started,
+      };
+    } catch (err) {
+      // A gateway that cannot stream may reject the request shape; retry
+      // once without stream to confirm the endpoint works non-streamed.
+      if (err instanceof AppError && err.code === AI_BAD_RESPONSE) {
+        await probe(false);
+        return {
+          ok: true,
+          streaming: false,
+          model: cfg.model,
+          latencyMs: Date.now() - started,
+        };
+      }
+      throw err;
+    }
+  }
+
+  return {
+    getAiSettings,
+    saveAiSettings,
+    clearAiKey,
+    loadAiConfig,
+    testConnection,
+  };
 }
 
 export type AiSettingsService = ReturnType<typeof createAiSettingsService>;

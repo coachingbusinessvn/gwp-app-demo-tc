@@ -202,6 +202,20 @@ describe("BYOK AI settings (task 3.1)", () => {
     }
   });
 
+  it("POST /settings/ai/test is owner/admin-only and reports unconfigured cleanly", async () => {
+    const f = await fixture({ seeded: true });
+    try {
+      expect(
+        (await f.api("member").post("/api/v1/settings/ai/test")).status,
+      ).toBe(403);
+      const r = await f.api("admin").post("/api/v1/settings/ai/test");
+      expect(r.status).toBe(503);
+      expect(r.body.code).toBe("AI_NOT_CONFIGURED");
+    } finally {
+      await f.close();
+    }
+  });
+
   it("a mismatched APP_KEY ring fails decryption with a controlled error", async () => {
     const f = await fixture({ seeded: true });
     try {
