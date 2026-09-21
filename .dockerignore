@@ -26,7 +26,8 @@ blob-report
 *.log
 
 # Demo-era sources that are not part of the shipped bundle.
-canvas-online
+# (canvas-online/ IS shipped — it is the task-2.5 editor page served at the
+# pinned /canvas-online/ route; build-public.ts copies it via ALLOWLIST_DIRS.)
 coaching-report
 
 .DS_Store

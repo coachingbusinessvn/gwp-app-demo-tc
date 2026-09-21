@@ -24,9 +24,11 @@ RUN npm ci --no-audit --no-fund
 COPY tsconfig.json tsconfig.build.json ./
 COPY scripts ./scripts
 COPY server ./server
+COPY shared ./shared
 COPY web ./web
 COPY assets ./assets
-COPY index.html dashboard.html employee.html canvas.html ./
+COPY canvas-online ./canvas-online
+COPY index.html dashboard.html employee.html canvas.html admin.html activate.html ./
 
 # build = tsx scripts/build-public.ts (allowlisted public assets) && tsc -p
 # tsconfig.build.json (server + scripts → dist/). Then drop devDependencies.

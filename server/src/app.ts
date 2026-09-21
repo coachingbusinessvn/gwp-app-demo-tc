@@ -104,6 +104,12 @@ export function createApp({ db, clock, config }: AppDeps): Express {
   app.use("/api/v1", canvasRoutes({ db, clock, config })); // task 2.3
   app.use("/api/v1", dashboardRoutes({ db, clock, config })); // task 2.6
 
+  // Root entry: directory index is disabled boundary-wide, so "/" gets an
+  // explicit redirect to the login page instead of weakening the boundary.
+  app.get("/", (_req, res) => {
+    res.redirect("/index.html");
+  });
+
   // Canvas editor (task 2.5): the pinned URL /canvas-online/?canvas=<id>
   // serves the built editor page. It is a static artifact, but directory
   // index serving is disabled boundary-wide, so the directory URL gets an
