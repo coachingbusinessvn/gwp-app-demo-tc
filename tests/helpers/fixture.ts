@@ -222,6 +222,19 @@ export async function fixture(options?: {
       await maintenanceDb.raw(
         `REVOKE INSERT, UPDATE, DELETE ON TABLE "${schema}".schema_migration FROM "${runtimeRole}"`,
       );
+      // Phase 4 coaching tables (task 4.1): sessions are append-only
+      // records; reports are immutable per version but deletable via the
+      // confirmed delete path; shares are revoked by UPDATE, never deleted
+      // directly (report delete cascades them at the FK level).
+      await maintenanceDb.raw(
+        `REVOKE UPDATE, DELETE ON TABLE "${schema}".coaching_session FROM "${runtimeRole}"`,
+      );
+      await maintenanceDb.raw(
+        `REVOKE UPDATE ON TABLE "${schema}".coaching_report FROM "${runtimeRole}"`,
+      );
+      await maintenanceDb.raw(
+        `REVOKE DELETE ON TABLE "${schema}".report_share FROM "${runtimeRole}"`,
+      );
       // deployment_state: runtime may advance setup_completed_at /
       // seed_version (setup service, demo seed) but never mode — DEMO_MODE
       // is an immutable property of the DB (spec §8).

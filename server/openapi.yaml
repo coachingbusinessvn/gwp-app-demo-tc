@@ -2607,6 +2607,168 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/coaching-sessions:
+    post:
+      tags: [coaching]
+      summary: Record a coaching session
+      description: >
+        The declared coach is the LOGGED-IN actor and must currently manage
+        the coachee (manager role + current reporting subtree) — or be the
+        owner, who may coach anyone. An owner may also name a different
+        coachUserId to enter a historical session on that coach's behalf;
+        the override is audited as `coaching.session.create_on_behalf` and
+        the creator flag never grants share rights (spec §6). Naming
+        another coach as a non-owner is 403. `coacheeUserId` must be an
+        ACTIVE company user different from the coach; `occurredAt` may not
+        be in the future. An optional `canvasId` links the session to a
+        canvas the actor can read under the subject policy — checked
+        independently, since report rights never flow from canvas rights.
+        Sessions are records of fact: no update or delete route exists.
+      operationId: createCoachingSession
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XCsrfToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CoachingSessionCreateRequest"
+      responses:
+        "201":
+          description: Session recorded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CoachingSessionCreateResponse"
+        "400":
+          description: >
+            Malformed body — coach equals coachee, occurredAt in the
+            future, or an invalid field type.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Non-owner naming a different coachUserId.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: >
+            The coach is not the coachee's current manager, the coachee
+            or named coach does not exist in this company, or the canvas
+            is missing/unreadable — the same denial for every case.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: The coachee is not an active user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/reports:
+    get:
+      tags: [coaching]
+      summary: List coaching reports the caller may read
+      description: >
+        Scoped by the report ACL (spec §6) — report creator, session
+        coach, owner, or holder of an active report_share — and never by
+        the reporting tree or canvas access. `coacheeUserId` filters
+        inside the visible scope. Ordered newest-first over
+        (created_at, id); limit defaults to 25, max 100; cursor is the
+        opaque token from nextCursor. List items carry metadata only —
+        `body` and `provenance` are served by GET /reports/{id}.
+      operationId: listCoachingReports
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/LimitParam"
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque keyset cursor from the previous page's nextCursor.
+          schema:
+            type: string
+        - name: coacheeUserId
+          in: query
+          required: false
+          description: Restrict the page to sessions for one coachee.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: One page of visible report list items.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CoachingReportPage"
+        "400":
+          description: Invalid limit, cursor, or coacheeUserId.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/reports/{id}:
+    get:
+      tags: [coaching]
+      summary: Read one coaching report
+      description: >
+        The same ACL as the list: creator, session coach, owner, or an
+        active share. Missing, foreign-company, and unreadable ids all
+        return the same 404. Every authorized read is audited as
+        `coaching.report.read` with metadata only — the report body never
+        enters audit or logs.
+      operationId: getCoachingReport
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Report id inside the caller's company.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The report.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CoachingReport"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Missing, foreign, or not shared with the caller.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
 components:
   parameters:
     XCsrfToken:
@@ -4007,3 +4169,108 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/DashboardCanvas"
+    CoachingSessionCreateRequest:
+      type: object
+      required: [coachUserId, coacheeUserId, occurredAt]
+      additionalProperties: false
+      properties:
+        coachUserId:
+          type: string
+          format: uuid
+          description: >
+            The logged-in actor — a different value is a historical entry
+            on that coach's behalf, which only an owner may record.
+        coacheeUserId:
+          type: string
+          format: uuid
+          description: Active company user inside the coach's current subtree.
+        canvasId:
+          type: string
+          format: uuid
+          description: Optional canvas link — must be readable by the actor.
+        occurredAt:
+          type: string
+          format: date-time
+          description: When the session happened — not in the future.
+    CoachingSessionCreateResponse:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+          format: uuid
+    CoachingReportListItem:
+      type: object
+      required:
+        - id
+        - sessionId
+        - coachUserId
+        - coacheeUserId
+        - canvasId
+        - reportVersion
+        - rubricVersion
+        - createdBy
+        - createdAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        sessionId:
+          type: string
+          format: uuid
+        coachUserId:
+          type: string
+          format: uuid
+        coacheeUserId:
+          type: string
+          format: uuid
+        canvasId:
+          type: string
+          format: uuid
+          nullable: true
+        reportVersion:
+          type: integer
+        rubricVersion:
+          type: string
+          nullable: true
+          description: e.g. ORACLE-v3 — null until a grader run fills it.
+        createdBy:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+    CoachingReportPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CoachingReportListItem"
+        nextCursor:
+          type: string
+          nullable: true
+          description: Pass as ?cursor= for the next page; null at the end.
+    CoachingReport:
+      allOf:
+        - $ref: "#/components/schemas/CoachingReportListItem"
+        - type: object
+          required: [occurredAt, aiRunId, body, provenance]
+          properties:
+            occurredAt:
+              type: string
+              format: date-time
+            aiRunId:
+              type: string
+              format: uuid
+              nullable: true
+              description: The grader run that produced the body, if any.
+            body:
+              type: object
+              description: >
+                The validated grader report document — never the raw
+                transcript, which is never stored.
+            provenance:
+              type: object
+              description: Grader provenance metadata (model, rubric, timing).

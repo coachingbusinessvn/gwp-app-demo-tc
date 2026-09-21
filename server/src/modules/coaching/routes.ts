@@ -1,0 +1,121 @@
+import { Router, type Request, type Response } from "express";
+import type { Knex } from "knex";
+import type { Config } from "../../config.js";
+import type { ActorContext, Clock } from "../../shared/contracts.js";
+import { AppError } from "../../shared/errors.js";
+import { keysetCursorParam, pageLimit } from "../../shared/pagination.js";
+import { createAuthService } from "../auth/service.js";
+import { requireAuth } from "../auth/middleware.js";
+import { createPolicy } from "../authorization/policy.js";
+import { createCoachingService } from "./service.js";
+import { createSessionBodySchema } from "./schema.js";
+
+/**
+ * /api/v1 coaching surface (task 4.1, spec §6):
+ *
+ *   POST /coaching-sessions  — record a session (self-coach, or owner on
+ *                              behalf — audited either way)
+ *   GET  /reports            — report list scoped by the report ACL
+ *   GET  /reports/:id        — one report; every authorized read is audited
+ *
+ * Report rights come only from the report ACL — never from canvas access
+ * or the reporting tree (spec §6). Handlers stay thin: parse → service.
+ * There is deliberately no session update/delete route (sessions are
+ * records of fact) and no report mutation here — share/delete land in
+ * task 4.3, save via the AI grader in task 4.2.
+ */
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function actorOf(res: Response): ActorContext {
+  return res.locals.actor as ActorContext;
+}
+
+function parseBody<T>(
+  schema: {
+    safeParse: (v: unknown) => {
+      success: boolean;
+      data?: T;
+      error?: { issues: { path: PropertyKey[] }[] };
+    };
+  },
+  body: unknown,
+): T {
+  const parsed = schema.safeParse(body);
+  if (!parsed.success) {
+    throw new AppError(400, "INVALID_INPUT", "Dữ liệu không hợp lệ", {
+      fields: parsed.error!.issues.map((i) => i.path.join(".")),
+    });
+  }
+  return parsed.data as T;
+}
+
+/** A path id that cannot be a uuid is a nonexistent resource → 404. */
+function pathId(raw: string | string[]): string {
+  const id = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof id !== "string" || !UUID_RE.test(id)) {
+    throw new AppError(404, "NOT_FOUND", "Không tìm thấy tài nguyên");
+  }
+  return id;
+}
+
+/** Optional uuid query filter — malformed values are 400, not silent. */
+function uuidQueryParam(raw: unknown, name: string): string | undefined {
+  if (raw === undefined) return undefined;
+  const v = typeof raw === "string" ? raw : "";
+  if (!UUID_RE.test(v)) {
+    throw new AppError(400, "INVALID_INPUT", "Dữ liệu không hợp lệ", {
+      fields: [name],
+    });
+  }
+  return v;
+}
+
+export function coachingRoutes(deps: {
+  db: Knex;
+  clock: Clock;
+  config: Config;
+}): Router {
+  const { db, clock, config } = deps;
+  const auth = createAuthService({ db, clock, config });
+  const coaching = createCoachingService({
+    db,
+    policy: createPolicy(db),
+    clock,
+  });
+  const router = Router();
+
+  router.post(
+    "/coaching-sessions",
+    requireAuth(auth),
+    async (req: Request, res: Response) => {
+      const body = parseBody(createSessionBodySchema, req.body);
+      const created = await coaching.createSession(actorOf(res), body);
+      res.status(201).json(created);
+    },
+  );
+
+  router.get(
+    "/reports",
+    requireAuth(auth),
+    async (req: Request, res: Response) => {
+      res.json(
+        await coaching.listReports(actorOf(res), {
+          limit: pageLimit(req.query.limit),
+          cursor: keysetCursorParam(req.query.cursor),
+          coacheeUserId: uuidQueryParam(req.query.coacheeUserId, "coacheeUserId"),
+        }),
+      );
+    },
+  );
+
+  router.get(
+    "/reports/:id",
+    requireAuth(auth),
+    async (req: Request, res: Response) => {
+      res.json(await coaching.getReport(actorOf(res), pathId(req.params.id)));
+    },
+  );
+
+  return router;
+}

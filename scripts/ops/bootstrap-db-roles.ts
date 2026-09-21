@@ -146,6 +146,34 @@ export async function bootstrapDbRoles(
         `REVOKE UPDATE ON TABLE "${schema}".write_receipt FROM "gwp_runtime"`,
       );
     }
+    // Phase 4 coaching tables (task 4.1, spec §6): sessions are append-only
+    // records; reports are immutable per version but deletable via the
+    // confirmed delete path; shares are revoked by UPDATE, never deleted
+    // directly. Guarded by to_regclass for pre-0006 schemas.
+    const sessions = await db.raw("SELECT to_regclass(?) AS c", [
+      `${schema}.coaching_session`,
+    ]);
+    if (sessions.rows[0].c !== null) {
+      await db.raw(
+        `REVOKE UPDATE, DELETE ON TABLE "${schema}".coaching_session FROM "gwp_runtime"`,
+      );
+    }
+    const reports = await db.raw("SELECT to_regclass(?) AS c", [
+      `${schema}.coaching_report`,
+    ]);
+    if (reports.rows[0].c !== null) {
+      await db.raw(
+        `REVOKE UPDATE ON TABLE "${schema}".coaching_report FROM "gwp_runtime"`,
+      );
+    }
+    const shares = await db.raw("SELECT to_regclass(?) AS c", [
+      `${schema}.report_share`,
+    ]);
+    if (shares.rows[0].c !== null) {
+      await db.raw(
+        `REVOKE DELETE ON TABLE "${schema}".report_share FROM "gwp_runtime"`,
+      );
+    }
     // Runtime may read migration tracking (readiness probe) but never write it.
     const tracking = await db.raw("SELECT to_regclass(?) AS c", [
       `${schema}.schema_migration`,

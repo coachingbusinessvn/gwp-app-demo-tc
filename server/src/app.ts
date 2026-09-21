@@ -18,6 +18,7 @@ import { authRoutes } from "./modules/auth/routes.js";
 import { setupRoutes } from "./modules/auth/setup.routes.js";
 import { auditRoutes } from "./modules/audit/routes.js";
 import { canvasRoutes } from "./modules/canvas/routes.js";
+import { coachingRoutes } from "./modules/coaching/routes.js";
 import { dashboardRoutes } from "./modules/dashboard/routes.js";
 import { orgRoutes } from "./modules/org/routes.js";
 import { settingsRoutes } from "./modules/settings/routes.js";
@@ -117,6 +118,7 @@ export function createApp({
   app.use("/api/v1", auditRoutes({ db, clock, config })); // task 1.5
   app.use("/api/v1", canvasRoutes({ db, clock, config })); // task 2.3
   app.use("/api/v1", dashboardRoutes({ db, clock, config })); // task 2.6
+  app.use("/api/v1", coachingRoutes({ db, clock, config })); // task 4.1
   app.use("/api/v1", aiRoutes({ db, clock, config, drivers: aiDrivers }));
 
   // Root entry: directory index is disabled boundary-wide, so "/" gets an

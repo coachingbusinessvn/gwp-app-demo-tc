@@ -8,6 +8,7 @@ import { organizationMigration } from "./migrations/0002-organization.js";
 import { oneTimeTokenMigration } from "./migrations/0003-one-time-token.js";
 import { canvasMigration } from "./migrations/0004-canvas.js";
 import { aiMigration } from "./migrations/0005-ai.js";
+import { coachingMigration } from "./migrations/0006-coaching.js";
 
 /**
  * Migration runner: every migration is a named `up(db)` applied in
@@ -37,6 +38,7 @@ export const MIGRATIONS: readonly Migration[] = [
   oneTimeTokenMigration,
   canvasMigration,
   aiMigration,
+  coachingMigration,
 ];
 
 const TRACKING_TABLE = "schema_migration";
@@ -170,6 +172,33 @@ async function enforceRuntimeRestrictions(db: Knex): Promise<void> {
   if (receipts.rows[0].c !== null) {
     await db.raw(
       `REVOKE UPDATE ON TABLE "write_receipt" FROM "${RUNTIME_ROLE}"`,
+    );
+  }
+  // coaching_session is a record of fact — append-only like audit_event
+  // (spec §6). coaching_report snapshots are immutable per version but may
+  // be deleted by the confirmed report-delete path, so only UPDATE is
+  // revoked. report_share is revoked-by-update, never deleted directly —
+  // report deletion cascades shares at the FK level.
+  const sessions = await db.raw("SELECT to_regclass(?) AS c", [
+    "coaching_session",
+  ]);
+  if (sessions.rows[0].c !== null) {
+    await db.raw(
+      `REVOKE UPDATE, DELETE ON TABLE "coaching_session" FROM "${RUNTIME_ROLE}"`,
+    );
+  }
+  const reports = await db.raw("SELECT to_regclass(?) AS c", [
+    "coaching_report",
+  ]);
+  if (reports.rows[0].c !== null) {
+    await db.raw(
+      `REVOKE UPDATE ON TABLE "coaching_report" FROM "${RUNTIME_ROLE}"`,
+    );
+  }
+  const shares = await db.raw("SELECT to_regclass(?) AS c", ["report_share"]);
+  if (shares.rows[0].c !== null) {
+    await db.raw(
+      `REVOKE DELETE ON TABLE "report_share" FROM "${RUNTIME_ROLE}"`,
     );
   }
   const tracking = await db.raw("SELECT to_regclass(?) AS c", [TRACKING_TABLE]);
