@@ -7,6 +7,9 @@
 <link rel="stylesheet" href="/assets/fonts.css">
 <style>
 /* GoWise Partners — Design System v2.0 (frozen tokens, brand/gowise.css) */
+/* Component display rules (.toolbar button{display:inline-flex}, …) would
+ * otherwise beat the UA [hidden]{display:none} — same guard as gwp.css. */
+[hidden]{display:none!important}
 :root{
   --gp-navy-950:#07121F; --gp-navy-900:#0D1B2A; --gp-navy-800:#102338; --gp-navy-700:#12304C;
   --gp-gold-200:#E7D0A2; --gp-gold-300:#D7B16E; --gp-gold-400:#C9A668; --gp-gold-500:#B98A48; --gp-gold-600:#A87636;

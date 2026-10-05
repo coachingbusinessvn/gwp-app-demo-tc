@@ -7,6 +7,9 @@
 <link rel="stylesheet" href="/assets/fonts.css">
 <style>
 /* GoWise Partners — Design System v2.0 (frozen tokens, brand/gowise.css) */
+/* Component display rules (.toolbar button{display:inline-flex}, …) would
+ * otherwise beat the UA [hidden]{display:none} — same guard as gwp.css. */
+[hidden]{display:none!important}
 :root{
   --gp-navy-950:#07121F; --gp-navy-900:#0D1B2A; --gp-navy-800:#102338; --gp-navy-700:#12304C;
   --gp-gold-200:#E7D0A2; --gp-gold-300:#D7B16E; --gp-gold-400:#C9A668; --gp-gold-500:#B98A48; --gp-gold-600:#A87636;
@@ -64,7 +67,11 @@ main{max-width:1080px;margin:0 auto;padding:22px 16px 80px}
 .toolbar .saved{font-size:12px;color:var(--gp-gold-200)}
 .savepill{display:inline-flex;align-items:center;gap:8px;margin-left:auto;
   font-size:12px;color:var(--gp-mist)}
-.savepill [data-testid="save-state"]{font-weight:600;letter-spacing:.03em}
+/* Fixed slot for the dirty → saving → saved cycle: a width change here can
+ * rewrap the sticky toolbar and shift the whole page mid-click (a press on
+ * a button right after typing would land on whatever moved under it). */
+.savepill [data-testid="save-state"]{font-weight:600;letter-spacing:.03em;
+  display:inline-block;min-width:7.5em;white-space:nowrap}
 .savepill [data-testid="save-state"][data-state="saved"]{color:var(--gp-gold-200)}
 .savepill [data-testid="save-state"][data-state="error"],
 .savepill [data-testid="save-state"][data-state="conflict"]{color:#E8B4A0}

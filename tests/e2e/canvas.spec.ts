@@ -227,8 +227,15 @@ test.describe("Canvas editor on the revision-aware API (task 2.5)", () => {
     expect(await warned()).toBe(true);
 
     await page.unrouteAll();
-    await page.getByTestId("save-retry").click();
-    await expect(page.getByTestId("save-state")).toHaveText(/Đã lưu/, {
+    // The beforeunload dispatched by warned() runs the editor's best-effort
+    // keepalive flush, which page.route does not intercept — so the draft
+    // may already be saved and "Thử lại" correctly hidden. Retry only while
+    // the state is still an error (no auto-retry exists, so it stays put).
+    const saveState = page.getByTestId("save-state");
+    if (/Lỗi/.test((await saveState.textContent()) ?? "")) {
+      await page.getByTestId("save-retry").click();
+    }
+    await expect(saveState).toHaveText(/Đã lưu/, {
       timeout: 15_000,
     });
     expect(await warned()).toBe(false);
