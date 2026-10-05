@@ -541,6 +541,39 @@ describe("GET /api/v1/dashboard", () => {
       await f.close();
     }
   });
+
+  it("follows the company's configured timezone, not a hardcoded one", async () => {
+    const f = await fixture({ seeded: true });
+    try {
+      // Same instant as above, but the company runs on UTC: "today" is
+      // still the 20th, so a deadline on the 20th is NOT overdue yet.
+      const actor = f.actor("member");
+      await f.db("company").where({ id: actor.companyId }).update({ timezone: "UTC" });
+      const svc = createDashboardService({
+        db: f.db,
+        policy: createPolicy(f.db),
+        clock: () => new Date("2026-08-20T17:30:00.000Z"),
+      });
+      const dueToday = action({
+        action: "Hạn 20/08",
+        deadline: "2026-08-20",
+        assignee_user_id: f.ids.member,
+      });
+      const canvasId = await mustCreate(
+        f,
+        "member",
+        f.ids.member,
+        "Canvas múi giờ UTC",
+        publishable({ actions: [dueToday] }),
+      );
+      await mustPublish(f, "member", canvasId);
+
+      const dto = await svc.getDashboard(actor);
+      expect(dto.attention).toEqual([]);
+    } finally {
+      await f.close();
+    }
+  });
 });
 
 describe("seedDemo canvases (task 2.6)", () => {

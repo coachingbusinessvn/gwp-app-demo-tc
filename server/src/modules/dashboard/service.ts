@@ -17,12 +17,11 @@ import { buildSeries, type Series } from "../../../../shared/canvas/measurement.
  * grants). Archived canvases stay listed as "archived" but are frozen:
  * their open actions stop nagging.
  *
- * "Today" is the company's calendar day — the deployment is one company
- * in Vietnam, so the boundary is Asia/Ho_Chi_Minh, not UTC. The clock is
- * injectable; the timezone is a module constant.
+ * "Today" is the company's calendar day in company.timezone (admin-editable,
+ * default Asia/Ho_Chi_Minh), not UTC. The clock is injectable.
  */
 
-const COMPANY_TIME_ZONE = "Asia/Ho_Chi_Minh";
+const DEFAULT_TIME_ZONE = "Asia/Ho_Chi_Minh";
 const DAY_MS = 86_400_000;
 const DONE_STATUS = "Hoàn thành";
 
@@ -92,9 +91,17 @@ interface DashboardCanvasRow {
   body: CanvasBody | null;
 }
 
-/** Calendar date "YYYY-MM-DD" of an instant in the company timezone. */
+/** Calendar date "YYYY-MM-DD" of an instant in the company timezone. An
+ * unknown IANA zone (stale row, runtime without that tzdata) falls back to
+ * the default rather than failing the whole dashboard. */
 function companyDay(d: Date, timeZone: string): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone }).format(d);
+  try {
+    return new Intl.DateTimeFormat("en-CA", { timeZone }).format(d);
+  } catch {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: DEFAULT_TIME_ZONE,
+    }).format(d);
+  }
 }
 
 /** Whole days between two YYYY-MM-DD strings (UTC parse — pure dates). */
@@ -164,7 +171,10 @@ export function createDashboardService(deps: {
   async function getDashboard(actor: ActorContext): Promise<DashboardDto> {
     const subjectIds = await policy.scopeSubjectIds(actor);
     const generatedAt = clock().toISOString();
-    const today = companyDay(clock(), COMPANY_TIME_ZONE);
+    const company = (await db("company")
+      .where({ id: actor.companyId })
+      .first("timezone")) as { timezone: string | null } | undefined;
+    const today = companyDay(clock(), company?.timezone || DEFAULT_TIME_ZONE);
 
     const [users, rows] = await Promise.all([
       listScopedUsers(db, actor.companyId, subjectIds),
