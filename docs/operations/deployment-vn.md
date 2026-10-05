@@ -74,8 +74,38 @@ Sau bootstrap xong, mở `APP_ORIGIN` trong trình duyệt nội bộ → đăng
 
 ## 4. HTTPS
 
-Compose mặc định phục vụ HTTP nội bộ — TLS kết thúc ở reverse proxy của
-khách (nginx/Caddy/Apache đều được). Mẫu nginx tối thiểu:
+Compose mặc định phục vụ HTTP nội bộ. Có hai cách bật HTTPS:
+
+### 4a. Proxy có sẵn trong bundle (khuyến nghị cho LAN/on-prem)
+
+Service `proxy` (Caddy, profile `tls`) kết thúc TLS ngay trong stack — không
+cần dựng nginx riêng, chạy được air-gap (không gọi ACME công khai).
+
+```sh
+# .env
+GWP_TLS_HOST=app.congty.local        # tên/IP người dùng gõ vào trình duyệt
+GWP_TLS=internal                     # CA nội bộ của Caddy (hoặc chứng chỉ khách, xem dưới)
+APP_ORIGIN=https://app.congty.local  # thêm :<GWP_TLS_PORT> nếu không dùng 443
+TRUST_PROXY=1
+APP_PORT=127.0.0.1:8080              # chỉ proxy tới được app — không vòng qua TLS
+
+docker compose --profile tls up -d
+curl -k https://app.congty.local/health/ready
+```
+
+- **CA nội bộ (`GWP_TLS=internal`)**: xuất root cert một lần rồi cài vào
+  "Trusted Root" trên máy người dùng (GPO/MDM hoặc thủ công):
+  `docker compose --profile tls cp proxy:/data/caddy/pki/authorities/local/root.crt ./gwp-root-ca.crt`.
+  Root nằm trong volume `caddy-data` — giữ volume này khi nâng cấp, mất nó
+  thì phải cài lại root mới trên mọi máy.
+- **Chứng chỉ của khách**: đặt `fullchain.pem` + `privkey.pem` vào
+  `deploy/certs/` (mount read-only), rồi `GWP_TLS=/certs/fullchain.pem /certs/privkey.pem`.
+- Cổng khác 443/80: `GWP_TLS_PORT` / `GWP_HTTP_PORT` (HTTP tự chuyển sang HTTPS).
+
+### 4b. Reverse proxy có sẵn của khách
+
+TLS kết thúc ở reverse proxy của khách (nginx/Caddy/Apache đều được). Mẫu
+nginx tối thiểu:
 
 ```nginx
 server {

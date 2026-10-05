@@ -1,0 +1,30 @@
+# Optional HTTPS front for LAN / on-prem installs — enabled with
+# `docker compose --profile tls up -d` (docs/operations/deployment-vn.md §4).
+#
+# GWP_TLS_HOST  the name/IP users type (app.congty.local, 192.168.1.20, …);
+#               APP_ORIGIN must be https://<that host>[:GWP_TLS_PORT].
+# GWP_TLS       "internal"  → Caddy's own local CA (install its root cert
+#                             on client machines once — see the runbook), or
+#               "/certs/fullchain.pem /certs/privkey.pem" → the customer's
+#                             own certificate mounted from ./deploy/certs.
+# Env placeholders are substituted before parsing, so GWP_TLS may expand to
+# two arguments.
+{
+	# Air-gapped by default: never reach out to public ACME CAs.
+	auto_https disable_redirects
+	skip_install_trust
+}
+
+{$GWP_TLS_HOST:localhost} {
+	tls {$GWP_TLS:internal}
+	encode gzip
+	reverse_proxy app:8080
+	log {
+		output stdout
+		format console
+	}
+}
+
+http://{$GWP_TLS_HOST:localhost} {
+	redir https://{host}:{$GWP_TLS_PORT:443}{uri} permanent
+}

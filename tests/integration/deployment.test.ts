@@ -180,6 +180,39 @@ describe("compose bundle (spec §9)", () => {
       ["DEMO_MODE", "MIGRATOR_DATABASE_URL", "NODE_ENV"].sort(),
     );
   });
+
+  it("the opt-in tls profile adds an HTTPS proxy that carries no app secrets", () => {
+    const base = composeConfigJson();
+    // Off by default — a plain `docker compose up` never starts it.
+    expect(base.services.proxy).toBeUndefined();
+
+    const res = run(
+      [
+        "docker",
+        "compose",
+        "-f",
+        "compose.yaml",
+        "--profile",
+        "tls",
+        "config",
+        "--format",
+        "json",
+      ],
+      { ...COMPOSE_ENV, GWP_TLS_PORT: "19443", GWP_HTTP_PORT: "19080" },
+    );
+    expect(res.status, res.stderr).toBe(0);
+    const proxy = JSON.parse(res.stdout).services.proxy as {
+      ports?: { target: number; published?: string | number }[];
+      environment?: Record<string, string | null>;
+    };
+    expect(proxy).toBeDefined();
+    expect(
+      (proxy.ports ?? []).map((p) => `${p.published}:${p.target}`).sort(),
+    ).toEqual(["19080:80", "19443:443"]);
+    expect(Object.keys(proxy.environment ?? {}).sort()).toEqual(
+      ["GWP_TLS", "GWP_TLS_HOST", "GWP_TLS_PORT"].sort(),
+    );
+  });
 });
 
 describe("OpenAPI surface (spec §2)", () => {

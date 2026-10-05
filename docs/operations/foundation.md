@@ -126,7 +126,8 @@ Mất `BOOTSTRAP_TOKEN` → tạo lại trong `.env` rồi `docker compose up -d
 
 - App phục vụ HTTP trên `0.0.0.0:APP_PORT` — chỉ dùng được trực tiếp qua
   `http://localhost`. Mọi truy cập khác (LAN/QA/production) BẮT BUỘC HTTPS
-  qua reverse proxy (nginx/Caddy/Traefik hoặc hạ
+  qua reverse proxy — service `proxy` có sẵn (`docker compose --profile tls
+  up -d`, xem deployment-vn.md §4a) hoặc proxy của khách (nginx/Caddy/Traefik hoặc hạ
   tầng khách có sẵn): terminate TLS tại proxy, forward tới `app:8080`.
 - Khi sau proxy: đặt `APP_ORIGIN=https://<domain>` đúng origin public, và
   `TRUST_PROXY=1` (hoặc số hop/CIDR) để `req.ip` đúng cho rate-limit.

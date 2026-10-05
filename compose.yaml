@@ -160,5 +160,38 @@ services:
     command: ["node", "dist/server/src/jobs/retention.js"]
     restart: "no"
 
+  # Optional TLS front (profile "tls"): HTTPS on the LAN without a
+  # hand-built nginx. Browsers need a secure context for login (Secure
+  # cookies, navigator.locks, CSP upgrade-insecure-requests), so any access
+  # other than http://localhost must go through this or an existing proxy.
+  # With it: APP_ORIGIN=https://<GWP_TLS_HOST>, TRUST_PROXY=1, and bind the
+  # app to loopback (APP_PORT=127.0.0.1:8080) so clients can't bypass TLS.
+  proxy:
+    image: caddy:2-alpine
+    profiles: ["tls"]
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      GWP_TLS_HOST: ${GWP_TLS_HOST:-localhost}
+      GWP_TLS: ${GWP_TLS:-internal}
+      GWP_TLS_PORT: ${GWP_TLS_PORT:-443}
+    ports:
+      - "${GWP_TLS_PORT:-443}:443"
+      - "${GWP_HTTP_PORT:-80}:80"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./deploy/certs:/certs:ro
+      - caddy-data:/data
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped
+
 volumes:
   db-data:
+  # Caddy's local CA + issued certs — keep across upgrades or clients
+  # must re-trust a new root.
+  caddy-data:

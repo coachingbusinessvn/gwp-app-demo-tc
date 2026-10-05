@@ -4,10 +4,13 @@
   "version": "0.1.0",
   "images": [
     { "name": "gwp-app:local", "build": "Dockerfile", "required": true },
-    { "name": "postgres:18-alpine", "required": true }
+    { "name": "postgres:18-alpine", "required": true },
+    { "name": "caddy:2-alpine", "required": false }
   ],
   "files": [
     "compose.yaml",
+    "deploy/Caddyfile",
+    "deploy/certs/README.md",
     ".env.example",
     "Dockerfile",
     "docs/operations/foundation.md",
@@ -22,6 +25,7 @@
     ".env",
     "*.dump",
     "*.key",
+    "*.pem",
     "secrets/",
     "node_modules/",
     "tests/",

@@ -23,3 +23,7 @@ npm-debug.log*
 # Agent/workflow state (not project artifacts)
 .superpowers/
 .1devtool/
+
+# Customer TLS material — README is the only tracked file
+deploy/certs/*
+!deploy/certs/README.md

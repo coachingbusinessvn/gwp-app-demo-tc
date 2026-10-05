@@ -30,3 +30,6 @@ blob-report
 
 .DS_Store
 **/.DS_Store
+
+# Operator-side deploy config (TLS certs) never belongs in the app image.
+deploy
