@@ -10,6 +10,7 @@ import {
   createUserBodySchema,
   deactivateUserBodySchema,
   issueCredentialTokenBodySchema,
+  reactivateUserBodySchema,
   setRolesBodySchema,
   updateUserBodySchema,
 } from "./schema.js";
@@ -27,6 +28,10 @@ import { createUsersService } from "./service.js";
  *                                    privileged profiles
  *   PUT  /users/:id/roles          — role set replace, OWNER only
  *   POST /users/:id/deactivate     — owner/admin; session kill after commit
+ *   POST /users/:id/reactivate     — owner/admin (same asymmetry); inactive
+ *                                    → active (password kept, old sessions
+ *                                    stay revoked) or → pending (never
+ *                                    activated — needs an activation code)
  *   POST /users/:id/credential-token — OWNER only; issues a one-time
  *                                    activate/reset token, returned once
  *                                    (task 1.4)
@@ -165,6 +170,17 @@ export function userRoutes(deps: {
       // An absent body is the same as {} — no reports decision supplied.
       const body = parseBody(deactivateUserBodySchema, req.body ?? {});
       res.json(await users.deactivateUser(actorOf(res), id, body));
+    },
+  );
+
+  router.post(
+    "/users/:id/reactivate",
+    requireAuth(auth),
+    async (req: Request, res: Response) => {
+      const id = pathId(req.params.id);
+      // No writable fields — the resulting status is the server's call.
+      parseBody(reactivateUserBodySchema, req.body ?? {});
+      res.json(await users.reactivateUser(actorOf(res), id));
     },
   );
 

@@ -27,6 +27,7 @@ import {
   roleIdsByKey,
   transferDirectReports,
   updateUser,
+  userHasPassword,
   type UserRow,
 } from "./repository.js";
 
@@ -49,6 +50,8 @@ import {
  *   session kill on top of authenticate()'s per-request status check.
  * - Users are never hard-deleted: status flips to inactive, every
  *   historical FK (manager, department, team, authorship) survives.
+ * - Reactivation is the inverse transition, inactive → active|pending,
+ *   with the same owner/admin asymmetry (see reactivateUser).
  */
 export interface UserDto {
   id: Id;
@@ -666,6 +669,82 @@ export function createUsersService({ db, revokeAllUserSessions }: UsersDeps) {
     return toUserDto(user, roles);
   }
 
+  /**
+   * POST /users/:id/reactivate — owner/admin, the inverse of deactivate:
+   * - same asymmetry: admin may reactivate plain members only, never an
+   *   owner/admin account (restoring a privileged login is owner
+   *   territory, spec §4);
+   * - only an INACTIVE account can be reactivated — active/pending targets
+   *   are 409 USER_NOT_INACTIVE (not a silent no-op: the caller's view is
+   *   stale and should refresh);
+   * - resulting status: deactivation keeps the password hash and durably
+   *   revokes every session, so an account that holds a password returns
+   *   to ACTIVE with that credential — its old sessions stay revoked (a
+   *   fresh login is required), and the owner can issue a reset code
+   *   straight away if the credential is no longer trusted. An account
+   *   that never set a password (deactivated while pending) returns to
+   *   PENDING — the active_password CHECK forbids active-without-hash —
+   *   and the owner issues an activation code as for a new user. Neither
+   *   path lets the caller set or read a credential (spec §4/§8);
+   * - roles, manager, department and team are kept: the account's reports
+   *   were moved off it at deactivation and setManager never points
+   *   anyone at a non-active user, so the tree invariants still hold.
+   */
+  async function reactivateUser(
+    actor: ActorContext,
+    userId: Id,
+  ): Promise<UserDto> {
+    return db.transaction(async (tx) => {
+      await lockCompany(tx, actor.companyId);
+      const { isOwner } = await requireOwnerOrAdmin(tx, actor);
+      await requireActiveActor(tx, actor);
+
+      const target = await findUserById(tx, actor.companyId, userId);
+      if (!target) throw notFound();
+      const targetRoles = await loadUserRoleKeys(
+        tx,
+        actor.companyId,
+        userId,
+      );
+      if (
+        !isOwner &&
+        (targetRoles.includes("owner") || targetRoles.includes("admin"))
+      ) {
+        throw new AppError(
+          403,
+          "FORBIDDEN",
+          "Admin không được kích hoạt lại tài khoản đặc quyền",
+        );
+      }
+      if (target.status !== "inactive") {
+        throw new AppError(
+          409,
+          "USER_NOT_INACTIVE",
+          "Chỉ tài khoản đã ngừng hoạt động mới kích hoạt lại được",
+        );
+      }
+
+      const nextStatus = (await userHasPassword(tx, actor.companyId, userId))
+        ? "active"
+        : "pending";
+      const updated = await updateUser(tx, actor.companyId, userId, {
+        status: nextStatus,
+      });
+      if (!updated) throw notFound();
+      await appendAudit(tx, {
+        companyId: actor.companyId,
+        actorId: actor.userId,
+        action: "user.reactivate",
+        targetType: "app_user",
+        targetId: userId,
+        outcome: "success",
+        requestId: actor.requestId,
+        metadata: { status: nextStatus },
+      });
+      return toUserDto(updated, targetRoles);
+    });
+  }
+
   return {
     listUsers: listUserPage,
     getUser,
@@ -673,6 +752,7 @@ export function createUsersService({ db, revokeAllUserSessions }: UsersDeps) {
     updateProfile,
     setRoles,
     deactivateUser,
+    reactivateUser,
   };
 }
 

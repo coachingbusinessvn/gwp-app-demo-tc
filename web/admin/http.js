@@ -27,9 +27,57 @@ export async function reqJson(method, path, body) {
     );
     err.code = typeof data?.code === "string" ? data.code : "REQUEST_FAILED";
     err.status = res.status;
+    // INVALID_INPUT carries details.fields — forms map them to labels.
+    err.fields = Array.isArray(data?.details?.fields)
+      ? data.details.fields.filter((f) => typeof f === "string")
+      : [];
     throw err;
   }
   return data;
+}
+
+/**
+ * Every item of a cursor-paginated list ({items, nextCursor}) — the
+ * server caps a page at 100, so admin tables must walk the cursor or the
+ * tail of a larger org silently disappears. Same contract as web/api.js
+ * apiFetchAll (bounded by maxPages), but built on reqJson so a failed page
+ * rejects with the server's own message/code rather than a bare status.
+ */
+export async function reqAll(path, { maxPages = 100 } = {}) {
+  const sep = path.includes("?") ? "&" : "?";
+  const items = [];
+  let cursor = null;
+  for (let page = 0; page < maxPages; page++) {
+    const q = cursor ? `${sep}cursor=${encodeURIComponent(cursor)}` : "";
+    const body = await reqJson("GET", path + q);
+    items.push(...(body?.items ?? []));
+    cursor = body?.nextCursor ?? null;
+    if (!cursor) break;
+  }
+  return items;
+}
+
+/**
+ * Native confirm() for destructive/privileged admin actions — names the
+ * subject and the consequence. Kept in one place so tests (Playwright
+ * page.on("dialog")) and future UI swaps have a single seam.
+ */
+export function confirmAction(message) {
+  return window.confirm(message);
+}
+
+/** A role=status line for non-error outcomes (e.g. "Đã lưu"). */
+export function statusLine() {
+  const p = el("p", "note");
+  p.setAttribute("role", "status");
+  p.hidden = true;
+  return p;
+}
+
+export function showStatus(box, text) {
+  if (!box) return;
+  box.textContent = text;
+  box.hidden = false;
 }
 
 /** el("td", "cls", "text") — text always via textContent. */

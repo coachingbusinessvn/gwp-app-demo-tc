@@ -7,15 +7,25 @@
  * endpoints, so a generic PATCH can never smuggle privilege fields.
  * Issued tokens are shown exactly once inside the page — never stored,
  * never logged.
+ *
+ * Deactivate and "Cấp quyền owner" ask for confirmation naming the user
+ * and the consequence; "Kích hoạt lại" reverses a deactivation (owner, or
+ * admin for plain accounts — same asymmetry as deactivate). The list walks
+ * every cursor page (reqAll) and a client-side box filters it by
+ * name/email.
  */
 import {
   clearError,
+  confirmAction,
   el,
   field,
   miniButton,
+  reqAll,
   reqJson,
   selectInput,
   showError,
+  showStatus,
+  statusLine,
   submitButton,
   textInput,
 } from "./http.js";
@@ -41,9 +51,24 @@ function isPrivileged(user) {
   return user.roles.includes("owner") || user.roles.includes("admin");
 }
 
+/** Case- and diacritic-insensitive key: "Nguyễn Đức" ≈ "nguyen duc". */
+function searchKey(text) {
+  return String(text ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D")
+    .toLowerCase()
+    .trim();
+}
+
+function who(user) {
+  return `"${user.name}" (${user.email})`;
+}
+
 export function mountUsers(panel, ctx) {
   const { isOwner, selfId } = ctx;
-  const state = { users: [], departments: [], teams: [] };
+  const state = { users: [], departments: [], teams: [], query: "" };
 
   const card = el("section", "card");
   card.append(el("div", "eyebrow", "Tài khoản"));
@@ -56,8 +81,24 @@ export function mountUsers(panel, ctx) {
     ),
   );
   const err = errBox();
+  const status = statusLine();
   const addBtn = miniButton("Tạo người dùng");
   const formHost = el("div");
+  const search = textInput({
+    type: "search",
+    placeholder: "Nhập tên hoặc email…",
+    autocomplete: "off",
+  });
+  search.type = "search";
+  search.style.maxWidth = "360px";
+  const searchField = field("Tìm người dùng", search);
+  searchField.style.margin = "6px 0 8px";
+  const countNote = el("p", "note");
+  countNote.setAttribute("aria-live", "polite");
+  search.addEventListener("input", () => {
+    state.query = search.value;
+    renderUsers();
+  });
   const tableWrap = el("div", "tscroll");
   const table = el("table", "t");
   const thead = el("thead");
@@ -69,7 +110,7 @@ export function mountUsers(panel, ctx) {
   const tbody = el("tbody");
   table.append(thead, tbody);
   tableWrap.append(table);
-  card.append(err, formHost, addBtn, tableWrap);
+  card.append(err, status, formHost, addBtn, searchField, countNote, tableWrap);
   panel.append(card);
 
   function liveDepartments() {
@@ -409,6 +450,13 @@ export function mountUsers(panel, ctx) {
 
   async function deactivate(user, row) {
     clearError(err);
+    clearError(status);
+    const ok = confirmAction(
+      `Ngừng hoạt động tài khoản ${who(user)}?\n\n` +
+        "Người này bị đăng xuất khỏi mọi phiên ngay lập tức và không đăng nhập được nữa. " +
+        "Hồ sơ, vai trò và lịch sử được giữ nguyên — có thể kích hoạt lại sau.",
+    );
+    if (!ok) return;
     try {
       await reqJson("POST", `/users/${user.id}/deactivate`, {});
       await loadUsers();
@@ -423,10 +471,79 @@ export function mountUsers(panel, ctx) {
     }
   }
 
+  async function reactivate(user) {
+    clearError(err);
+    clearError(status);
+    const ok = confirmAction(
+      `Kích hoạt lại tài khoản ${who(user)}?\n\n` +
+        "Nếu người này đã từng kích hoạt, họ đăng nhập lại được bằng mật khẩu cũ (các phiên cũ vẫn bị thu hồi). " +
+        "Nếu chưa từng kích hoạt, tài khoản trở về trạng thái chờ và owner cần phát mã kích hoạt.",
+    );
+    if (!ok) return;
+    try {
+      const updated = await reqJson("POST", `/users/${user.id}/reactivate`, {});
+      await loadUsers();
+      showStatus(
+        status,
+        updated.status === "pending"
+          ? `Đã kích hoạt lại ${user.name} — tài khoản đang chờ: owner cần phát mã kích hoạt.`
+          : `Đã kích hoạt lại ${user.name} — đăng nhập bằng mật khẩu cũ; owner có thể phát mã reset nếu cần.`,
+      );
+    } catch (e) {
+      showError(err, e);
+    }
+  }
+
+  async function grantOwner(user) {
+    clearError(err);
+    clearError(status);
+    const ok = confirmAction(
+      `Cấp quyền owner cho ${who(user)}?\n\n` +
+        "Owner có toàn quyền: đổi vai trò và tuyến báo cáo, phát mã kích hoạt/reset, " +
+        "ngừng hoạt động mọi tài khoản và đọc mọi canvas, coaching report. " +
+        "Người này cũng có thể thu hồi quyền owner của người khác.",
+    );
+    if (!ok) return;
+    try {
+      await reqJson("PUT", `/users/${user.id}/roles`, {
+        roles: [...user.roles, "owner"],
+      });
+      await loadUsers();
+    } catch (e) {
+      showError(err, e);
+    }
+  }
+
   /* ---------- List ---------- */
+  function visibleUsers() {
+    const q = searchKey(state.query);
+    if (q === "") return state.users;
+    return state.users.filter(
+      (u) => searchKey(u.name).includes(q) || searchKey(u.email).includes(q),
+    );
+  }
+
   function renderUsers() {
     tbody.replaceChildren();
-    for (const u of state.users) {
+    const shown = visibleUsers();
+    countNote.textContent =
+      shown.length === state.users.length
+        ? `${state.users.length} người dùng`
+        : `Hiển thị ${shown.length} / ${state.users.length} người dùng`;
+    if (shown.length === 0) {
+      const tr = el("tr");
+      const td = el(
+        "td",
+        "note",
+        state.users.length === 0
+          ? "Chưa có người dùng nào."
+          : "Không có người dùng khớp với từ khoá.",
+      );
+      td.colSpan = 6;
+      tr.append(td);
+      tbody.append(tr);
+    }
+    for (const u of shown) {
       const tr = el("tr");
       tr.append(el("td", null, u.name));
       tr.append(el("td", null, u.email));
@@ -454,17 +571,7 @@ export function mountUsers(panel, ctx) {
       if (isOwner) {
         if (!u.roles.includes("owner")) {
           const grant = miniButton("Cấp quyền owner");
-          grant.addEventListener("click", async () => {
-            clearError(err);
-            try {
-              await reqJson("PUT", `/users/${u.id}/roles`, {
-                roles: [...u.roles, "owner"],
-              });
-              await loadUsers();
-            } catch (e) {
-              showError(err, e);
-            }
-          });
+          grant.addEventListener("click", () => grantOwner(u));
           add(grant);
         }
         const rolesBtn = miniButton("Vai trò");
@@ -493,20 +600,28 @@ export function mountUsers(panel, ctx) {
         off.addEventListener("click", () => deactivate(u, tr));
         add(off);
       }
+      // Reverse of deactivate — same asymmetry (admin: plain accounts only).
+      if (u.status === "inactive" && (isOwner || !isPrivileged(u))) {
+        const on = miniButton("Kích hoạt lại");
+        on.addEventListener("click", () => reactivate(u));
+        add(on);
+      }
       tr.append(actions);
       tbody.append(tr);
     }
   }
 
   async function loadUsers() {
+    // Walk every cursor page — a single ?limit=100 read silently dropped
+    // the tail of larger orgs.
     const [users, deps, teams] = await Promise.all([
-      reqJson("GET", "/users?limit=100"),
-      reqJson("GET", "/departments?limit=100"),
-      reqJson("GET", "/teams?limit=100"),
+      reqAll("/users?limit=100"),
+      reqAll("/departments?limit=100"),
+      reqAll("/teams?limit=100"),
     ]);
-    state.users = users.items;
-    state.departments = deps.items;
-    state.teams = teams.items;
+    state.users = users;
+    state.departments = deps;
+    state.teams = teams;
     renderUsers();
   }
 

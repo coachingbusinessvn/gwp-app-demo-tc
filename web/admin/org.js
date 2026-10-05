@@ -3,18 +3,53 @@
  * failures surface the server's 409 ORG_UNIT_IN_USE guidance text
  * verbatim (chuyển thành viên trước khi lưu trữ). Rendering is DOM-only —
  * unit names reach the page via textContent, never markup.
+ *
+ * Also hosts the company profile (GET/PATCH /company — name, IANA
+ * timezone; owner/admin) and the retention floors (GET owner/admin, PATCH
+ * owner only — spec §9: the owner may only RAISE the floors; the server
+ * schema is the authority and its errors are shown per field).
  */
 import {
   clearError,
   el,
   field,
   miniButton,
+  reqAll,
   reqJson,
   selectInput,
   showError,
+  showStatus,
+  statusLine,
   submitButton,
   textInput,
 } from "./http.js";
+
+/**
+ * Spec §9 minimums — mirrored for display only (server/src/modules/
+ * settings/service.ts RETENTION_FLOORS is the authority; a lower value is
+ * rejected there with 400 INVALID_INPUT).
+ */
+const RETENTION_FIELDS = [
+  { key: "auditDays", label: "Nhật ký audit", floor: 365 },
+  { key: "aiRunDays", label: "Metadata lượt chạy AI", floor: 90 },
+  { key: "logDays", label: "Log vận hành", floor: 30 },
+  { key: "receiptDays", label: "Biên nhận ghi (chống gửi trùng)", floor: 7 },
+];
+
+/** IANA zones from the runtime's ICU; the current value is always kept. */
+function timezoneOptions(current) {
+  let zones = [];
+  try {
+    zones = Intl.supportedValuesOf("timeZone");
+  } catch {
+    zones = [];
+  }
+  const set = new Set(zones);
+  for (const z of ["Asia/Ho_Chi_Minh", "UTC", current]) {
+    if (z) set.add(z);
+  }
+  return [...set].sort();
+}
 
 function errBox() {
   const box = el("p", "err");
@@ -44,8 +79,65 @@ function unitRow(name, archived, actions) {
 }
 
 export function mountOrg(panel, ctx) {
-  const { branding, onBrandingSaved } = ctx;
+  const { branding, onBrandingSaved, isOwner = false } = ctx;
   const state = { departments: [], teams: [] };
+
+  /* ---------- Company profile ---------- */
+  const companyCard = el("section", "card");
+  companyCard.append(el("div", "eyebrow", "Công ty"));
+  companyCard.append(el("h2", "title", "Thông tin công ty"));
+  companyCard.append(
+    el(
+      "p",
+      "note",
+      "Tên pháp nhân và múi giờ dùng cho mốc thời gian của tổ chức. Tên hiển thị trên giao diện chỉnh ở mục Nhận diện.",
+    ),
+  );
+  const companyErr = errBox();
+  const companyStatus = statusLine();
+  const companyForm = el("form");
+  const companyName = textInput({ maxlength: "200", required: "" });
+  const companyTz = selectInput();
+  companyForm.append(
+    field("Tên công ty", companyName),
+    field("Múi giờ", companyTz),
+  );
+  const companyBtns = el("div", "btnrow");
+  companyBtns.style.marginTop = "12px";
+  companyBtns.append(submitButton("Lưu thông tin công ty"));
+  companyForm.append(companyBtns);
+  companyForm.hidden = true; // until GET /company answers
+  companyCard.append(companyErr, companyStatus, companyForm);
+  panel.append(companyCard);
+
+  function fillCompany(company) {
+    companyName.value = company.name;
+    companyTz.replaceChildren();
+    for (const z of timezoneOptions(company.timezone)) {
+      const opt = document.createElement("option");
+      opt.value = z;
+      opt.textContent = z;
+      if (z === company.timezone) opt.selected = true;
+      companyTz.append(opt);
+    }
+    companyForm.hidden = false;
+  }
+
+  companyForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    clearError(companyErr);
+    clearError(companyStatus);
+    try {
+      const saved = await reqJson("PATCH", "/company", {
+        name: companyName.value,
+        timezone: companyTz.value,
+      });
+      fillCompany(saved);
+      showStatus(companyStatus, "Đã lưu thông tin công ty.");
+    } catch (err) {
+      showError(companyErr, err);
+    }
+  });
 
   /* ---------- Departments ---------- */
   const depCard = el("section", "card");
@@ -73,6 +165,7 @@ export function mountOrg(panel, ctx) {
       const actions = [];
       if (d.archivedAt === null) {
         const rename = miniButton("Đổi tên");
+        rename.setAttribute("aria-label", `Đổi tên phòng ban ${d.name}`);
         rename.addEventListener("click", () => openRenameDepartment(d));
         const archive = miniButton("Lưu trữ");
         archive.addEventListener("click", () => archiveDepartment(d));
@@ -186,9 +279,12 @@ export function mountOrg(panel, ctx) {
     for (const t of state.teams) {
       const actions = [];
       if (t.archivedAt === null) {
+        const rename = miniButton("Đổi tên");
+        rename.setAttribute("aria-label", `Đổi tên tổ ${t.name}`);
+        rename.addEventListener("click", () => openRenameTeam(t));
         const archive = miniButton("Lưu trữ");
         archive.addEventListener("click", () => archiveTeam(t));
-        actions.push(archive);
+        actions.push(rename, archive);
       }
       const li = el("li");
       li.style.margin = "8px 0";
@@ -210,6 +306,41 @@ export function mountOrg(panel, ctx) {
     if (state.teams.length === 0) {
       teamList.append(el("li", "note", "Chưa có tổ nào."));
     }
+  }
+
+  function closeTeamForm() {
+    teamFormHost.replaceChildren();
+    teamAdd.hidden = false;
+  }
+
+  function openRenameTeam(t) {
+    teamFormHost.replaceChildren();
+    teamAdd.hidden = true;
+    clearError(teamErr);
+    const input = textInput({ maxlength: "200", required: "" });
+    input.value = t.name;
+    const form = el("form");
+    form.style.margin = "10px 0";
+    form.append(field("Tên tổ mới", input));
+    const btns = el("div", "btnrow");
+    btns.style.marginTop = "10px";
+    const cancel = miniButton("Huỷ");
+    cancel.addEventListener("click", closeTeamForm);
+    btns.append(submitButton("Lưu"), cancel);
+    form.append(btns);
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      clearError(teamErr);
+      try {
+        await reqJson("PATCH", `/teams/${t.id}`, { name: input.value });
+        closeTeamForm();
+        await loadOrg();
+      } catch (err) {
+        showError(teamErr, err);
+      }
+    });
+    teamFormHost.append(form);
+    input.focus();
   }
 
   async function archiveTeam(t) {
@@ -332,17 +463,107 @@ export function mountOrg(panel, ctx) {
   brandCard.append(brandErr, brandForm);
   panel.append(brandCard);
 
+  /* ---------- Retention (spec §9) ---------- */
+  const retCard = el("section", "card");
+  retCard.append(el("div", "eyebrow", "Dữ liệu"));
+  retCard.append(el("h2", "title", "Thời gian lưu giữ"));
+  retCard.append(
+    el(
+      "p",
+      "note",
+      isOwner
+        ? "Số ngày giữ dữ liệu trước khi job dọn dẹp xoá. Chỉ được tăng so với mức tối thiểu của hệ thống, không được giảm. Bản sao lưu có thể còn dữ liệu đã xoá tới hết thời hạn của nó."
+        : "Số ngày giữ dữ liệu trước khi job dọn dẹp xoá. Chỉ owner được thay đổi — admin chỉ xem.",
+    ),
+  );
+  const retErr = errBox();
+  const retStatus = statusLine();
+  const retForm = el("form");
+  // The server schema is the authority on the floors: no native min=
+  // blocking, so a below-floor value reaches it and its 400 is shown.
+  retForm.noValidate = true;
+  retForm.hidden = true; // until GET /settings/retention answers
+  const retInputs = new Map();
+  for (const f of RETENTION_FIELDS) {
+    const input = textInput({ inputmode: "numeric" });
+    input.type = "number";
+    input.step = "1";
+    input.style.maxWidth = "180px";
+    input.disabled = !isOwner;
+    retInputs.set(f.key, input);
+    const wrap = field(`${f.label} (ngày)`, input);
+    wrap.append(el("p", "note", `Tối thiểu ${f.floor} ngày.`));
+    retForm.append(wrap);
+  }
+  if (isOwner) {
+    const retBtns = el("div", "btnrow");
+    retBtns.style.marginTop = "12px";
+    retBtns.append(submitButton("Lưu thời gian lưu giữ"));
+    retForm.append(retBtns);
+  }
+  retCard.append(retErr, retStatus, retForm);
+  panel.append(retCard);
+
+  function fillRetention(values) {
+    for (const f of RETENTION_FIELDS) {
+      retInputs.get(f.key).value = String(values[f.key] ?? f.floor);
+    }
+    retForm.hidden = false;
+  }
+
+  retForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!isOwner) return;
+    clearError(retErr);
+    clearError(retStatus);
+    const body = {};
+    for (const f of RETENTION_FIELDS) {
+      const raw = retInputs.get(f.key).value.trim();
+      // Send what was typed; a non-number goes as-is so the server's
+      // INVALID_INPUT names the field instead of a silent coercion.
+      body[f.key] = raw !== "" && Number.isFinite(Number(raw)) ? Number(raw) : raw;
+    }
+    try {
+      const saved = await reqJson("PATCH", "/settings/retention", body);
+      fillRetention(saved);
+      showStatus(retStatus, "Đã lưu thời gian lưu giữ.");
+    } catch (err) {
+      const bad = RETENTION_FIELDS.filter((f) =>
+        (err.fields ?? []).includes(f.key),
+      );
+      if (err.code === "INVALID_INPUT" && bad.length > 0) {
+        showError(
+          retErr,
+          `${err.message}: ` +
+            bad
+              .map((f) => `${f.label} phải là số nguyên ≥ ${f.floor} ngày`)
+              .join("; ") +
+            ".",
+        );
+      } else {
+        showError(retErr, err);
+      }
+    }
+  });
+
   /* ---------- Data ---------- */
   async function loadOrg() {
+    // Walk every cursor page — the server caps one page at 100.
     const [deps, teams] = await Promise.all([
-      reqJson("GET", "/departments?limit=100"),
-      reqJson("GET", "/teams?limit=100"),
+      reqAll("/departments?limit=100"),
+      reqAll("/teams?limit=100"),
     ]);
-    state.departments = deps.items;
-    state.teams = teams.items;
+    state.departments = deps;
+    state.teams = teams;
     renderDepartments();
     renderTeams();
   }
 
   loadOrg().catch((err) => showError(depErr, err));
+  reqJson("GET", "/company")
+    .then(fillCompany)
+    .catch((err) => showError(companyErr, err));
+  reqJson("GET", "/settings/retention")
+    .then(fillRetention)
+    .catch((err) => showError(retErr, err));
 }

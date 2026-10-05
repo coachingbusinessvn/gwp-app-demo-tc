@@ -1217,6 +1217,74 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/users/{id}/reactivate:
+    post:
+      tags: [users]
+      summary: Reactivate an inactive user
+      description: >
+        Inverse of deactivate, with the same spec §4 asymmetry: owner/admin
+        only, and admin may reactivate plain members only — never an
+        owner/admin account (403). Only an INACTIVE account can be
+        reactivated; an active or pending target is 409 USER_NOT_INACTIVE.
+        The resulting status is decided by the server: an account that
+        already holds a password returns to "active" with that credential
+        (its old sessions were revoked durably at deactivation and stay
+        revoked — a fresh login is required; the owner may issue a reset
+        code afterwards if the credential is no longer trusted); an account
+        that never set a password returns to "pending" and needs an
+        owner-issued activation code. Roles, reporting line and org
+        placement are kept. Audited as user.reactivate.
+      operationId: reactivateUser
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserReactivateRequest"
+      responses:
+        "200":
+          description: User reactivated (status active or pending).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          description: Body carried unexpected keys.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: >
+            Caller is not owner/admin, or an admin targeted an owner/admin
+            account.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: No such user in this company.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Target is not inactive (USER_NOT_INACTIVE).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /api/v1/users/{id}/credential-token:
     post:
       tags: [users]
@@ -3588,6 +3656,13 @@ components:
           type: string
           format: uuid
           nullable: true
+    UserReactivateRequest:
+      type: object
+      additionalProperties: false
+      description: >
+        Empty body (or no body). There are no writable fields — the
+        resulting status (active/pending) is the server's decision.
+      properties: {}
     CredentialTokenIssueRequest:
       type: object
       required: [purpose]

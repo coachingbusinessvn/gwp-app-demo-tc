@@ -119,6 +119,23 @@ export async function updateUser(
   return rows[0];
 }
 
+/**
+ * Whether the account has ever set a password — a boolean only; the hash
+ * itself never leaves the database through this module. Reactivation uses
+ * it to pick active (credential kept) vs pending (needs an activation code).
+ */
+export async function userHasPassword(
+  db: Qb,
+  companyId: string,
+  userId: string,
+): Promise<boolean> {
+  const row = (await db("app_user")
+    .where({ id: userId, company_id: companyId })
+    .select(db.raw("password_hash IS NOT NULL AS has_password"))
+    .first()) as { has_password: boolean } | undefined;
+  return row?.has_password === true;
+}
+
 /** Role keys held by one user — fresh read, never cached (spec §4). */
 export async function loadUserRoleKeys(
   db: Qb,

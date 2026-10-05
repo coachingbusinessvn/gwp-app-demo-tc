@@ -58,11 +58,19 @@ function renderHeader(me) {
   idWrap.append(brand, el("div", "appname", "Performance Follow-up"));
   const nav = el("nav", "sitenav");
   nav.setAttribute("aria-label", "Công cụ");
-  const dash = el("a", null, "Bảng theo dõi");
-  dash.href = "dashboard.html";
-  const admin = el("a", null, "Quản trị");
-  admin.href = "admin.html";
-  nav.append(dash, admin);
+  // Same tool set as the account shell (assets/app.js) plus Canvas Online.
+  const links = [
+    ["Bảng theo dõi", "dashboard.html"],
+    ["Canvas Online", "/canvas-online/"],
+    ["Coaching Report", "/coaching-report/"],
+    ["Quản trị", "admin.html"],
+  ];
+  for (const [label, href] of links) {
+    const a = el("a", null, label);
+    a.href = href;
+    if (href === "admin.html") a.setAttribute("aria-current", "page");
+    nav.append(a);
+  }
   const spacer = el("div", "spacer");
   const who = el("div", "who");
   who.setAttribute("data-testid", "account-name");
@@ -90,7 +98,7 @@ function renderFooter() {
   footer.append(
     b,
     document.createTextNode(
-      " · Performance Architecture Canvas schema 3.0 — Phase 1: quản trị tổ chức.",
+      " · Performance Follow-up — quản trị tổ chức, tài khoản và cấu hình hệ thống.",
     ),
   );
   document.body.append(footer);
@@ -135,6 +143,7 @@ async function init() {
   );
   mountOrg(document.getElementById("panel-org"), {
     branding,
+    isOwner,
     onBrandingSaved: applyBranding,
   });
   mountUsers(document.getElementById("panel-users"), {

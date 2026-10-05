@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { apiAsPage, isolateClientIp, loginAs } from "../helpers/browser.js";
 
 /**
@@ -219,4 +219,214 @@ test("nhật ký audit: owner/admin xem được bản metadata-only", async ({
   await expect(
     page.getByText("org.department.create", { exact: true }).first(),
   ).toBeVisible();
+});
+
+/* ---------- Admin completeness: reactivation, confirms, search, settings ---------- */
+
+/** Create a pending member through the real API as the page's persona. */
+async function createPending(
+  page: Page,
+  label: string,
+): Promise<{ id: string; email: string; name: string }> {
+  const stamp = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+  const email = `${label}-${stamp}@example.test`;
+  const name = `E2E ${label} ${stamp}`;
+  const res = await apiAsPage(page, "POST", "/users", { email, name });
+  expect(res.status).toBe(201);
+  return { id: (res.body as { id: string }).id, email, name };
+}
+
+test("ngừng hoạt động hỏi xác nhận (nêu tên + hệ quả) → kích hoạt lại; tìm kiếm lọc theo email", async ({
+  page,
+}) => {
+  await loginAs(page, "owner");
+  const target = await createPending(page, "reactivate");
+
+  await page.goto("/admin.html");
+  await page.getByRole("tab", { name: "Người dùng" }).click();
+
+  // Client-side search: only the matching row stays.
+  await page.getByLabel("Tìm người dùng").fill(target.email);
+  const row = page.locator("#panel-users tbody tr", { hasText: target.email });
+  await expect(row).toHaveCount(1);
+  await expect(
+    page.locator("#panel-users tbody tr", { hasText: "member@example.test" }),
+  ).toHaveCount(0);
+  await expect(page.getByText(/^Hiển thị 1 \/ \d+ người dùng$/)).toBeVisible();
+
+  // Cancelling the confirm leaves the account untouched.
+  let message = "";
+  page.once("dialog", (d) => {
+    message = d.message();
+    void d.dismiss();
+  });
+  await row.getByRole("button", { name: "Ngừng hoạt động" }).click();
+  await expect.poll(() => message).toContain(target.name);
+  expect(message).toContain(target.email);
+  expect(message).toContain("đăng xuất");
+  await expect(row).toContainText("Chờ kích hoạt");
+
+  // Accepting deactivates.
+  page.once("dialog", (d) => void d.accept());
+  await row.getByRole("button", { name: "Ngừng hoạt động" }).click();
+  await expect(
+    row.getByRole("button", { name: "Kích hoạt lại" }),
+  ).toBeVisible();
+  await expect(
+    row.getByRole("button", { name: "Ngừng hoạt động" }),
+  ).toHaveCount(0);
+
+  // Reactivate: a never-activated account goes back to pending.
+  page.once("dialog", (d) => void d.accept());
+  await row.getByRole("button", { name: "Kích hoạt lại" }).click();
+  await expect(row).toContainText("Chờ kích hoạt");
+  await expect(
+    page.getByRole("status").filter({ hasText: "Đã kích hoạt lại" }),
+  ).toBeVisible();
+  const after = await apiAsPage(page, "GET", `/users/${target.id}`);
+  expect((after.body as UserItem).status).toBe("pending");
+});
+
+test("cấp quyền owner hỏi xác nhận — huỷ thì vai trò giữ nguyên", async ({
+  page,
+}) => {
+  await loginAs(page, "owner");
+  const target = await createPending(page, "grant");
+  await page.goto("/admin.html");
+  await page.getByRole("tab", { name: "Người dùng" }).click();
+  await page.getByLabel("Tìm người dùng").fill(target.email);
+  const row = page.locator("#panel-users tbody tr", { hasText: target.email });
+
+  let message = "";
+  page.once("dialog", (d) => {
+    message = d.message();
+    void d.dismiss();
+  });
+  await row.getByRole("button", { name: "Cấp quyền owner" }).click();
+  await expect.poll(() => message).toContain(target.name);
+  expect(message).toContain("toàn quyền");
+  const res = await apiAsPage(page, "GET", `/users/${target.id}`);
+  expect((res.body as UserItem).roles).toEqual(["member"]);
+});
+
+test("admin kích hoạt lại được member đã ngừng hoạt động", async ({ page }) => {
+  await loginAs(page, "admin");
+  const target = await createPending(page, "admin-react");
+  expect(
+    (await apiAsPage(page, "POST", `/users/${target.id}/deactivate`, {}))
+      .status,
+  ).toBe(200);
+  await page.goto("/admin.html");
+  await page.getByRole("tab", { name: "Người dùng" }).click();
+  await page.getByLabel("Tìm người dùng").fill(target.email);
+  const row = page.locator("#panel-users tbody tr", { hasText: target.email });
+  page.once("dialog", (d) => void d.accept());
+  await row.getByRole("button", { name: "Kích hoạt lại" }).click();
+  await expect(row).toContainText("Chờ kích hoạt");
+});
+
+test("header có Canvas Online + Coaching Report; footer không còn chữ Phase", async ({
+  page,
+}) => {
+  await loginAs(page, "admin");
+  await page.goto("/admin.html");
+  const nav = page.getByRole("navigation", { name: "Công cụ" });
+  await expect(
+    nav.getByRole("link", { name: "Canvas Online" }),
+  ).toHaveAttribute("href", "/canvas-online/");
+  await expect(
+    nav.getByRole("link", { name: "Coaching Report" }),
+  ).toHaveAttribute("href", "/coaching-report/");
+  await expect(page.locator("footer.app")).toBeVisible();
+  await expect(page.locator("footer.app")).not.toContainText("Phase");
+});
+
+test("thông tin công ty + đổi tên tổ qua form thật", async ({ page }) => {
+  await loginAs(page, "admin");
+  const before = await apiAsPage(page, "GET", "/company");
+  const company = before.body as { name: string; timezone: string };
+
+  const stamp = Date.now();
+  const dep = await apiAsPage(page, "POST", "/departments", {
+    name: `Khối tổ ${stamp}`,
+  });
+  const team = await apiAsPage(page, "POST", "/teams", {
+    name: `Tổ cũ ${stamp}`,
+    departmentId: (dep.body as { id: string }).id,
+  });
+  expect(team.status).toBe(201);
+
+  await page.goto("/admin.html");
+  // Company profile (owner/admin per server policy).
+  await expect(page.getByLabel("Tên công ty")).toHaveValue(company.name);
+  await expect(page.getByLabel("Múi giờ")).toHaveValue(company.timezone);
+  try {
+    await page.getByLabel("Tên công ty").fill(`${company.name} E2E`);
+    await page
+      .getByRole("button", { name: "Lưu thông tin công ty" })
+      .click();
+    await expect(page.getByText("Đã lưu thông tin công ty.")).toBeVisible();
+    const saved = await apiAsPage(page, "GET", "/company");
+    expect((saved.body as { name: string }).name).toBe(
+      `${company.name} E2E`,
+    );
+  } finally {
+    await apiAsPage(page, "PATCH", "/company", { name: company.name });
+  }
+
+  // Team rename mirrors the department rename.
+  await page
+    .getByRole("button", { name: `Đổi tên tổ Tổ cũ ${stamp}` })
+    .click();
+  await page.getByLabel("Tên tổ mới").fill(`Tổ mới ${stamp}`);
+  await page.getByRole("button", { name: "Lưu", exact: true }).click();
+  await expect(
+    page.getByText(`Tổ mới ${stamp}`, { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText(`Tổ cũ ${stamp}`, { exact: true })).toHaveCount(
+    0,
+  );
+});
+
+test("retention: owner chỉnh được, mức dưới sàn bị server từ chối; admin chỉ xem", async ({
+  page,
+  browser,
+}) => {
+  await loginAs(page, "owner");
+  await page.goto("/admin.html");
+  const audit = page.getByLabel("Nhật ký audit (ngày)");
+  await expect(audit).toBeEnabled();
+  await expect(audit).not.toHaveValue("");
+  const current = await audit.inputValue();
+  expect(Number(current)).toBeGreaterThanOrEqual(365);
+  await expect(page.getByText("Tối thiểu 365 ngày.")).toBeVisible();
+
+  // Below the floor: the server's 400 is surfaced, naming the field.
+  await audit.fill("100");
+  await page.getByRole("button", { name: "Lưu thời gian lưu giữ" }).click();
+  await expect(
+    page.getByRole("alert").filter({ hasText: "Nhật ký audit" }),
+  ).toBeVisible();
+
+  // Restoring the stored value saves cleanly (idempotent across runs).
+  await audit.fill(current);
+  await page.getByRole("button", { name: "Lưu thời gian lưu giữ" }).click();
+  await expect(page.getByText("Đã lưu thời gian lưu giữ.")).toBeVisible();
+
+  // Admin sees the values read-only — PATCH is owner-only server-side.
+  const origin = new URL(page.url()).origin;
+  const adminCtx = await browser.newContext({ baseURL: origin });
+  try {
+    const adminPage = await adminCtx.newPage();
+    await loginAs(adminPage, "admin");
+    await adminPage.goto("/admin.html");
+    await expect(
+      adminPage.getByLabel("Nhật ký audit (ngày)"),
+    ).toBeDisabled();
+    await expect(
+      adminPage.getByRole("button", { name: "Lưu thời gian lưu giữ" }),
+    ).toHaveCount(0);
+  } finally {
+    await adminCtx.close();
+  }
 });

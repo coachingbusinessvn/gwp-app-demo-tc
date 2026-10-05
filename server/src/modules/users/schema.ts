@@ -72,6 +72,15 @@ export const deactivateUserBodySchema = z
 export type DeactivateUserBody = z.infer<typeof deactivateUserBodySchema>;
 
 /**
+ * POST /users/:id/reactivate — owner/admin (same asymmetry as deactivate).
+ * No body fields: the resulting status is decided by the server (active
+ * when the account already holds a password, pending otherwise) — a
+ * caller can never pick it. Absent body ≡ {}.
+ */
+export const reactivateUserBodySchema = z.object({}).strict();
+export type ReactivateUserBody = z.infer<typeof reactivateUserBodySchema>;
+
+/**
  * POST /users/:id/credential-token — owner only (task 1.4). `purpose`
  * binds the token's lifecycle: "activate" is issuable only for pending
  * users, "reset" only for active ones; the wrong pairing is a 409.
