@@ -124,14 +124,16 @@ Mất `BOOTSTRAP_TOKEN` → tạo lại trong `.env` rồi `docker compose up -d
 
 ## 6. TLS / reverse proxy
 
-- Gói Phase 0 phục vụ HTTP trên `0.0.0.0:APP_PORT` — phù hợp LAN/QA. Triển
-  khai thật BẮT BUỘC HTTPS qua reverse proxy (nginx/Caddy/Traefik hoặc hạ
+- App phục vụ HTTP trên `0.0.0.0:APP_PORT` — chỉ dùng được trực tiếp qua
+  `http://localhost`. Mọi truy cập khác (LAN/QA/production) BẮT BUỘC HTTPS
+  qua reverse proxy (nginx/Caddy/Traefik hoặc hạ
   tầng khách có sẵn): terminate TLS tại proxy, forward tới `app:8080`.
 - Khi sau proxy: đặt `APP_ORIGIN=https://<domain>` đúng origin public, và
   `TRUST_PROXY=1` (hoặc số hop/CIDR) để `req.ip` đúng cho rate-limit.
-- Cookie refresh là `Secure` — trên `http://` chỉ localhost được browser
-  chấp nhận; truy cập LAN qua http sẽ login được nhưng refresh/logout cần
-  HTTPS (hạn chế đã biết của pilot, ghi rõ để QA không nhầm lỗi).
+- Qua `http://<IP-LAN>` app **không dùng được**: CSP
+  `upgrade-insecure-requests` khiến CSS/JS bị tải bằng https và lỗi,
+  `navigator.locks` chỉ có trong secure context (trang login báo trình duyệt
+  không hỗ trợ), và cookie `Secure` bị bỏ. Chỉ `http://localhost` là ngoại lệ.
 
 ## 7. Backup / restore
 

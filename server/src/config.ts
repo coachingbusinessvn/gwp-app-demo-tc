@@ -54,6 +54,11 @@ const REQUIRED = [
 
 const MIN_SECRET_LENGTH = 32;
 
+/** Markers of the copy-paste dummies in .env.example — those values are
+ * public, so a production boot with one of them is a forgeable deployment
+ * even though it passes the length floor. */
+const PLACEHOLDER_SECRET = /change[-_]?me|dummy/i;
+
 /**
  * Repository root = the nearest ancestor containing package.json. Works from
  * both source layout (server/src/config.ts → ../..) and the compiled layout
@@ -168,12 +173,16 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
         ["APP_KEY", appKey],
         ["BOOTSTRAP_TOKEN", bootstrapToken],
       ] as const
-    ).filter(([, v]) => v.length < MIN_SECRET_LENGTH);
+    ).flatMap(([k, v]) =>
+      v.length < MIN_SECRET_LENGTH
+        ? [`${k} < ${MIN_SECRET_LENGTH} chars`]
+        : PLACEHOLDER_SECRET.test(v)
+          ? [`${k} is a .env.example placeholder`]
+          : [],
+    );
     if (weak.length > 0)
       fail(
-        `weak secrets rejected under NODE_ENV=production: ${weak
-          .map(([k]) => `${k} < ${MIN_SECRET_LENGTH} chars`)
-          .join(", ")}`,
+        `weak secrets rejected under NODE_ENV=production: ${weak.join(", ")}`,
       );
   }
 

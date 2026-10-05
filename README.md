@@ -27,7 +27,9 @@ giờ vào audit log. XLSX dùng inline strings nên ô bắt đầu `=`/`+`/`-`
 không trở thành công thức. PDF/PNG là bản trình bày; **JSON là nguồn bảo
 toàn toàn bộ nội dung**.
 
-*Demo tĩnh gốc:* GitHub Pages: https://coachingbusinessvn.github.io/gwp-app-demo-tc/ — hoặc `python3 -m http.server 8765` rồi mở `http://localhost:8765/`.
+*Demo tĩnh gốc:* đã gỡ khỏi GitHub Pages khi app thật lên `main` — xem lại bằng `git checkout 8978129` rồi `python3 -m http.server 8765`.
+
+**Chạy nhanh (local):** `cp .env.example .env`, thay mọi giá trị `CHANGE_ME`/`dummy` bằng secret thật (`openssl rand -hex 32`), rồi `docker compose up -d --build` và mở `http://localhost:8080`. Production chỉ chạy qua HTTPS — xem `docs/operations/deployment-vn.md`.
 
 ## Luồng màn hình
 

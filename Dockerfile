@@ -28,6 +28,7 @@ COPY shared ./shared
 COPY web ./web
 COPY assets ./assets
 COPY canvas-online ./canvas-online
+COPY coaching-report ./coaching-report
 COPY index.html dashboard.html employee.html canvas.html admin.html activate.html ./
 
 # build = tsx scripts/build-public.ts (allowlisted public assets) && tsc -p
@@ -37,13 +38,17 @@ RUN npm run build \
 
 # ---------------------------------------------------------------------------
 # Runtime: non-root, NODE_ENV=production, production node_modules only.
-# postgresql-client provides pg_dump/pg_restore for ops scripts run inside
-# the container (spec §9 backup path).
+# postgresql-client-18 (from the PGDG apt repo) provides pg_dump/pg_restore
+# for ops scripts run inside the container (spec §9 backup path). It MUST
+# match the db image's major (postgres:18) — bookworm's own client is 15 and
+# pg_dump refuses to dump a newer server.
 # ---------------------------------------------------------------------------
 FROM node:24-bookworm-slim AS runtime
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends postgresql-client \
+ && apt-get install -y --no-install-recommends postgresql-common ca-certificates \
+ && /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y \
+ && apt-get install -y --no-install-recommends postgresql-client-18 \
  && rm -rf /var/lib/apt/lists/*
 
 ENV NODE_ENV=production

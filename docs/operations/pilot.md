@@ -8,7 +8,7 @@ plan Phase 2 task 2.7.
 ## 1. Điều kiện đầu vào
 
 - Stack chạy qua `compose.yaml` (xem `docs/operations/foundation.md`):
-  `docker compose up -d`, migration đã áp dụng, `GET /api/v1/health` = 200.
+  `docker compose up -d`, migration đã áp dụng, `GET /health/ready` = 200.
 - Tài khoản pilot: 1 owner, 1 manager, 1 member — tạo qua admin hoặc
   bootstrap. Member sở hữu ít nhất 1 canvas có bản đã chốt.
 - **Chặn Internet** ở firewall/proxy trước khi bắt đầu — toàn bộ luồng

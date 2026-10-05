@@ -7,11 +7,18 @@ thật, không phải SLA cam kết.
 
 ```sh
 # Cron 02:30 — ghi ra kho riêng failure domain với volume db-data
+# Chạy trong image app (có pg_dump 18 + script đã biên dịch) — host không
+# cần Node/npm. BACKUP_DATABASE_URL lấy từ .env (role gwp_maintenance).
 30 2 * * * cd /opt/gwp && \
-  MAINTENANCE_DATABASE_URL=postgres://gwp_maintenance:…@db:5432/gwp \
-  npm run ops:backup -- --output /srv/gwp-backups/gwp-$(date +\%F).dump && \
+  docker compose run --rm --no-deps -v /srv/gwp-backups:/backups \
+    -e BACKUP_DATABASE_URL="$(grep ^BACKUP_DATABASE_URL= .env | cut -d= -f2-)" \
+    app node dist/scripts/ops/backup.js --output /backups/gwp-$(date +\%F).dump && \
   ls -t /srv/gwp-backups/gwp-*.dump | tail -n +31 | xargs -r rm -f
 ```
+
+> Trên máy có source checkout + `npm ci` (dev/QA) có thể dùng
+> `npm run ops:backup -- --output …` với `BACKUP_DATABASE_URL` trỏ
+> `127.0.0.1` — script đọc `BACKUP_DATABASE_URL`, rồi `DATABASE_URL`.
 
 - Giữ **30 bản ngày**; thư mục backup trên máy/partition khác DB hoặc
   rsync sang host khác — cùng failure domain với `db-data` không tính.
@@ -64,8 +71,10 @@ vẹn, report ACL + share, giải mã envelope BYOK bằng APP_KEY, publish th�
 ```sh
 # Trên máy mới: cài bundle (deployment-vn.md §2), điền .env gồm APP_KEY
 # ring ĐÚNG version đã seal envelope.
-createdb gwp_restored
-pg_restore --exit-on-error -d gwp_restored /srv/gwp-backups/<latest>.dump
+docker compose up -d db
+docker compose cp /srv/gwp-backups/<latest>.dump db:/tmp/restore.dump
+docker compose exec db createdb -U gwp gwp_restored
+docker compose exec db pg_restore --exit-on-error -U gwp -d gwp_restored /tmp/restore.dump
 # Roles: chạy bootstrap-db-roles với password mới/đã lưu
 # Trỏ DATABASE_URL/MIGRATOR_DATABASE_URL sang DB mới → docker compose up -d
 # Smoke: login owner, mở 1 canvas đã publish, Settings → AI → test connection

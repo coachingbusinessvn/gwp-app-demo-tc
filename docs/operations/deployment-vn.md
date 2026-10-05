@@ -50,7 +50,7 @@ openssl rand -hex 32   # lặp cho JWT_SECRET, APP_KEY, BOOTSTRAP_TOKEN
 
 docker compose up -d        # dùng image đã load — không build, không pull
 docker compose ps           # app phải "healthy"
-curl -k https://localhost:8080/health/ready
+curl http://localhost:8080/health/ready   # app phục vụ HTTP; TLS ở proxy (§4)
 ```
 
 `docker compose up` chỉ build khi image **không** tồn tại — với image đã
@@ -59,9 +59,15 @@ curl -k https://localhost:8080/health/ready
 ## 3. Bootstrap owner (lần đầu)
 
 ```sh
-curl -k -X POST https://localhost:8080/api/v1/setup/bootstrap \
+curl -X POST http://localhost:8080/api/v1/setup \
   -H 'Content-Type: application/json' \
-  -d '{"token":"<BOOTSTRAP_TOKEN>","email":"owner@congty.vn","password":"<mật khẩu mạnh>"}'
+  -d '{
+    "companyName": "Công ty A",
+    "email": "owner@congty.vn",
+    "password": "<mật khẩu mạnh ≥ 12 ký tự>",
+    "bootstrapToken": "<giá trị BOOTSTRAP_TOKEN trong .env>"
+  }'
+# → 201 {userId, companyId}; setup đóng vĩnh viễn sau lần này (409 SETUP_CLOSED)
 ```
 
 Sau bootstrap xong, mở `APP_ORIGIN` trong trình duyệt nội bộ → đăng nhập.
@@ -86,8 +92,18 @@ server {
 }
 ```
 
-`APP_ORIGIN` phải là URL https công khai nội bộ; `TRUST_PROXY=loopback`
-(hoặc CIDR proxy) để app nhận đúng client IP qua X-Forwarded-For.
+`APP_ORIGIN` phải là URL https công khai nội bộ; `TRUST_PROXY=1` (một hop
+proxy) hoặc CIDR mạng bridge Docker. **Không** dùng `loopback`: qua port
+publish của Docker, container thấy IP gateway bridge (172.x.0.1) chứ không
+phải 127.0.0.1 — mọi người dùng sẽ chung một bucket rate-limit và bị 429.
+
+Khi có proxy, publish app chỉ trên loopback để client không vòng qua TLS:
+`APP_PORT=127.0.0.1:8080` trong `.env`.
+
+**HTTPS là bắt buộc** cho mọi truy cập ngoài `localhost`: qua
+`http://<IP-LAN>:8080` trình duyệt chặn CSS/JS (CSP
+`upgrade-insecure-requests`), không có `navigator.locks` (trang login báo
+trình duyệt không hỗ trợ) và bỏ cookie `Secure` — không đăng nhập được.
 
 ## 5. Local LLM (BYOK)
 

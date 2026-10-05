@@ -153,6 +153,9 @@ describe("compose bundle (spec §9)", () => {
         "TRUST_PROXY",
         "ACCESS_TOKEN_TTL_SECONDS",
         "REFRESH_TOKEN_TTL_SECONDS",
+        // Local-AI egress allowlist (Phase 3) — not a credential.
+        "AI_ALLOWED_HOSTS",
+        "AI_ALLOW_HTTP",
       ].sort(),
     );
 

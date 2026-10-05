@@ -25,10 +25,8 @@ playwright-report
 blob-report
 *.log
 
-# Demo-era sources that are not part of the shipped bundle.
-# (canvas-online/ IS shipped — it is the task-2.5 editor page served at the
-# pinned /canvas-online/ route; build-public.ts copies it via ALLOWLIST_DIRS.)
-coaching-report
+# canvas-online/ and coaching-report/ ARE shipped — the task-2.5 editor and
+# task-4.4 report pages; build-public.ts copies them via ALLOWLIST_DIRS.
 
 .DS_Store
 **/.DS_Store

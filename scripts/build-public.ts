@@ -82,7 +82,11 @@ export function buildPublic(): string[] {
   }
   for (const dir of ALLOWLIST_DIRS) {
     const src = path.join(repoRoot, dir);
-    if (!existsSync(src)) continue; // fonts dir optional until bundled
+    // A missing allowlisted dir is a broken build (e.g. a Docker context
+    // that forgot to COPY it) — fail loudly instead of shipping without it.
+    if (!existsSync(src) || !statSync(src).isDirectory()) {
+      throw new Error(`build-public: allowlisted directory missing: ${dir}`);
+    }
     for (const entry of readdirSync(src)) {
       const rel = `${dir}/${entry}`;
       const from = path.join(src, entry);

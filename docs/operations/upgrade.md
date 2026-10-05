@@ -9,7 +9,11 @@ dữ liệu — không downgrade mù.
 
 ```sh
 # Backup mới + kiểm chứng ngay
-npm run ops:backup -- --output /srv/gwp-backups/pre-upgrade.dump
+# (lệnh docker compose run … backup.js như recovery.md §1, --output
+#  /backups/pre-upgrade.dump; hoặc npm run ops:backup trên máy có source)
+docker compose run --rm --no-deps -v /srv/gwp-backups:/backups \
+  -e BACKUP_DATABASE_URL="$(grep ^BACKUP_DATABASE_URL= .env | cut -d= -f2-)" \
+  app node dist/scripts/ops/backup.js --output /backups/pre-upgrade.dump
 npm run ops:restore-test -- --backup /srv/gwp-backups/pre-upgrade.dump
 #   → phải in "recreated and verified" và KHÔNG có cảnh báo migration lạ
 ```

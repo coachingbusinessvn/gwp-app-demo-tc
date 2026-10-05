@@ -126,6 +126,8 @@ services:
       DEMO_MODE: ${DEMO_MODE:-production}
       APP_ORIGIN: ${APP_ORIGIN}
       TRUST_PROXY: ${TRUST_PROXY:-false}
+      AI_ALLOWED_HOSTS: ${AI_ALLOWED_HOSTS:-}
+      AI_ALLOW_HTTP: ${AI_ALLOW_HTTP:-false}
       ACCESS_TOKEN_TTL_SECONDS: ${ACCESS_TOKEN_TTL_SECONDS:-}
       REFRESH_TOKEN_TTL_SECONDS: ${REFRESH_TOKEN_TTL_SECONDS:-}
     # Published on ALL interfaces — LAN access is an explicit requirement.
