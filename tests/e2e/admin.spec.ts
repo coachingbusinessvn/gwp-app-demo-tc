@@ -98,7 +98,7 @@ test("vòng đời tài khoản: admin tạo pending → owner phát mã → act
   // Picking a department rebuilds the team <select>'s options in place —
   // the label for/select id wiring must survive, or getByLabel("Tổ")
   // would dangle.
-  await page.getByLabel("Phòng ban").selectOption({ index: 1 });
+  await page.getByLabel("Phòng ban", { exact: true }).selectOption({ index: 1 });
   await expect(page.getByLabel("Tổ", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Lưu", exact: true }).click();
   await expect(page.getByText(email, { exact: true })).toBeVisible();

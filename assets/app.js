@@ -513,6 +513,9 @@ async function init() {
   renderAppHeader(identity, {
     current: page === "canvas" ? "canvas" : "dashboard",
   });
+  // Footer before branding: applyBranding rewrites every [data-brand-name]
+  // present when it resolves, so the footer must already exist.
+  renderAppFooter();
   loadBranding().then(applyBranding);
 
   if (page === "dashboard") await initDashboard(me);
@@ -543,8 +546,6 @@ async function init() {
         '<a class="btn ghost" href="dashboard.html">Về bảng theo dõi</a></div></div>';
     }
   }
-
-  renderAppFooter();
 }
 
 init();
