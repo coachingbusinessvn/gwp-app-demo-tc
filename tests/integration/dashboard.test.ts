@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { CanvasBody } from "../../shared/canvas/schema.js";
+import { buildSeries } from "../../shared/canvas/measurement.js";
 import { createDashboardService } from "../../server/src/modules/dashboard/service.js";
 import { createPolicy } from "../../server/src/modules/authorization/policy.js";
 import { seedDemo } from "../../server/src/db/seed-demo.js";
@@ -565,7 +566,8 @@ describe("seedDemo canvases (task 2.6)", () => {
         expect(owners).toContain(DEMO_IDENTITIES[demoId].name);
       }
 
-      // tc1 legacy had 1 full + 2 brief versions → exactly 1 version row.
+      // tc1 legacy had 1 full + 2 brief versions → 1 imported snapshot,
+      // then the v3 weekly check-in version on top.
       const tc1 = canvases.find(
         (c: { owner_name: string }) =>
           c.owner_name === DEMO_IDENTITIES.p7.name,
@@ -574,25 +576,37 @@ describe("seedDemo canvases (task 2.6)", () => {
         .db("canvas_version")
         .where({ canvas_id: tc1.id })
         .orderBy("version_no");
-      expect(versions).toHaveLength(1);
+      expect(versions).toHaveLength(2);
       const prov = versions[0].provenance as Record<string, unknown>;
       expect(prov.source).toBe("demo-seed");
       // The skipped briefs are recorded — not silently dropped, not faked.
       expect(prov.skippedBriefs).toEqual(expect.arrayContaining(["v1", "v2"]));
+      expect(versions[1].provenance).toMatchObject({
+        source: "demo-seed",
+        kind: "weekly-checkins",
+      });
 
-      // current_version_id points at the imported snapshot.
+      // current_version_id points at the check-in version, whose trend
+      // derives from observed measurements: 3 layers × weeks T31–T33.
       const row = await f
         .db("canvas")
         .where({ id: tc1.id })
         .first();
-      expect(row.current_version_id).toBe(versions[0].id);
+      expect(row.current_version_id).toBe(versions[1].id);
+      const series = buildSeries(versions[1].body as CanvasBody);
+      expect(series.map((s) => s.points[0].layer).sort()).toEqual([
+        "BEHAVIOR",
+        "OUTPUT",
+        "RESULT",
+      ]);
+      for (const s of series) expect(s.points).toHaveLength(3);
 
       // Re-seed is a no-op — same version count, no duplicates.
       await seedDemo(f.db, "demo");
       const again = await f
         .db("canvas_version")
         .where({ canvas_id: tc1.id });
-      expect(again).toHaveLength(1);
+      expect(again).toHaveLength(2);
     } finally {
       await f.close();
     }

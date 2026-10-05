@@ -196,6 +196,16 @@ const LAYER_COLOR = {
   OUTPUT: "#B98A48",
   RESULT: "#2F7A5B",
 };
+// Human legend label — the metricId is an opaque UUID, meaningless to a
+// manager; revision stays in the legend only when it is not v1.
+const LAYER_NAME = {
+  BEHAVIOR: "Hành vi (BEHAVIOR)",
+  OUTPUT: "Đầu ra (OUTPUT)",
+  RESULT: "Kết quả (RESULT)",
+};
+const seriesName = (s) =>
+  (LAYER_NAME[s.points[0].layer] || s.points[0].layer) +
+  (s.definitionRevision > 1 ? " · định nghĩa v" + s.definitionRevision : "");
 
 function chartHTML(canvas) {
   const series = canvas.series || [];
@@ -212,10 +222,13 @@ function chartHTML(canvas) {
       '<p class="note">Chưa đủ mốc đo để vẽ xu hướng — cần ít nhất 2 ngày đo khác nhau.</p>'
     );
   }
-  const W = 680, H = 250, L = 44, R = 14, T = 16, B = 34;
+  // R leaves room for the centred last date label; the y domain matches
+  // pct()'s clamp (-10…115) so over-target points stay inside the plot.
+  const W = 680, H = 250, L = 44, R = 34, T = 16, B = 34;
   const iw = W - L - R, ih = H - T - B;
+  const YMIN = -10, YMAX = 115;
   const x = (d) => L + (dates.indexOf(d) * iw) / (dates.length - 1);
-  const y = (v) => T + ih - (v / 100) * ih;
+  const y = (v) => T + ih - ((v - YMIN) / (YMAX - YMIN)) * ih;
   let g = "";
   [0, 25, 50, 75, 100].forEach((p) => {
     g += '<line class="grid" x1="' + L + '" y1="' + y(p) + '" x2="' + (W - R) + '" y2="' + y(p) + '"/>' +
@@ -246,7 +259,7 @@ function chartHTML(canvas) {
       d += (started ? " L" : "M") + x(p.date) + " " + y(v);
       started = true;
       dots += '<circle class="dot" cx="' + x(p.date) + '" cy="' + y(v) + '" r="4" fill="' + color + '"><title>' +
-        esc(s.metricId) + " — " + esc(dmy(p.date)) + ": " + p.value + esc(s.unit) + "</title></circle>";
+        esc(seriesName(s)) + " — " + esc(dmy(p.date)) + ": " + p.value + " " + esc(s.unit) + "</title></circle>";
     });
     if (d) g += '<path class="ln" d="' + d + '" stroke="' + color + '"' + dashFor[i] + "/>" + dots;
   });
@@ -255,7 +268,7 @@ function chartHTML(canvas) {
       (s, i) =>
         '<span><i style="background:' + (LAYER_COLOR[s.points[0].layer] || "#5A7185") +
         (dashFor[i] ? ";opacity:.55" : "") + '"></i>' +
-        esc(s.metricId) + " — v" + s.definitionRevision + " · " + s.baseline + "→" + s.target +
+        esc(seriesName(s)) + " · " + s.baseline + "→" + s.target +
         (s.unit ? " " + esc(s.unit) : "") +
         (s.progressPct != null ? " — " + Math.round(s.progressPct) + "%" : "") + "</span>",
     )

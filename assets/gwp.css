@@ -137,6 +137,8 @@ h3.sub{margin:18px 0 6px;font-size:11px;font-weight:600;color:var(--gp-gold-600)
   border:1px solid var(--gp-line-dark);border-radius:var(--gp-radius-sm);padding:13px 16px;cursor:pointer;
   text-decoration:none;color:inherit;transition:border-color .2s,box-shadow .2s}
 .week:hover{border-color:var(--gp-gold-500);box-shadow:0 6px 18px rgba(7,18,31,.07)}
+/* Renderers emit <span>s (valid inside <a>); stack them like the demo's divs. */
+.week .wk,.week .wdate,.week .wt,.week .wch{display:block}
 .week .wk{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--gp-gold-600)}
 .week .wdate{font-size:12px;color:var(--gp-ink-soft);margin-top:2px}
 .week .wt{font-weight:600;font-size:14px;color:var(--gp-navy-950)}

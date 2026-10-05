@@ -12,22 +12,28 @@ import {
   DEMO_PASSWORD,
   type DemoId,
 } from "./demo-identities.js";
-import { seedDemoCanvases, type CanvasSeedReport } from "./seed-canvas.js";
+import {
+  seedDemoCanvases,
+  seedDemoCheckins,
+  type CanvasSeedReport,
+} from "./seed-canvas.js";
 
 /**
- * Demo seed — identities (v1) + demo canvases (v2, task 2.6).
+ * Demo seed — identities (v1) + demo canvases (v2, task 2.6) + weekly
+ * check-in measurements (v3).
  *
  * Spec §8: demo mode is an immutable property of the database, so this
  * refuses unless deployment_state.mode === 'demo' AND first-run setup has
  * completed. Idempotent via deployment_state.seed_version — each phase
  * runs only when the stored version is below it, so a v1 database picks
- * up just the canvas phase and a v2 database is a no-op. Runs as the
+ * up the canvas and check-in phases, a v2 database just the check-ins, and a
+ * v3 database is a no-op. Runs as the
  * runtime credential (no DDL needed).
  *
  * All demo users share the published demo password hashed once — the
  * credential is public by design, so per-user salts would only burn CPU.
  */
-export const DEMO_SEED_VERSION = 2;
+export const DEMO_SEED_VERSION = 3;
 
 export async function seedDemo(
   db: Knex,
@@ -113,6 +119,12 @@ export async function seedDemo(
     let canvasReport: CanvasSeedReport | null = null;
     if (state.seed_version < 2) {
       canvasReport = await seedDemoCanvases(tx, companyId);
+    }
+
+    // v3 — weekly check-in measurements so the 3-layer trend renders
+    // from published evidence (existing v2 databases pick this up too).
+    if (state.seed_version < 3) {
+      await seedDemoCheckins(tx, companyId);
     }
 
     await appendAudit(tx, {
