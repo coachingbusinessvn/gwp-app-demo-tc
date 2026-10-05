@@ -339,4 +339,79 @@ test.describe("coaching report workflow (task 4.4)", () => {
       await llm.close();
     }
   });
+
+  test("a session without a report survives a reload and can be resumed", async ({
+    page,
+  }) => {
+    await loginAs(page, "manager");
+    await page.goto("/coaching-report/");
+    await expect(page.getByTestId("session-card")).toBeVisible();
+    await page
+      .getByLabel("Người được coach")
+      .selectOption({ label: "Fixture Member — member@example.test" });
+    await page.getByRole("button", { name: "Tạo phiên mới" }).click();
+    await expect(page.getByTestId("session-status")).toContainText(
+      "Phiên đã tạo",
+    );
+    const picker = page.getByTestId("session-existing");
+    const sessionId = await picker.inputValue();
+    expect(sessionId).toMatch(/^[0-9a-f-]{36}$/);
+
+    // GET /coaching-sessions brings it back after a reload — no
+    // localStorage involved.
+    await page.reload();
+    const option = picker.locator(`option[value="${sessionId}"]`);
+    await expect(option).toHaveCount(1, { timeout: 20_000 });
+    await expect(option).toContainText("chưa có báo cáo");
+    await picker.selectOption(sessionId);
+    await expect(page.getByTestId("session-current")).toContainText(
+      "Fixture Member",
+    );
+    // The coachee never sees the coach's session list.
+    const ctx = await page.context().browser()!.newContext({
+      baseURL: APP_ORIGIN,
+    });
+    try {
+      const member = await ctx.newPage();
+      await loginAs(member, "member");
+      const list = await apiAsPage(member, "GET", "/coaching-sessions?limit=100");
+      expect(list.status).toBe(200);
+      const ids = (list.body as { items: { id: string }[] }).items.map(
+        (s) => s.id,
+      );
+      expect(ids).not.toContain(sessionId);
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  test("grader explains an unconfigured AI before consent — no raw error code", async ({
+    page,
+  }) => {
+    // Clear the key from a separate owner context (shared e2e DB — later
+    // tests re-run configureAi themselves).
+    const ctx = await page.context().browser()!.newContext({
+      baseURL: APP_ORIGIN,
+    });
+    try {
+      const owner = await ctx.newPage();
+      await loginAs(owner, "owner");
+      await apiAsPage(owner, "DELETE", "/settings/ai/key");
+    } finally {
+      await ctx.close();
+    }
+
+    await loginAs(page, "manager");
+    await page.goto("/coaching-report/");
+    const notice = page
+      .getByTestId("grader-card")
+      .getByTestId("ai-unavailable");
+    await expect(notice).toBeVisible({ timeout: 20_000 });
+    await expect(notice).toContainText("chưa được cấu hình");
+    await expect(notice).not.toContainText("AI_NOT_CONFIGURED");
+    await expect(
+      page.getByLabel("Đồng ý xử lý nội dung bằng AI nội bộ"),
+    ).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Chấm phiên" })).toBeDisabled();
+  });
 });

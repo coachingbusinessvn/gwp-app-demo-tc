@@ -77,3 +77,16 @@ export const transferBodySchema = z
   })
   .strict();
 export type TransferBody = z.infer<typeof transferBodySchema>;
+
+/**
+ * PATCH /canvases/:id — rename the canvas record. Only `name` is writable
+ * here: owner, status and version pointers have their own audited
+ * lifecycle routes, and the strict envelope rejects any attempt to smuggle
+ * them in.
+ */
+export const renameBodySchema = z
+  .object({
+    name: nameField,
+  })
+  .strict();
+export type RenameBody = z.infer<typeof renameBodySchema>;

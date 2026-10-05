@@ -12,7 +12,7 @@
  * innerHTML (the legacy pattern) or textContent; user text can never
  * execute as markup — verified by the e2e XSS test.
  */
-import { apiFetch } from "../api.js";
+import { apiFetch, apiFetchAll } from "../api.js";
 import { requireAuth } from "../auth.js";
 import {
   ENUMS,
@@ -42,6 +42,7 @@ import { mountAiPanel } from "../ai/panel.js";
 import { diffBodies, renderDiff } from "./diff.js";
 import { exportDraftPreview } from "./export.js";
 import { createHistoryPanel } from "./history.js";
+import { mountCanvasManage } from "./manage.js";
 import { GWP_LOGO } from "./logo.js";
 
 const LEGACY_STORE_KEY = "pac-canvas-online-v3";
@@ -57,6 +58,7 @@ let saveState = "idle"; // idle|dirty|saving|saved|error|conflict
 let serverSnapshot = undefined; // server draft stashed at conflict time
 let companyUsers = []; // [{id,name}] for assignee datalist resolution
 let historyPanel = null;
+let readOnly = false; // archived canvas — every write path is closed
 
 const STATE_LABEL = {
   idle: "Bản nháp — chỉnh sửa sẽ tự lưu",
@@ -181,6 +183,7 @@ const autosave = createAutosave({
 });
 
 function markDirty() {
+  if (readOnly) return; // archived: the server would 409 every save
   autosave.schedule(() => state);
 }
 
@@ -973,10 +976,9 @@ function bindUnload() {
 
 async function loadCompanyUsers() {
   try {
-    const res = await apiFetch("/users?limit=100");
-    if (!res.ok) return;
-    const page = await res.json();
-    companyUsers = (page.items || [])
+    // Every directory page — a one-page read silently dropped users >100.
+    const all = await apiFetchAll("/users?limit=100");
+    companyUsers = all
       .filter((u) => u.status === "active")
       .map((u) => ({ id: u.id, name: u.name }));
     const dl = $("userList");
@@ -1027,16 +1029,12 @@ async function showCreate(me) {
   selfOpt.textContent = `${me.name} (tôi)`;
   sel.append(selfOpt);
   try {
-    const res = await apiFetch("/users?limit=100");
-    if (res.ok) {
-      const page = await res.json();
-      for (const u of page.items || []) {
-        if (u.id === me.id || u.status !== "active") continue;
-        const o = document.createElement("option");
-        o.value = u.id;
-        o.textContent = u.name;
-        sel.append(o);
-      }
+    for (const u of await apiFetchAll("/users?limit=100")) {
+      if (u.id === me.id || u.status !== "active") continue;
+      const o = document.createElement("option");
+      o.value = u.id;
+      o.textContent = u.name;
+      sel.append(o);
     }
   } catch {
     /* owner list is best-effort — self is always a valid default */
@@ -1099,8 +1097,14 @@ async function init() {
     return;
   }
   const detail = await res.json();
+  const archived = detail.status === "archived";
 
   let draft = detail.draft;
+  if (!draft && archived) {
+    // Archived: no draft can be opened (409) — show the head version
+    // read-only, or a blank form when nothing was ever published.
+    draft = await readOnlyHead(detail);
+  }
   if (!draft) {
     // No live draft (e.g. just published elsewhere) — open one; it seeds
     // from the head version or a blank body.
@@ -1164,6 +1168,20 @@ async function init() {
     },
   });
 
+  // Lifecycle card: rename / transfer owner (owner role) / archive.
+  const manage = mountCanvasManage({
+    panel: $("managePanel"),
+    identity,
+    detail,
+    beforeArchive: async () => {
+      // Settle pending edits first — archive closes every write path.
+      if (isDirtyish()) await autosave.flush(() => state);
+      return saveState !== "error" && saveState !== "conflict";
+    },
+    onArchived: () => enterReadOnly(),
+  });
+  $("btnManage").addEventListener("click", () => manage.toggle());
+
   bindToolbar();
   bindConflictUI();
   bindImportUI();
@@ -1172,6 +1190,50 @@ async function init() {
   $("steps").addEventListener("change", onTableInput);
   $("steps").addEventListener("click", onTableClick);
   loadCompanyUsers();
+  if (archived) enterReadOnly();
+}
+
+/**
+ * Read-only stand-in for the draft of an ARCHIVED canvas that has none:
+ * the head version's body (or blank). revision stays null — nothing is
+ * ever saved from this view.
+ */
+async function readOnlyHead(detail) {
+  let body = blankBody();
+  if (detail.currentVersion) {
+    const v = await apiFetch(
+      `/canvases/${detail.id}/versions/${detail.currentVersion.id}`,
+    );
+    if (v.ok) body = (await v.json()).body;
+  }
+  return { revision: null, baseVersionId: detail.currentVersionId, body };
+}
+
+/**
+ * Archived canvas → read-only editor. The server already refuses every
+ * write with 409 CANVAS_ARCHIVED; this makes that visible up front:
+ * autosave frozen, form controls disabled, write actions hidden, AI card
+ * hidden. History, preview and export stay available.
+ */
+function enterReadOnly() {
+  readOnly = true;
+  autosave.freeze();
+  $("archivedBanner").hidden = false;
+  for (const id of ["btnClear", "btnPublish", "btnImport"]) {
+    const b = $(id);
+    if (b) b.hidden = true;
+  }
+  $("importWrap")?.classList.remove("show");
+  $("aiCard").hidden = true;
+  for (const root of [$("metaCard"), $("steps")]) {
+    for (const c of root.querySelectorAll("input, textarea, select, button")) {
+      c.disabled = true;
+    }
+  }
+  const label = $("saveState");
+  label.textContent = "Đã lưu trữ — chỉ xem";
+  label.dataset.state = "archived";
+  $("saveRetry").hidden = true;
 }
 
 init();

@@ -29,6 +29,8 @@ async function init() {
     listEl: $("reportList"),
     emptyEl: $("reportListEmpty"),
     onRegrade: (sessionId, meta) => session.selectSession(sessionId, meta),
+    // Label which of the user's sessions already carry a report.
+    onListed: (items) => session.markReported(items.map((r) => r.sessionId)),
   });
 
   const grader = mountGrader($("graderCard"), {

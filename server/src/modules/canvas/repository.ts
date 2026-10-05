@@ -373,3 +373,15 @@ export async function transferCanvasOwner(
     .where({ id: canvasId, company_id: companyId })
     .update({ owner_user_id: newOwnerId });
 }
+
+/** Rename the canvas record — display name only, never the draft body. */
+export async function renameCanvasRow(
+  tx: Knex.Transaction,
+  companyId: string,
+  canvasId: string,
+  name: string,
+): Promise<void> {
+  await tx("canvas")
+    .where({ id: canvasId, company_id: companyId })
+    .update({ name });
+}

@@ -7,8 +7,12 @@
  *
  * - The consent checkbox ARMS one run and resets the moment the run ends
  *   (done/error/cancel) — AI use is a deliberate per-run decision.
- * - Error surfaces show the server's stable code + request id, never a
- *   provider detail or credential.
+ * - AI availability (GET /ai/status) is checked on mount: not configured /
+ *   switched off is explained up front and the consent box stays locked,
+ *   so nobody consents to a run that cannot happen (spec §7.1).
+ * - Error surfaces show friendly Vietnamese guidance with the server's
+ *   stable code + request id as a suffix, never a provider detail or
+ *   credential.
  * - Apply sends only {expectedRevision, acceptedWarnings} — generated
  *   content is never client-supplied; the server applies its own preview.
  * - A successful apply calls back into the editor which adopts the
@@ -17,6 +21,12 @@
 import { apiFetch } from "../api.js";
 import { readEvents } from "./stream.js";
 import { renderAiPreview } from "./preview.js";
+import {
+  friendlyError,
+  mountAiAvailability,
+  readFriendlyError,
+  runStatusLabel,
+} from "./status.js";
 
 function el(tag, cls, text) {
   const n = document.createElement(tag);
@@ -25,13 +35,12 @@ function el(tag, cls, text) {
   return n;
 }
 
-async function readError(res) {
-  const data = await res.json().catch(() => null);
-  const code = typeof data?.code === "string" ? data.code : "REQUEST_FAILED";
-  const req =
-    typeof data?.requestId === "string" ? ` · req ${data.requestId}` : "";
-  return `${code}${req}`;
-}
+/** Codes that mean "AI itself is unusable" — re-check the banner. */
+const AVAILABILITY_CODES = new Set([
+  "AI_NOT_CONFIGURED",
+  "AI_DISABLED",
+  "AI_KEY_DECRYPT_FAILED",
+]);
 
 /**
  * @param host the <section class="card"> container in canvas-online
@@ -167,6 +176,18 @@ export function mountAiPanel(host, {
   let currentPreview = null; // {value, base}
   let cancelRequested = false;
 
+  // Up-front availability: an unusable AI locks consent BEFORE anyone
+  // ticks it. Notes stay editable — only the run is unavailable.
+  const availability = mountAiAvailability(host, {
+    before: grid,
+    onChange: (available) => {
+      consent.disabled = !available;
+      if (!available) consent.checked = false;
+      runBtn.disabled = !available || !consent.checked || activeAbort !== null;
+    },
+  });
+  void availability.check();
+
   function resetConsent() {
     consent.checked = false;
     runBtn.disabled = true;
@@ -184,11 +205,11 @@ export function mountAiPanel(host, {
   async function showPreview(runId) {
     const res = await apiFetch(`/ai/runs/${runId}/preview`);
     if (res.status === 410) {
-      status.textContent = "Preview đã hết hạn — chạy lại.";
+      status.textContent = friendlyError("PREVIEW_EXPIRED");
       return;
     }
     if (!res.ok) {
-      status.textContent = `Không đọc được preview: ${await readError(res)}`;
+      status.textContent = `Không đọc được preview: ${(await readFriendlyError(res)).message}`;
       return;
     }
     const body = await res.json();
@@ -210,7 +231,7 @@ export function mountAiPanel(host, {
       }),
     });
     if (!res.ok) {
-      status.textContent = `Không áp dụng được: ${await readError(res)}`;
+      status.textContent = `Không áp dụng được: ${(await readFriendlyError(res)).message}`;
       return;
     }
     const draft = await res.json();
@@ -247,8 +268,11 @@ export function mountAiPanel(host, {
       }),
     });
     if (!start.ok) {
-      status.textContent = `Không chạy được: ${await readError(start)}`;
+      const err = await readFriendlyError(start);
+      status.textContent = `Không chạy được: ${err.message}`;
       resetConsent();
+      // Configuration changed since the page loaded — refresh the banner.
+      if (AVAILABILITY_CODES.has(err.code)) void availability.check();
       return;
     }
     const { runId } = await start.json();
@@ -260,7 +284,7 @@ export function mountAiPanel(host, {
 
     const ev = await apiFetch(`/ai/runs/${runId}/events`);
     if (!ev.ok || !ev.body) {
-      status.textContent = `Không theo dõi được run: ${await readError(ev)}`;
+      status.textContent = `Không theo dõi được run: ${(await readFriendlyError(ev)).message}`;
       setRunning(false);
       resetConsent();
       return;
@@ -275,14 +299,14 @@ export function mountAiPanel(host, {
             streamBox.append(document.createTextNode(e.text));
             streamBox.scrollTop = streamBox.scrollHeight;
           } else if (e.type === "status" && typeof e.status === "string") {
-            status.textContent = `Trạng thái: ${e.status}`;
+            status.textContent = `Trạng thái: ${runStatusLabel(e.status)}`;
           } else if (e.type === "done") {
             terminal = true;
             status.textContent = "Hoàn thành — xem đề xuất bên dưới.";
             void showPreview(runId);
           } else if (e.type === "error") {
             terminal = true;
-            status.textContent = `Run lỗi: ${e.code ?? "AI_INTERNAL"}`;
+            status.textContent = `Run lỗi: ${friendlyError(e.code ?? "AI_INTERNAL")} (${e.code ?? "AI_INTERNAL"})`;
           }
         },
         activeAbort.signal,
@@ -310,7 +334,7 @@ export function mountAiPanel(host, {
         } else if (r.status === "cancelled") {
           status.textContent = "Đã hủy — không có đề xuất nào được lưu.";
         } else {
-          status.textContent = `Trạng thái: ${r.status}`;
+          status.textContent = `Trạng thái: ${runStatusLabel(r.status)}`;
         }
       }
     }

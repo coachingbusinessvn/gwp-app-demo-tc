@@ -11,13 +11,14 @@
  *   else the select is locked to self so impersonation is impossible in
  *   the UI (the server still enforces).
  * - The coachee list is the company directory; the server enforces the
- *   manager/owner write gate — the UI just shows the error code.
- * - Sessions already carrying reports (from the report list) and sessions
- *   created in this page view are offered in a picklist — sessions are
- *   never stored in localStorage; a reload simply means creating or
- *   picking again.
+ *   manager/owner write gate — the UI shows a friendly explanation.
+ * - The picklist is GET /coaching-sessions (every page): the sessions the
+ *   server lets this user see — owner: the company; anyone else: sessions
+ *   they coach or created. A session without a report therefore survives
+ *   a reload and can be resumed. Sessions are never kept in localStorage.
  */
-import { apiFetch } from "../api.js";
+import { apiFetch, apiFetchAll } from "../api.js";
+import { readFriendlyError } from "../ai/status.js";
 
 function el(tag, cls, text) {
   const n = document.createElement(tag);
@@ -26,16 +27,12 @@ function el(tag, cls, text) {
   return n;
 }
 
-async function readError(res) {
-  const data = await res.json().catch(() => null);
-  const code = typeof data?.code === "string" ? data.code : "REQUEST_FAILED";
-  const req =
-    typeof data?.requestId === "string" ? ` · req ${data.requestId}` : "";
-  return `${code}${req}`;
-}
-
 function fmtUser(u) {
   return `${u.name} — ${u.email}`;
+}
+
+function fmtWhen(iso) {
+  return String(iso ?? "").slice(0, 16).replace("T", " ");
 }
 
 /**
@@ -95,7 +92,8 @@ export function mountSession(host, { identity, onSession }) {
   /* ---- existing-session picklist ---- */
   const existingSel = document.createElement("select");
   existingSel.id = "sessionExisting";
-  const existingLabel = el("label", null, "Phiên đã có báo cáo");
+  existingSel.dataset.testid = "session-existing";
+  const existingLabel = el("label", null, "Tiếp tục một phiên đã có");
   existingLabel.setAttribute("for", "sessionExisting");
   const existingWrap = el("div");
   existingWrap.append(existingLabel, existingSel);
@@ -105,45 +103,61 @@ export function mountSession(host, { identity, onSession }) {
 
   host.append(grid, dateLabel, dateInput, createBtn, status, existingWrap, currentNote);
 
-  /** In-memory session registry — ids → {id, coachUserId, coacheeUserId, label}. */
-  const sessions = new Map();
+  /**
+   * In-memory session registry — id → {id, coachUserId, coacheeUserId,
+   * occurredAt}. Map insertion order is the display order (newest first
+   * from the server; sessions created here are re-inserted at the top).
+   */
+  let sessions = new Map();
+  /** Session ids that already carry at least one visible report. */
+  let reported = new Set();
   let currentId = null;
-  let users = [];
+  let directory = []; // every user (names for historical sessions)
+  let users = []; // active users (pickers)
   let canvases = [];
 
   function userName(id) {
-    const u = users.find((x) => x.id === id);
+    const u = directory.find((x) => x.id === id);
     return u ? u.name : id.slice(0, 8);
   }
 
   function refreshCurrent() {
     const s = currentId ? sessions.get(currentId) : null;
     currentNote.textContent = s
-      ? `Phiên đang chọn: coach ${userName(s.coachUserId)} → ${userName(s.coacheeUserId)} · ${String(s.occurredAt ?? "").slice(0, 16).replace("T", " ")}`
-      : "Chưa chọn phiên — tạo phiên mới hoặc mở một báo cáo từ danh sách.";
+      ? `Phiên đang chọn: coach ${userName(s.coachUserId)} → ${userName(s.coacheeUserId)} · ${fmtWhen(s.occurredAt)}`
+      : "Chưa chọn phiên — tạo phiên mới hoặc chọn một phiên đã có.";
     currentNote.style.display = currentId ? "" : "none";
+  }
+
+  function sessionLabel(s) {
+    const tag = reported.has(s.id) ? "đã có báo cáo" : "chưa có báo cáo";
+    return `${userName(s.coacheeUserId)} · ${fmtWhen(s.occurredAt)} · coach ${userName(s.coachUserId)} · ${tag}`;
   }
 
   function refreshExisting() {
     existingSel.replaceChildren(
       Object.assign(el("option"), {
         value: "",
-        textContent: "— chọn phiên đã có báo cáo —",
+        textContent:
+          sessions.size > 0
+            ? `— chọn phiên (${sessions.size}) —`
+            : "— chưa có phiên nào —",
       }),
       ...[...sessions.values()].map((s) =>
         Object.assign(el("option"), {
           value: s.id,
-          textContent: `${userName(s.coacheeUserId)} · ${String(s.occurredAt ?? "").slice(0, 10)} · coach ${userName(s.coachUserId)}`,
+          textContent: sessionLabel(s),
         }),
       ),
     );
+    existingSel.disabled = sessions.size === 0;
     if (currentId) existingSel.value = currentId;
   }
 
   /**
    * Select a session as the grading target. `meta` (optional) registers a
-   * session seen only as a report-list row — the reports API carries no
-   * occurredAt, so callers pass their best-known label fields.
+   * session seen only as a report-list row (e.g. a report shared with a
+   * user who is neither coach nor creator — not in their session list).
    */
   function selectSession(id, meta) {
     if (!sessions.has(id)) {
@@ -161,48 +175,81 @@ export function mountSession(host, { identity, onSession }) {
   });
 
   createBtn.addEventListener("click", async () => {
+    if (!coacheeSel.value) {
+      status.textContent = "Chọn người được coach trước khi tạo phiên.";
+      return;
+    }
     status.textContent = "Đang tạo phiên…";
+    createBtn.disabled = true;
     const payload = {
       coachUserId: coachSel.value,
       coacheeUserId: coacheeSel.value,
       occurredAt: new Date(dateInput.value).toISOString(),
     };
     if (canvasSel.value) payload.canvasId = canvasSel.value;
-    const res = await apiFetch("/coaching-sessions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) {
-      status.textContent = `Không tạo được phiên: ${await readError(res)}`;
-      return;
+    try {
+      const res = await apiFetch("/coaching-sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        // 404 here is the server's uniform denial: the coachee is not in
+        // the actor's current subtree (or the canvas is not readable).
+        const err = await readFriendlyError(res);
+        status.textContent =
+          res.status === 404
+            ? "Không tạo được phiên: bạn chỉ tạo được phiên cho người mình đang quản lý (và chỉ liên kết canvas mình xem được)."
+            : `Không tạo được phiên: ${err.message}`;
+        return;
+      }
+      const { id } = await res.json();
+      // Newest first — put the fresh session at the top of the picklist.
+      sessions = new Map([
+        [
+          id,
+          {
+            id,
+            coachUserId: payload.coachUserId,
+            coacheeUserId: payload.coacheeUserId,
+            occurredAt: payload.occurredAt,
+          },
+        ],
+        ...sessions,
+      ]);
+      selectSession(id);
+      status.textContent = "Phiên đã tạo — sẵn sàng chấm.";
+    } catch {
+      status.textContent = "Mất kết nối máy chủ — thử lại sau.";
+    } finally {
+      createBtn.disabled = false;
     }
-    const { id } = await res.json();
-    sessions.set(id, {
-      id,
-      coachUserId: payload.coachUserId,
-      coacheeUserId: payload.coacheeUserId,
-      occurredAt: payload.occurredAt,
-    });
-    selectSession(id);
-    status.textContent = "Phiên đã tạo — sẵn sàng chấm.";
   });
 
-  /** Load the pickers. Resolves when directory + canvases are in. */
+  /** Load directory, canvases and the user's sessions (every page). */
   const ready = (async () => {
-    const [usersRes, canvasRes] = await Promise.all([
-      apiFetch("/users?limit=100"),
-      apiFetch("/canvases?limit=100"),
+    const [usersR, canvasR, sessionsR] = await Promise.allSettled([
+      apiFetchAll("/users?limit=100"),
+      apiFetchAll("/canvases?limit=100"),
+      apiFetchAll("/coaching-sessions?limit=100"),
     ]);
-    if (usersRes.ok) {
-      users = (await usersRes.json()).items.filter(
-        (u) => u.status === "active",
-      );
+    if (usersR.status === "fulfilled") {
+      directory = usersR.value;
+      users = directory.filter((u) => u.status === "active");
+    } else {
+      status.textContent =
+        "Không tải được danh sách người dùng — thử tải lại trang.";
     }
-    if (canvasRes.ok) {
-      canvases = (await canvasRes.json()).items.filter(
-        (c) => c.status === "active",
-      );
+    if (canvasR.status === "fulfilled") {
+      canvases = canvasR.value.filter((c) => c.status === "active");
+    }
+    if (sessionsR.status === "fulfilled") {
+      for (const s of sessionsR.value) {
+        if (!sessions.has(s.id)) sessions.set(s.id, s);
+      }
+    } else {
+      status.textContent =
+        "Không tải được danh sách phiên coaching — thử tải lại trang.";
     }
 
     coachSel.replaceChildren(
@@ -232,8 +279,9 @@ export function mountSession(host, { identity, onSession }) {
       ),
     );
     refreshCurrent();
+    refreshExisting();
   })().catch(() => {
-    status.textContent = "Không tải được danh sách người dùng — thử tải lại trang.";
+    status.textContent = "Không tải được dữ liệu phiên — thử tải lại trang.";
   });
 
   return {
@@ -248,6 +296,11 @@ export function mountSession(host, { identity, onSession }) {
         sessions.set(s.id, s);
         refreshExisting();
       }
+    },
+    /** Mark which sessions already carry a visible report (labels only). */
+    markReported(sessionIds) {
+      reported = new Set(sessionIds);
+      refreshExisting();
     },
     userName,
   };

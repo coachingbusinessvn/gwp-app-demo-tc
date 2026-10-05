@@ -33,6 +33,7 @@ import {
   lockCanvasById,
   lockDraftByCanvas,
   maxVersionNo,
+  renameCanvasRow,
   setCanvasCurrentVersion,
   transferCanvasOwner,
   updateDraftCas,
@@ -987,6 +988,37 @@ export function createCanvasService({ db, policy, clock }: CanvasDeps) {
   }
 
   /**
+   * Rename the canvas RECORD (the list/detail display name). Same write
+   * gate as every mutation — subject access on the owner, uniform 404 for
+   * denied/missing/foreign, 409 CANVAS_ARCHIVED. The shared draft is left
+   * alone on purpose: its meta.title is user-edited content under its own
+   * revision CAS, and rewriting it here would race an open editor tab.
+   * Audit carries the field name only — the new name is user content.
+   */
+  async function rename(
+    actor: ActorContext,
+    canvasId: Id,
+    name: string,
+  ): Promise<CanvasDto> {
+    return db.transaction(async (tx) => {
+      await lockCompany(tx, actor.companyId);
+      const canvas = await assertWriteIn(tx, actor, canvasId);
+      await renameCanvasRow(tx, actor.companyId, canvasId, name);
+      await appendAudit(tx, {
+        companyId: actor.companyId,
+        actorId: actor.userId,
+        action: "canvas.rename",
+        targetType: "canvas",
+        targetId: canvasId,
+        outcome: "success",
+        requestId: actor.requestId,
+        metadata: { field: "name" },
+      });
+      return canvasDto(tx, actor, { ...canvas, name });
+    });
+  }
+
+  /**
    * Archive (task 2.4, spec §9): a flag flip, never a delete — every write
    * gate (assertWriteIn) then blocks the canvas with 409 CANVAS_ARCHIVED
    * while reads stay open. Archiving twice is the same 409 — the second
@@ -1184,6 +1216,7 @@ export function createCanvasService({ db, policy, clock }: CanvasDeps) {
     restore,
     archive,
     transferOwner,
+    rename,
   };
 }
 

@@ -160,6 +160,30 @@ export interface CoachingSessionRow {
   created_by: string;
 }
 
+/**
+ * Session LIST scope (GET /coaching-sessions) — the same relation
+ * assertSessionWrite treats as "related", never wider:
+ *
+ *   :isOwner OR s.coach_user_id = :actor OR s.created_by = :actor
+ *
+ * The coachee, other managers in the tree, admin and readers of a linked
+ * canvas are deliberately absent (spec §6: none of them gain coaching
+ * rights by relation). Queries must alias coaching_session as `s`.
+ */
+export function applySessionListScope(
+  q: Knex.QueryBuilder,
+  actor: ActorContext,
+  isOwner: boolean,
+): Knex.QueryBuilder {
+  if (isOwner) return q;
+  return q.andWhere(function () {
+    this.where("s.coach_user_id", actor.userId).orWhere(
+      "s.created_by",
+      actor.userId,
+    );
+  });
+}
+
 export async function findSession(
   qb: Qb,
   companyId: Id,

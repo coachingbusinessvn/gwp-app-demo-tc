@@ -101,6 +101,9 @@ const ALLOWED_PATHS = [
   "/web/shell.js",
   "/web/shell-model.js",
   "/coaching-report/index.html",
+  // Canvas lifecycle card + shared AI availability/error copy.
+  "/web/canvas/manage.js",
+  "/web/ai/status.js",
 ];
 
 describe("static boundary — allowlisted public build is served", () => {

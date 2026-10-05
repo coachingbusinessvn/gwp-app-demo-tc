@@ -37,6 +37,8 @@ import { createPolicy } from "../authorization/policy.js";
  *                              allowlist; apiKey absent preserves the stored
  *                              key. Rate-limited per client IP — key/config
  *                              writes are low-frequency admin operations.
+ *   GET    /ai/status        — any signed-in user; {configured, enabled}
+ *                              only — no endpoint/model/key detail.
  *   DELETE /settings/ai/key  — owner/admin only; explicit credential clear.
  *                              Kept separate from PUT so an omitted field can
  *                              never wipe a key by accident.
@@ -128,6 +130,16 @@ export function aiRoutes(deps: {
     requireAuth(auth),
     async (_req: Request, res: Response) => {
       res.json(await ai.getAiSettings(actorOf(res)));
+    },
+  );
+
+  // Any signed-in user: {configured, enabled} only — lets every AI surface
+  // explain "not configured / disabled" BEFORE consent (spec §7.1).
+  router.get(
+    "/ai/status",
+    requireAuth(auth),
+    async (_req: Request, res: Response) => {
+      res.json(await ai.getAiStatus(actorOf(res)));
     },
   );
 

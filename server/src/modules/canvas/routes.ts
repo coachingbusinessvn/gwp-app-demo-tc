@@ -11,6 +11,7 @@ import { createCanvasService } from "./service.js";
 import {
   createCanvasBodySchema,
   publishBodySchema,
+  renameBodySchema,
   restoreBodySchema,
   saveDraftBodySchema,
   transferBodySchema,
@@ -22,6 +23,7 @@ import {
  *   POST /canvases                                — create canvas + first draft
  *   GET  /canvases?limit&cursor                   — subject-scoped keyset page
  *   GET  /canvases/:id                            — canvas detail
+ *   PATCH /canvases/:id                           — rename the record {name}
  *   POST /canvases/:id/draft                      — open the shared draft
  *   PUT  /canvases/:id/draft                      — CAS save (expectedRevision)
  *   POST /canvases/:id/publish                    — idempotent publish
@@ -115,6 +117,18 @@ export function canvasRoutes(deps: {
     requireAuth(auth),
     async (req: Request, res: Response) => {
       res.json(await canvas.getCanvas(actorOf(res), pathId(req.params.id)));
+    },
+  );
+
+  router.patch(
+    "/canvases/:id",
+    requireAuth(auth),
+    async (req: Request, res: Response) => {
+      const id = pathId(req.params.id);
+      // Access gate precedes body parsing — the uniform-404 rule.
+      await canvas.assertCanvasAccess(actorOf(res), id);
+      const body = parseBody(renameBodySchema, req.body);
+      res.json(await canvas.rename(actorOf(res), id, body.name));
     },
   );
 

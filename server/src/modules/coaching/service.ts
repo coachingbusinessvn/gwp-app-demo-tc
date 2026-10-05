@@ -24,6 +24,7 @@ import {
 import {
   actorIsOwner,
   applyReportReadScope,
+  applySessionListScope,
   assertReportManage,
   assertReportRead as assertReportReadOn,
   assertSessionWrite,
@@ -89,6 +90,26 @@ export interface ReportListItemDto {
   canvasId: string | null;
   reportVersion: number;
   rubricVersion: string | null;
+  createdBy: string;
+  createdAt: string;
+}
+
+interface SessionRow {
+  id: string;
+  coach_user_id: string;
+  coachee_user_id: string;
+  canvas_id: string | null;
+  occurred_at: Date | string;
+  created_by: string;
+  created_at: Date | string;
+}
+
+export interface SessionListItemDto {
+  id: string;
+  coachUserId: string;
+  coacheeUserId: string;
+  canvasId: string | null;
+  occurredAt: string;
   createdBy: string;
   createdAt: string;
 }
@@ -270,6 +291,68 @@ export function createCoachingService({
         metadata: {},
       });
       return { id };
+    });
+  }
+
+  /**
+   * The actor's sessions, newest-created first, so a session without a
+   * report survives a reload. Scope = applySessionListScope (owner → the
+   * company; else coach-of-record or creator) — the same relation the write
+   * gate calls "related", never wider. Metadata only (ids + times); names
+   * come from the directory the client already reads. Keyset cursor over
+   * (created_at, id) at µs precision — the shared format.
+   */
+  async function listSessions(
+    actor: ActorContext,
+    opts: { limit: number; cursor?: KeysetCursor },
+  ): Promise<Page<SessionListItemDto>> {
+    return db.transaction(async (tx) => {
+      await assertActiveActor(tx, actor.companyId, actor.userId);
+      const isOwner = await actorIsOwner(tx, actor);
+      let q = tx("coaching_session as s")
+        .where("s.company_id", actor.companyId)
+        .orderBy([
+          { column: "s.created_at", order: "desc" },
+          { column: "s.id", order: "desc" },
+        ])
+        .limit(opts.limit + 1)
+        .select(
+          "s.id",
+          "s.coach_user_id",
+          "s.coachee_user_id",
+          "s.canvas_id",
+          "s.occurred_at",
+          "s.created_by",
+          "s.created_at",
+          tx.raw(
+            `to_char(s.created_at AT TIME ZONE 'UTC', ` +
+              `'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_ts`,
+          ),
+        );
+      q = applySessionListScope(q, actor, isOwner);
+      if (opts.cursor !== undefined) {
+        q = q.whereRaw("(s.created_at, s.id) < (?::timestamptz, ?::uuid)", [
+          opts.cursor.at,
+          opts.cursor.id,
+        ]);
+      }
+      const rows = (await q) as (SessionRow & { cursor_ts: string })[];
+      const items = rows.slice(0, opts.limit);
+      return {
+        items: items.map((r) => ({
+          id: r.id,
+          coachUserId: r.coach_user_id,
+          coacheeUserId: r.coachee_user_id,
+          canvasId: r.canvas_id,
+          occurredAt: new Date(r.occurred_at).toISOString(),
+          createdBy: r.created_by,
+          createdAt: new Date(r.created_at).toISOString(),
+        })),
+        nextCursor:
+          rows.length > opts.limit
+            ? `${items[items.length - 1].cursor_ts}|${items[items.length - 1].id}`
+            : null,
+      };
     });
   }
 
@@ -677,6 +760,7 @@ export function createCoachingService({
 
   return {
     createSession,
+    listSessions,
     assertReportRead,
     getReport,
     listReports,

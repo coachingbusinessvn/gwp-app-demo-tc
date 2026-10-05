@@ -14,7 +14,8 @@ import { fakeLlm, type FakeLlm } from "../helpers/fake-llm.js";
  *
  * Contracts under test:
  * - consent checkbox gates "Chạy AI" and RESETS after every run;
- * - AI off / missing key surfaces a stable error code, editing unaffected;
+ * - AI off / missing key is explained before consent (consent + run
+ *   locked), editing unaffected;
  * - the streamed preview is diffed, warnings need explicit acceptance,
  *   apply lands in the draft only — publish stays a separate human step;
  * - cancel mid-run stops the run; invalid output renders as a plain-text
@@ -159,7 +160,7 @@ test.describe("local AI on the canvas editor (task 3.6)", () => {
     }
   });
 
-  test("AI not configured → stable code shown, editing still works", async ({
+  test("AI not configured → explained BEFORE consent, run locked, editing still works", async ({
     page,
   }) => {
     // The e2e DB is shared across the file — prior tests already saved
@@ -179,15 +180,18 @@ test.describe("local AI on the canvas editor (task 3.6)", () => {
     const canvasId = await createCanvas(page);
     await page.goto(`/canvas-online/?canvas=${canvasId}`);
 
-    await page
-      .getByLabel("Đồng ý xử lý nội dung bằng AI nội bộ")
-      .check();
-    await page
-      .getByRole("button", { name: "Chạy AI", exact: true })
-      .click();
-    await expect(page.getByTestId("ai-status")).toContainText(
-      "AI_NOT_CONFIGURED",
-    );
+    // Spec §7.1: the panel says so up front (GET /ai/status) — the user
+    // never gets to consent to a run that cannot happen.
+    const notice = page.getByTestId("ai-unavailable");
+    await expect(notice).toBeVisible({ timeout: 20_000 });
+    await expect(notice).toContainText("chưa được cấu hình");
+    await expect(notice).not.toContainText("AI_NOT_CONFIGURED");
+    await expect(
+      page.getByLabel("Đồng ý xử lý nội dung bằng AI nội bộ"),
+    ).toBeDisabled();
+    await expect(
+      page.getByRole("button", { name: "Chạy AI", exact: true }),
+    ).toBeDisabled();
 
     // The editor itself is unaffected — a manual edit still autosaves.
     await page.locator("#f_goal").fill("Mục tiêu tự sửa khi AI tắt");

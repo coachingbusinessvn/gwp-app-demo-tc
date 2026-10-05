@@ -7,7 +7,9 @@
  * - The transcript lives in the textarea ONLY — never localStorage, never
  *   a persisted field. It is cleared the moment a run ends (done, error,
  *   cancel) and the page warns on unload while text is present.
- * - The consent checkbox arms ONE run and resets when the run ends.
+ * - The consent checkbox arms ONE run and resets when the run ends; it is
+ *   locked (with an explanation) while GET /ai/status says AI is not
+ *   configured or switched off (spec §7.1).
  * - Oracle runs never stream deltas (half-validated reports must not
  *   leak) — the event feed is status-only, then the preview is fetched.
  * - "Lưu báo cáo" is an explicit POST /reports carrying ids only — the
@@ -16,6 +18,12 @@
  */
 import { apiFetch } from "../api.js";
 import { readEvents } from "../ai/stream.js";
+import {
+  friendlyError,
+  mountAiAvailability,
+  readFriendlyError,
+  runStatusLabel,
+} from "../ai/status.js";
 import { renderOracleReport } from "./report.js";
 
 const TRANSCRIPT_MAX_BYTES = 1024 * 1024; // 1 MiB — mirrors AI_INPUT_MAX_BYTES
@@ -27,12 +35,15 @@ function el(tag, cls, text) {
   return n;
 }
 
+/** Codes that mean "AI itself is unusable" — re-check the banner. */
+const AVAILABILITY_CODES = new Set([
+  "AI_NOT_CONFIGURED",
+  "AI_DISABLED",
+  "AI_KEY_DECRYPT_FAILED",
+]);
+
 async function readError(res) {
-  const data = await res.json().catch(() => null);
-  const code = typeof data?.code === "string" ? data.code : "REQUEST_FAILED";
-  const req =
-    typeof data?.requestId === "string" ? ` · req ${data.requestId}` : "";
-  return `${code}${req}`;
+  return (await readFriendlyError(res)).message;
 }
 
 /**
@@ -104,6 +115,7 @@ export function mountGrader(host, { getSessionId, onSaved }) {
   let activeAbort = null;
   let currentRunId = null;
   let cancelRequested = false;
+  let aiAvailable = true; // flipped by the /ai/status check below
 
   function clearTranscript() {
     transcript.value = "";
@@ -117,8 +129,21 @@ export function mountGrader(host, { getSessionId, onSaved }) {
 
   function refreshGradeState() {
     gradeBtn.disabled =
-      !consent.checked || activeAbort !== null || !getSessionId();
+      !aiAvailable || !consent.checked || activeAbort !== null || !getSessionId();
   }
+
+  // Up-front availability (spec §7.1): an unusable AI is explained before
+  // anyone pastes a transcript or consents; the consent box stays locked.
+  const availability = mountAiAvailability(host, {
+    before: taLabel,
+    onChange: (available) => {
+      aiAvailable = available;
+      consent.disabled = !available;
+      if (!available) consent.checked = false;
+      refreshGradeState();
+    },
+  });
+  void availability.check();
 
   consent.addEventListener("change", refreshGradeState);
 
@@ -205,8 +230,10 @@ export function mountGrader(host, { getSessionId, onSaved }) {
       }),
     });
     if (!start.ok) {
-      status.textContent = `Không chạy được: ${await readError(start)}`;
+      const err = await readFriendlyError(start);
+      status.textContent = `Không chạy được: ${err.message}`;
       resetConsent();
+      if (AVAILABILITY_CODES.has(err.code)) void availability.check();
       return;
     }
     const { runId } = await start.json();
@@ -229,13 +256,13 @@ export function mountGrader(host, { getSessionId, onSaved }) {
         ev,
         (e) => {
           if (e.type === "status" && typeof e.status === "string") {
-            status.textContent = `Trạng thái: ${e.status}`;
+            status.textContent = `Trạng thái: ${runStatusLabel(e.status)}`;
           } else if (e.type === "done") {
             terminal = true;
             void showPreview(runId);
           } else if (e.type === "error") {
             terminal = true;
-            status.textContent = `Run lỗi: ${e.code ?? "AI_INTERNAL"}`;
+            status.textContent = `Run lỗi: ${friendlyError(e.code ?? "AI_INTERNAL")} (${e.code ?? "AI_INTERNAL"})`;
           }
           // Oracle emits no delta frames by design — nothing to render.
         },
@@ -265,7 +292,7 @@ export function mountGrader(host, { getSessionId, onSaved }) {
         } else if (r.status === "cancelled") {
           status.textContent = "Đã hủy — không có report nào được tạo.";
         } else {
-          status.textContent = `Trạng thái: ${r.status}`;
+          status.textContent = `Trạng thái: ${runStatusLabel(r.status)}`;
         }
       }
     }

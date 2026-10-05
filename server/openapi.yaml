@@ -1688,6 +1688,33 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/ai/status:
+    get:
+      tags: [ai]
+      summary: Is local AI usable? (any signed-in user)
+      description: >
+        Lets every AI surface say "not configured" / "disabled" BEFORE the
+        user consents to a run (spec §7.1). Returns exactly two booleans —
+        no endpoint, model, key version or key material; the full settings
+        document stays owner/admin only (GET /settings/ai). `enabled` is
+        true only when a key is configured AND the configuration is on.
+      operationId: getAiStatus
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Availability flags.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiStatus"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /api/v1/ai/runs:
     post:
       tags: [ai]
@@ -2215,6 +2242,60 @@ paths:
                 $ref: "#/components/schemas/Error"
         "404":
           description: No such canvas, or no subject access to its owner.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    patch:
+      tags: [canvas]
+      summary: Rename the canvas record
+      description: >
+        Changes the record's display name only (lists, detail, dashboard).
+        Same write gate as every canvas mutation — subject access on the
+        canvas owner (self, owner role, manager over the current subtree);
+        admin only for its own canvases. Missing, foreign and denied ids
+        are the uniform 404, and that check precedes body validation. The
+        shared draft (whose meta.title is user-edited content) is NOT
+        touched and its revision does not move. Audited as `canvas.rename`
+        with the field name only — never the new name.
+      operationId: renameCanvas
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CanvasId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CanvasRenameRequest"
+      responses:
+        "200":
+          description: The canvas detail with the new name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Canvas"
+        "400":
+          description: Empty/over-long name or an unknown field (strict body).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: No such canvas, or no subject access to its owner.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: CANVAS_ARCHIVED — archived canvases are read-only.
           content:
             application/json:
               schema:
@@ -2765,6 +2846,48 @@ paths:
                 $ref: "#/components/schemas/Error"
 
   /api/v1/coaching-sessions:
+    get:
+      tags: [coaching]
+      summary: List the caller's coaching sessions
+      description: >
+        Lets a session without a report be resumed after a reload. Scope
+        mirrors the existing session relation and never widens it: an
+        owner sees every session of the company; anyone else only sessions
+        where they are the coach of record or the creator. The coachee,
+        other managers, admin and readers of a linked canvas see nothing
+        (spec §6). Metadata only. Ordered newest-created first over
+        (created_at, id); limit defaults to 25, max 100; cursor is the
+        opaque token from nextCursor.
+      operationId: listCoachingSessions
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/LimitParam"
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque keyset cursor from the previous page's nextCursor.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: One page of visible sessions.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CoachingSessionPage"
+        "400":
+          description: Invalid limit or cursor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
     post:
       tags: [coaching]
       summary: Record a coaching session
@@ -3754,6 +3877,17 @@ components:
         receiptDays:
           type: integer
           minimum: 7
+    AiStatus:
+      type: object
+      required: [configured, enabled]
+      additionalProperties: false
+      properties:
+        configured:
+          type: boolean
+          description: An endpoint key is stored for this company.
+        enabled:
+          type: boolean
+          description: Configured AND switched on — runs can start.
     AiSettings:
       type: object
       required:
@@ -4205,6 +4339,16 @@ components:
           description: >
             Required true when a live draft exists — explicit overwrite
             consent; restore never discards a draft silently.
+    CanvasRenameRequest:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: New display name — trimmed; blank is rejected.
     CanvasTransferRequest:
       type: object
       required: [newOwnerId]
@@ -4678,6 +4822,45 @@ components:
         id:
           type: string
           format: uuid
+    CoachingSessionListItem:
+      type: object
+      required:
+        [id, coachUserId, coacheeUserId, canvasId, occurredAt, createdBy, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        coachUserId:
+          type: string
+          format: uuid
+        coacheeUserId:
+          type: string
+          format: uuid
+        canvasId:
+          type: string
+          format: uuid
+          nullable: true
+        occurredAt:
+          type: string
+          format: date-time
+        createdBy:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+    CoachingSessionPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CoachingSessionListItem"
+        nextCursor:
+          type: string
+          nullable: true
+          description: Pass as ?cursor= for the next page; null at the end.
     CoachingReportListItem:
       type: object
       required:

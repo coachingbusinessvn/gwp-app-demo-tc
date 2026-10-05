@@ -169,6 +169,20 @@ export function createAiSettingsService({
   }
 
   /**
+   * Availability signal for ANY signed-in user (spec §7.1: "Chưa cấu
+   * hình/AI tắt: UI báo rõ" — before consent, not after a failed run).
+   * Exactly two booleans: no endpoint, model, key version or timestamps —
+   * the settings document itself stays owner/admin only. `enabled` means
+   * "usable": a stored enabled flag without a key still reads false.
+   */
+  async function getAiStatus(
+    actor: ActorContext,
+  ): Promise<{ configured: boolean; enabled: boolean }> {
+    const pub = toPublic(await readRow(actor.companyId));
+    return { configured: pub.configured, enabled: pub.configured && pub.enabled };
+  }
+
+  /**
    * Full replace of the AI configuration. The destination is validated
    * against the operator allowlist BEFORE anything is stored — a denied
    * baseUrl never persists. apiKey absent → the stored envelope survives;
@@ -365,6 +379,7 @@ export function createAiSettingsService({
 
   return {
     getAiSettings,
+    getAiStatus,
     saveAiSettings,
     clearAiKey,
     loadAiConfig,

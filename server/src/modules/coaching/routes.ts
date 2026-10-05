@@ -20,6 +20,9 @@ import {
  *
  *   POST /coaching-sessions             — record a session (self-coach, or
  *                                         owner on behalf — audited)
+ *   GET  /coaching-sessions             — the actor's sessions: owner sees
+ *                                         the company, anyone else only
+ *                                         coach-of-record / creator rows
  *   GET  /reports                       — report list scoped by report ACL
  *   GET  /reports/:id                   — one report; authorized reads audited
  *   POST /reports                       — explicit save from a validated
@@ -106,6 +109,20 @@ export function coachingRoutes(deps: {
       const body = parseBody(createSessionBodySchema, req.body);
       const created = await coaching.createSession(actorOf(res), body);
       res.status(201).json(created);
+    },
+  );
+
+  /** The actor's sessions (owner: company; else coach-of-record/creator). */
+  router.get(
+    "/coaching-sessions",
+    requireAuth(auth),
+    async (req: Request, res: Response) => {
+      res.json(
+        await coaching.listSessions(actorOf(res), {
+          limit: pageLimit(req.query.limit),
+          cursor: keysetCursorParam(req.query.cursor),
+        }),
+      );
     },
   );
 

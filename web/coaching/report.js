@@ -12,7 +12,8 @@
  *   server re-checks BOTH the report-read and canvas-write ACLs.
  * - Delete is a confirmed DELETE — the confirm flag travels in the body.
  */
-import { apiFetch } from "../api.js";
+import { apiFetch, apiFetchAll } from "../api.js";
+import { readFriendlyError } from "../ai/status.js";
 import { mountSharing } from "./sharing.js";
 
 const LABEL_CLASS = {
@@ -34,11 +35,7 @@ function esc(s) {
 }
 
 async function readError(res) {
-  const data = await res.json().catch(() => null);
-  const code = typeof data?.code === "string" ? data.code : "REQUEST_FAILED";
-  const req =
-    typeof data?.requestId === "string" ? ` · req ${data.requestId}` : "";
-  return `${code}${req}`;
+  return (await readFriendlyError(res)).message;
 }
 
 /**
@@ -126,9 +123,14 @@ function download(filename, text, type) {
 
 /**
  * @param host the detail host inside the detail card
- * @param opts {identity, listEl, emptyEl, onRegrade, onSessionSeen}
+ * @param opts {identity, listEl, emptyEl, onRegrade, onListed}
+ *   onListed(items) fires after each list refresh (the session card marks
+ *   which sessions already carry a report).
  */
-export function mountReports(host, { identity, listEl, emptyEl, onRegrade }) {
+export function mountReports(
+  host,
+  { identity, listEl, emptyEl, onRegrade, onListed },
+) {
   const card = host.closest("section.card") ?? host.parentElement;
   let users = [];
   let canvases = [];
@@ -139,22 +141,28 @@ export function mountReports(host, { identity, listEl, emptyEl, onRegrade }) {
     return u ? u.name : id.slice(0, 8);
   }
 
+  /** Every page of each list — never silently truncated at one page. */
   async function refresh() {
-    const [usersRes, listRes, canvasRes] = await Promise.all([
-      apiFetch("/users?limit=100"),
-      apiFetch("/reports?limit=50"),
-      apiFetch("/canvases?limit=100"),
+    const [usersR, listR, canvasR] = await Promise.allSettled([
+      apiFetchAll("/users?limit=100"),
+      apiFetchAll("/reports?limit=100"),
+      apiFetchAll("/canvases?limit=100"),
     ]);
-    if (usersRes.ok) users = (await usersRes.json()).items;
-    if (canvasRes.ok) canvases = (await canvasRes.json()).items;
-    if (!listRes.ok) {
+    if (usersR.status === "fulfilled") users = usersR.value;
+    if (canvasR.status === "fulfilled") canvases = canvasR.value;
+    if (listR.status === "rejected") {
       listEl.replaceChildren(
-        el("p", "note", `Không tải được danh sách: ${await readError(listRes)}`),
+        el(
+          "p",
+          "note",
+          "Không tải được danh sách báo cáo — kiểm tra kết nối rồi tải lại trang.",
+        ),
       );
       return;
     }
-    items = (await listRes.json()).items;
+    items = listR.value;
     renderList();
+    onListed?.(items);
   }
 
   function renderList() {

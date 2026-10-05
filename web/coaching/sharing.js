@@ -9,6 +9,7 @@
  * audit trail.
  */
 import { apiFetch } from "../api.js";
+import { readFriendlyError } from "../ai/status.js";
 
 function el(tag, cls, text) {
   const n = document.createElement(tag);
@@ -18,11 +19,7 @@ function el(tag, cls, text) {
 }
 
 async function readError(res) {
-  const data = await res.json().catch(() => null);
-  const code = typeof data?.code === "string" ? data.code : "REQUEST_FAILED";
-  const req =
-    typeof data?.requestId === "string" ? ` · req ${data.requestId}` : "";
-  return `${code}${req}`;
+  return (await readFriendlyError(res)).message;
 }
 
 /**

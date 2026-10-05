@@ -166,6 +166,39 @@ ol.guide .sub-note{color:var(--gp-ink-soft)}
 .diff-table td.diff-server{background:rgba(16,35,56,.06)}
 .diff-empty{margin:6px 0 0;font-size:13px;color:var(--gp-ink-soft)}
 
+/* ===== Toolbar link · archived banner · manage panel · confirm dialog ===== */
+.toolbar a.tb-link{display:inline-flex;align-items:center;gap:8px;text-decoration:none;
+  font-family:var(--gp-font-sans);font-size:12px;font-weight:600;letter-spacing:.06em;
+  padding:10px 16px;color:var(--gp-text);border:1px solid var(--gp-line-gold-strong);
+  transition:border-color .25s,background .25s}
+.toolbar a.tb-link:hover{border-color:var(--gp-gold-400);background:rgba(201,166,104,.06)}
+.archived-banner{border:1px solid rgba(76,96,118,.45);background:rgba(76,96,118,.08);
+  border-left:4px solid var(--gp-slate-deep);border-radius:var(--gp-radius-sm);
+  padding:14px 18px;margin-bottom:18px;font-size:13.5px}
+.archived-banner b{color:var(--gp-navy-900)}
+.manage-summary{display:grid;grid-template-columns:max-content 1fr;gap:4px 16px;margin:8px 0 4px;font-size:13.5px}
+.manage-summary dt{font-weight:600;color:var(--gp-ink-soft)}
+.manage-summary dd{margin:0;color:var(--gp-ink);overflow-wrap:anywhere}
+.manage-block{border-top:1px dashed var(--gp-line-gold-strong);margin-top:14px;padding-top:4px}
+.manage-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.manage-row input,.manage-row select{flex:1;min-width:200px}
+.manage-row button.add{margin-top:0}
+button.danger-outline{background:#fff;color:#8a4a1c;border:1px solid rgba(138,74,28,.55);
+  border-radius:var(--gp-radius-sm);padding:8px 14px;font:inherit;font-size:12px;font-weight:600;cursor:pointer;margin-top:6px}
+button.danger-outline:hover{background:rgba(138,74,28,.08)}
+button.danger-outline:disabled{opacity:.45;cursor:not-allowed}
+dialog.confirm-dialog{max-width:min(560px,calc(100vw - 32px));border:1px solid var(--gp-line-gold-strong);
+  border-radius:var(--gp-radius-lg);padding:22px 26px;box-shadow:var(--gp-shadow-card);color:var(--gp-ink);
+  font-family:var(--gp-font-sans);font-size:14px}
+dialog.confirm-dialog::backdrop{background:rgba(7,18,31,.55)}
+dialog.confirm-dialog h3{font-family:var(--gp-font-serif);font-size:19px;margin:0 0 8px;color:var(--gp-navy-950)}
+dialog.confirm-dialog ul{padding-left:20px;margin:8px 0 14px}
+dialog.confirm-dialog li{margin:4px 0}
+.confirm-actions{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap}
+.confirm-actions button{border-radius:var(--gp-radius-sm);padding:9px 16px;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.confirm-actions button.ghost{background:#fff;border:1px solid var(--line);color:var(--gp-ink)}
+.confirm-actions button.danger{background:#8a4a1c;border:1px solid #8a4a1c;color:#fff}
+
 /* ===== History panel ===== */
 .history-panel .version-row{border:1px solid var(--line);border-radius:var(--gp-radius-sm);
   padding:10px 14px;margin:8px 0;background:#fff}
@@ -278,7 +311,7 @@ footer.app .gold{color:var(--gp-gold-500)}
 }
 @media print{
   body{background:#fff}
-  header.app,.toolbar,main>section.card,.preview-bar,footer.app,.chain,.conflict-banner,.history-panel{display:none !important}
+  header.app,.toolbar,main>section.card,.preview-bar,footer.app,.chain,.conflict-banner,.history-panel,.archived-banner,.manage-panel{display:none !important}
   #previewWrap{display:block !important}
   main{max-width:none;padding:0}
   #preview{border:none;padding:0;font-size:10.5pt}
@@ -343,6 +376,8 @@ footer.app .gold{color:var(--gp-gold-500)}
       <button id="btnClear" class="danger">Xóa dữ liệu</button>
       <button id="btnPublish">📌 Chốt phiên bản</button>
       <button id="btnHistory" class="ghost">🕘 Lịch sử</button>
+      <button id="btnManage" class="ghost" data-testid="manage-toggle">⚙ Quản lý canvas</button>
+      <a id="btnNewCanvas" class="tb-link" data-testid="new-canvas" href="/canvas-online/">＋ Tạo canvas mới</a>
       <span class="versionchip" id="versionChip" data-testid="version-number">Nháp</span>
       <span class="savepill">
         <span id="saveState" data-testid="save-state">Đang tải…</span>
@@ -362,6 +397,20 @@ footer.app .gold{color:var(--gp-gold-500)}
       </div>
       <div class="diff-box" id="conflictDiff" data-testid="conflict-diff" hidden></div>
     </div>
+
+    <!-- Canvas đã lưu trữ — chỉ xem (POST /archive; ghi đều trả 409) -->
+    <div class="archived-banner" id="archivedBanner" data-testid="archived-banner" role="status" hidden>
+      <b>Canvas đã lưu trữ — chỉ xem.</b>
+      Không thể sửa bản nháp, chốt phiên bản, chạy AI, đổi tên hay chuyển chủ.
+      Các phiên bản đã chốt vẫn xem và tải về được trong “🕘 Lịch sử”.
+    </div>
+
+    <!-- Quản lý canvas: đổi tên · chuyển chủ (owner) · lưu trữ -->
+    <section class="card manage-panel" id="managePanel" data-testid="manage-panel" hidden>
+      <div class="step-en">Quản lý canvas</div>
+      <h2 class="step-title">Tên, chủ sở hữu &amp; lưu trữ</h2>
+      <div data-manage-body></div>
+    </section>
 
     <!-- Lịch sử phiên bản bất biến -->
     <section class="card history-panel" id="historyPanel" data-testid="history-panel" hidden>
