@@ -61,3 +61,26 @@ export async function apiFetch(path, init = {}) {
   });
   return res;
 }
+
+/**
+ * Every item of a cursor-paginated list ({items, nextCursor}). The server
+ * hard-caps a page at 100, so a single `?limit=100` read silently drops
+ * the tail in larger orgs — pickers and admin tables use this instead.
+ * Throws on a non-OK page so callers can show an error, never a short list.
+ * `maxPages` bounds a runaway cursor (100 × 100 = 10k rows).
+ */
+export async function apiFetchAll(path, { maxPages = 100 } = {}) {
+  const sep = path.includes("?") ? "&" : "?";
+  const items = [];
+  let cursor = null;
+  for (let page = 0; page < maxPages; page++) {
+    const q = cursor ? `${sep}cursor=${encodeURIComponent(cursor)}` : "";
+    const res = await apiFetch(path + q);
+    if (!res.ok) throw new Error(`${path} ${res.status}`);
+    const body = await res.json();
+    items.push(...(body.items || []));
+    cursor = body.nextCursor ?? null;
+    if (!cursor) return items;
+  }
+  return items;
+}
