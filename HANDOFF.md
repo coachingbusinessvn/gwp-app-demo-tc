@@ -15,6 +15,37 @@ Evidence: `docs/superpowers/evidence/phase-4.md` (per-gate mapping,
 measured numbers, open exceptions). Progress ledger:
 `.superpowers/sdd/2026-09-20-phase-4-reports-delivery/progress.md`.
 
+## 2026-10-05 — merged to `main`, product-completeness pass
+
+`feat/real-app-design` was fast-forwarded into `main` (GitHub Pages turned
+off — the static demo lives at commit `8978129`). Follow-up work on `main`:
+
+- **Deploy fixes**: image ships `coaching-report/`; pg_dump 18 in the
+  image; AI env vars reach the container; production rejects the
+  `.env.example` placeholder secrets; runbooks corrected.
+- **HTTPS for LAN**: `docker compose --profile tls up -d` adds a Caddy
+  front (internal CA or customer cert) — deployment-vn.md §4a.
+- **Demo seed v3**: weekly check-in measurements, so the 3-layer trend
+  renders from published evidence.
+- **Account page** (`account.html`): own name/title, change password.
+  **Shared shell** (`web/shell.js`): one nav, account, logout and company
+  branding on every non-admin page.
+- **Admin**: reactivate users (`POST /users/:id/reactivate`), confirm
+  dialogs, company name/timezone, retention settings, team rename, full
+  user list + search.
+- **Canvas**: rename (`PATCH /canvases/:id`), transfer, archive UI,
+  "Tạo canvas mới". **Coaching**: `GET /coaching-sessions` (resume a
+  session). **AI**: `GET /ai/status` — "not configured" shown up front.
+- Dashboard uses `company.timezone`; lists load every page
+  (`apiFetchAll`); OpenAPI drift test guards `server/openapi.yaml`.
+
+Gates on `main` after this pass: vitest 451/451 (41 files), Playwright
+47/47, typecheck clean, build 48 files.
+
+Not built (no API, out of scope or needs a decision): canvas unarchive;
+coachee visibility of their own sessions (spec §6 says no by default);
+SSO/MCP/mobile (spec §12).
+
 ## Open items — require human decision, not auto-waived
 
 1. **Real local-model quality acceptance** — fake-LLM tests prove the
