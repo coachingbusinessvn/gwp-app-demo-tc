@@ -3,10 +3,12 @@
  * serves is public-build/, and it contains ONLY this allowlist:
  *
  *   index.html dashboard.html employee.html canvas.html
- *   admin.html activate.html
+ *   admin.html activate.html account.html
  *   assets/gwp.css assets/fonts.css assets/app.js assets/fonts/*
- *   web/api.js web/auth.js web/activate.js web/admin/* web/canvas/*
- *   canvas-online/  (task 2.5 — the real canvas editor page)
+ *   web/api.js web/auth.js web/activate.js web/account.js
+ *   web/shell.js web/shell-model.js  (shared app shell)
+ *   web/admin/* web/canvas/* web/ai/* web/coaching/*
+ *   canvas-online/ coaching-report/  (the real editor + coaching pages)
  *
  * web/*.js, web/admin/*.js, web/canvas/*.js and assets/app.js are already
  * browser-ready ESM (no TypeScript, no bare specifiers beyond relative
@@ -44,12 +46,16 @@ const ALLOWLIST_FILES = [
   "canvas.html",
   "admin.html",
   "activate.html",
+  "account.html",
   "assets/gwp.css",
   "assets/fonts.css",
   "assets/app.js",
   "web/api.js",
   "web/auth.js",
   "web/activate.js",
+  "web/account.js",
+  "web/shell.js",
+  "web/shell-model.js",
 ] as const;
 
 /** Whole directories copied verbatim (locally bundled fonts + license,

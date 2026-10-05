@@ -44,7 +44,15 @@ canvas.html        Canvas chi tiết · Gợi ý cho phiên 1-1 · Xuất Excel 
 
 canvas-online/     Form điền / nhập Markdown · xuất Excel / PDF / PNG
 coaching-report/   Báo cáo sau phiên coach ORACLE
+account.html       Tài khoản của tôi: sửa họ tên/chức danh, đổi mật khẩu
 ```
+
+*App thật:* mọi trang sau đăng nhập dùng chung shell `web/shell.js` — nav
+Bảng theo dõi / Canvas Online / Coaching Report (+ Quản trị cho owner/admin),
+tên tài khoản dẫn tới `account.html`, nút đăng xuất và branding công ty
+(`GET /settings/branding`). Đổi mật khẩu thu hồi **mọi** phiên — trang đưa
+người dùng về đăng nhập lại. Quên mật khẩu: owner phát liên kết
+`activate.html?purpose=reset` từ trang Quản trị.
 
 Mọi HTML đều link sang `canvas-online/` và `coaching-report/` (đường dẫn tương đối trong repo, dùng được trên GitHub Pages). Link `#import` mở sẵn ô nhập Markdown.
 

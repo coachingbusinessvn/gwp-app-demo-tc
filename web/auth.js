@@ -215,6 +215,19 @@ if (loginForm instanceof HTMLFormElement) {
       .then(() => location.replace("dashboard.html"))
       .catch(() => {});
   }
+  // account.html sends the user here after a password change (which
+  // revoked every session) — say why they must sign in again, then scrub
+  // the marker so a reload or bookmark does not repeat it.
+  const params = new URLSearchParams(location.search);
+  if (params.get("reason") === "password-changed") {
+    const notice = document.getElementById("loginNotice");
+    if (notice) {
+      notice.textContent =
+        "Mật khẩu đã đổi và mọi phiên đăng nhập đã kết thúc — đăng nhập lại bằng mật khẩu mới.";
+      notice.hidden = false;
+    }
+    history.replaceState(null, "", location.pathname);
+  }
   const errBox = document.getElementById("loginErr");
   const showError = (msg) => {
     if (errBox) {

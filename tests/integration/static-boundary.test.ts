@@ -95,6 +95,12 @@ const ALLOWED_PATHS = [
   "/web/canvas/diff.js",
   "/web/canvas/history.js",
   "/web/canvas/logo.js",
+  // Account self-service + the shared app shell (header/nav/branding).
+  "/account.html",
+  "/web/account.js",
+  "/web/shell.js",
+  "/web/shell-model.js",
+  "/coaching-report/index.html",
 ];
 
 describe("static boundary — allowlisted public build is served", () => {
@@ -108,6 +114,25 @@ describe("static boundary — allowlisted public build is served", () => {
     expect(res.status).toBe(200);
     expect(res.headers["content-type"]).toContain("text/html");
     expect(res.text).toContain("Đăng nhập");
+  });
+
+  it("account.html ships as HTML with only the external module script (CSP)", async () => {
+    const res = await request(app).get("/account.html");
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toContain("text/html");
+    expect(res.text).toContain("Đổi mật khẩu");
+    // script-src 'self': every <script> must be an external src, never inline.
+    const scripts = res.text.match(/<script\b[^>]*>/g) ?? [];
+    expect(scripts).toEqual(['<script type="module" src="web/account.js">']);
+  });
+
+  it("hero-header pages include the shared shell module", async () => {
+    for (const p of ["/canvas-online/index.html", "/coaching-report/index.html"]) {
+      const res = await request(app).get(p);
+      expect(res.status, p).toBe(200);
+      expect(res.text, p).toContain('<script type="module" src="/web/shell.js">');
+      expect(res.text, p).toContain("data-shell-nav");
+    }
   });
 
   it("GET / redirects to the login page (explicit route, not index serving)", async () => {

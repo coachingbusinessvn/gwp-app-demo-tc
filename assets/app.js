@@ -7,8 +7,14 @@
  *
  * Loaded as <script type="module"> — no inline scripts (CSP script-src 'self').
  */
-import { logout, requireAuth } from "../web/auth.js";
+import { requireAuth } from "../web/auth.js";
 import { apiFetch } from "../web/api.js";
+import {
+  applyBranding,
+  loadBranding,
+  renderAppFooter,
+  renderAppHeader,
+} from "../web/shell.js";
 
 /* ---------- Helpers ---------- */
 function esc(s) {
@@ -29,58 +35,60 @@ function dmy(iso) {
     ? esc(iso)
     : d.toLocaleDateString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" });
 }
+/* A failed read carries its HTTP status (0 = network) so callers can tell
+ * "could not load" apart from a legitimate empty / out-of-scope answer. */
+class LoadError extends Error {
+  constructor(status) {
+    super(`dashboard ${status}`);
+    this.status = status;
+  }
+}
 async function fetchDashboard() {
-  const res = await apiFetch("/dashboard");
-  if (!res.ok) throw new Error(`dashboard ${res.status}`);
+  let res;
+  try {
+    res = await apiFetch("/dashboard");
+  } catch {
+    throw new LoadError(0);
+  }
+  if (res.status === 401) {
+    // Session ended mid-page (apiFetch already tried one refresh).
+    location.replace("/index.html");
+    throw new LoadError(401);
+  }
+  if (!res.ok) throw new LoadError(res.status);
   return res.json();
 }
 
 /* ---------- Header / footer ---------- */
-const LOGO =
-  "data:image/svg+xml;utf8," +
-  encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><circle cx="32" cy="32" r="29" fill="none" stroke="#C9A668" stroke-width="3"/><path d="M20 22l7 22 5-14 5 14 7-22" fill="none" stroke="#E7D0A2" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-  );
+/* Chrome comes from the shared shell (web/shell.js): nav with Canvas Online
+ * + Coaching Report (+ Quản trị for owner/admin), account name → account.html,
+ * logout, company branding. Same module the hero-header pages self-mount. */
 
-function renderHeader(me, roles) {
-  // Admin entry point is a UX convenience only — roles come from
-  // GET /auth/me (DB truth) and every admin API re-checks server-side.
-  const adminNav =
-    roles.includes("owner") || roles.includes("admin")
-      ? '<a href="admin.html">Quản trị</a>'
-      : "";
-  document.body.insertAdjacentHTML(
-    "afterbegin",
-    '<header class="app"><div class="bar">' +
-      '<img class="mark" src="' + LOGO + '" alt="">' +
-      '<div><div class="brand">GoWise Partners</div><div class="appname">Performance Follow-up</div></div>' +
-      '<nav class="sitenav" aria-label="Công cụ">' +
-      '<a href="dashboard.html">Bảng theo dõi</a>' +
-      // Every signed-in user may coach or be coached; which sessions and
-      // reports they see is decided server-side by the report ACL.
-      '<a href="/coaching-report/">Coaching Report</a>' +
-      adminNav +
-      "</nav>" +
-      '<div class="spacer"></div>' +
-      '<div class="who" data-testid="account-name"><b>' + esc(me.name) + "</b><br>" +
-      esc(me.title || me.email) + "</div>" +
-      '<a class="out" href="#" id="btnOut">Đăng xuất</a>' +
-      "</div></header>",
-  );
-  document.getElementById("btnOut").addEventListener("click", async (e) => {
-    e.preventDefault();
-    await logout();
-    location.replace("index.html");
-  });
+/* ---------- Loading / error states ---------- */
+// Sections render a visible "Đang tải…" until their fetch settles, so a
+// slow network never reads as "empty" (aria-busy for assistive tech).
+function setLoading(node, eyebrow, title) {
+  if (!node) return;
+  node.setAttribute("aria-busy", "true");
+  node.innerHTML =
+    (eyebrow ? '<div class="eyebrow">' + esc(eyebrow) + "</div>" : "") +
+    (title ? '<h2 class="title">' + esc(title) + "</h2>" : "") +
+    '<p class="loading" role="status">Đang tải…</p>';
 }
-
-function renderFooter() {
-  document.body.insertAdjacentHTML(
-    "beforeend",
-    '<footer class="app"><b>GoWise Partners</b> · Performance Architecture Canvas schema 3.0 — ' +
-      "dữ liệu trên bản canvas đã chốt, trong phạm vi bạn được xem.</footer>",
-  );
+function setLoaded(node, html) {
+  if (!node) return;
+  node.removeAttribute("aria-busy");
+  node.innerHTML = html;
 }
+const RETRY_HTML =
+  '<div class="btnrow" style="margin-top:10px"><button class="btn ghost" type="button" data-retry>Thử lại</button></div>';
+// Retry = full reload: the dashboard read is one request, and a reload
+// also re-runs the session gate if the failure was an expired session.
+document.addEventListener("click", (e) => {
+  if (e.target instanceof Element && e.target.closest("[data-retry]")) {
+    location.reload();
+  }
+});
 
 /* ---------- Dashboard data renderers ---------- */
 const STATUS_CHIP = {
@@ -282,154 +290,233 @@ function chartHTML(canvas) {
 }
 
 /* ---------- Page initializers ---------- */
+function wireDashboardTabs() {
+  const tabs = [
+    ["tab-team", "panel-team"],
+    ["tab-mine", "panel-mine"],
+  ];
+  tabs.forEach(([tid]) => {
+    document.getElementById(tid)?.addEventListener("click", () => {
+      tabs.forEach(([t, p]) => {
+        const on = t === tid;
+        document.getElementById(t)?.setAttribute("aria-selected", String(on));
+        const panel = document.getElementById(p);
+        if (panel) panel.hidden = !on;
+      });
+    });
+  });
+}
+
+async function initDashboard(me) {
+  const first = me.name.trim().split(/\s+/).slice(-1)[0];
+  const ptitle = document.getElementById("ptitle");
+  if (ptitle) ptitle.textContent = `Chào ${first}, đây là tình hình hôm nay`;
+  const psub = document.getElementById("psub");
+  if (psub) psub.textContent = me.title || me.email;
+
+  const attention = document.getElementById("attention");
+  const tree = document.getElementById("tree");
+  const mine = document.getElementById("mine");
+  setLoading(attention, "Ưu tiên hôm nay", "Cần bạn xử lý");
+  if (tree) {
+    tree.setAttribute("aria-busy", "true");
+    tree.innerHTML = '<li class="loading" role="status">Đang tải…</li>';
+  }
+  setLoading(mine, null, "Canvas cá nhân");
+
+  let data;
+  try {
+    data = await fetchDashboard();
+  } catch (err) {
+    if (err.status === 401) return; // redirecting to login
+    data = null;
+  }
+
+  const failed =
+    '<p class="note err-note" role="alert">Không tải được dữ liệu — kiểm tra kết nối rồi thử lại.</p>' +
+    RETRY_HTML;
+  setLoaded(
+    attention,
+    data
+      ? attentionHTML(data.attention)
+      : '<div class="eyebrow">Ưu tiên hôm nay</div><h2 class="title">Cần bạn xử lý</h2>' + failed,
+  );
+  if (tree) {
+    tree.removeAttribute("aria-busy");
+    tree.innerHTML = data
+      ? treeHTML(data.people, me.id)
+      : '<li><p class="note err-note">Không tải được sơ đồ đội ngũ.</p></li>';
+  }
+  if (mine) {
+    const myRows = data
+      ? data.canvases.filter((c) => c.ownerUserId === me.id)
+      : [];
+    setLoaded(
+      mine,
+      '<h2 class="title">Canvas cá nhân</h2>' +
+        (!data
+          ? failed
+          : myRows.length
+            ? '<div class="weeklist">' + myRows.map(canvasRowHTML).join("") + "</div>" +
+              '<div class="btnrow" style="margin-top:12px"><a class="btn ghost" href="/canvas-online/">Tạo canvas mới</a></div>'
+            : '<p class="note">Bạn chưa có canvas nào. Mở Canvas Online để bắt đầu.</p>' +
+              '<div class="btnrow" style="margin-top:10px"><a class="btn ghost" href="/canvas-online/">Mở Canvas Online</a></div>'),
+    );
+  }
+}
+
+/* Employee page: three outcomes kept distinct — the dashboard read failed
+ * (network / server → retry), the link has no ?id=, or the person is
+ * genuinely outside the caller's scope (policy-filtered server-side). */
+async function initEmployee() {
+  const personId = new URLSearchParams(location.search).get("id");
+  const cname = document.getElementById("cname");
+  const head = document.getElementById("head");
+  const trend = document.getElementById("trend");
+  const list = document.getElementById("list");
+
+  const stop = (crumb, title, body, retry) => {
+    if (cname) cname.textContent = crumb;
+    setLoaded(
+      head,
+      '<div class="card" data-state="' + (retry ? "error" : "denied") + '">' +
+        '<h1 class="title">' + esc(title) + "</h1>" +
+        '<p class="note"' + (retry ? ' role="alert"' : "") + ">" + esc(body) + "</p>" +
+        '<div class="btnrow" style="margin-top:12px">' +
+        (retry ? '<button class="btn" type="button" data-retry>Thử lại</button>' : "") +
+        '<a class="btn ghost" href="dashboard.html">Về bảng theo dõi</a></div></div>',
+    );
+    if (trend) trend.hidden = true;
+    if (list) list.hidden = true;
+  };
+
+  if (!personId) {
+    stop(
+      "Không xem được",
+      "Liên kết thiếu thông tin",
+      "Liên kết này không chỉ rõ người cần xem. Mở lại từ sơ đồ đội ngũ trên bảng theo dõi.",
+      false,
+    );
+    return;
+  }
+
+  setLoading(head, null, null);
+  setLoading(trend, "Biến đổi hiệu suất", "Bằng chứng đo được trên bản đã chốt");
+  setLoading(list, "Lịch sử", "Các bản canvas đã chốt");
+
+  let data;
+  try {
+    data = await fetchDashboard();
+  } catch (err) {
+    if (err.status === 401) return; // redirecting to login
+    stop(
+      "Lỗi tải dữ liệu",
+      "Không tải được dữ liệu",
+      err.status === 0
+        ? "Không kết nối được máy chủ — kiểm tra mạng rồi thử lại."
+        : "Máy chủ chưa trả được dữ liệu (mã " + err.status + ") — thử lại sau ít phút.",
+      true,
+    );
+    return;
+  }
+
+  const person = data.people.find((p) => p.userId === personId) || null;
+  if (!person) {
+    stop(
+      "Không xem được",
+      "Không xem được hồ sơ này",
+      "Người này không nằm trong phạm vi của bạn, hoặc liên kết đã cũ.",
+      false,
+    );
+    return;
+  }
+  const canvases = data.canvases.filter((c) => c.ownerUserId === personId);
+
+  if (cname) cname.textContent = person.name;
+  setLoaded(
+    head,
+    '<div class="card"><div class="person" style="cursor:default">' +
+      '<span class="ava">' + esc(initials(person.name)) + "</span>" +
+      '<span><span class="nm" style="font-size:17px">' + esc(person.name) + "</span><br>" +
+      '<span class="rl">' + esc(person.title || "") + "</span></span>" +
+      '<span class="meta"><span class="cnt">' +
+      person.canvasCount + " canvas · " + person.publishedCount + " đã chốt · " +
+      person.overdueActions + " quá hạn</span></span></div></div>",
+  );
+  setLoaded(
+    trend,
+    '<div class="eyebrow">Biến đổi hiệu suất</div><h2 class="title">Bằng chứng đo được trên bản đã chốt</h2>' +
+      (canvases.length
+        ? canvases.map(chartHTML).join('<div style="height:18px"></div>')
+        : '<p class="note">Chưa có canvas nào trong phạm vi của bạn.</p>'),
+  );
+  if (!list) return;
+
+  // Lịch sử bản chốt — tải song song per canvas (policy-gated server-side).
+  // A failed read is counted, never silently shown as "no versions".
+  const lists = await Promise.all(
+    canvases.map(async (c) => {
+      try {
+        const res = await apiFetch(
+          "/canvases/" + encodeURIComponent(c.id) + "/versions",
+        );
+        if (!res.ok) return { canvas: c, versions: [], failed: true };
+        return { canvas: c, versions: await res.json(), failed: false };
+      } catch {
+        return { canvas: c, versions: [], failed: true };
+      }
+    }),
+  );
+  const failedCount = lists.filter((x) => x.failed).length;
+  const rows = lists
+    .flatMap(({ canvas, versions }) => versions.map((v) => ({ canvas, v })))
+    .sort((a, b) => String(b.v.publishedAt).localeCompare(String(a.v.publishedAt)));
+  setLoaded(
+    list,
+    '<div class="eyebrow">Lịch sử</div><h2 class="title">Các bản canvas đã chốt</h2>' +
+      (failedCount
+        ? '<p class="note err-note" role="alert">Không tải được lịch sử của ' +
+          failedCount + " canvas — danh sách dưới đây có thể thiếu.</p>" + RETRY_HTML
+        : "") +
+      (rows.length
+        ? '<div class="weeklist">' +
+          rows
+            .map(
+              ({ canvas, v }) =>
+                '<a class="week" href="canvas.html?canvas=' + encodeURIComponent(canvas.id) + '">' +
+                '<span><span class="wk">v' + v.versionNo + "</span>" +
+                '<span class="wdate">' + esc(dmy(v.publishedAt)) + "</span></span>" +
+                '<span><span class="wt">' + esc(canvas.name) + "</span>" +
+                '<span class="wch">' +
+                esc(v.changeSummary || "Bản chốt") +
+                (v.publishedByName ? " · " + esc(v.publishedByName) : "") +
+                "</span></span>" +
+                '<span class="wact"><span class="chip piloting">Bất biến</span></span></a>',
+            )
+            .join("") +
+          "</div>"
+        : failedCount
+          ? ""
+          : '<p class="note">Chưa có bản nào được chốt.</p>'),
+  );
+}
+
 async function init() {
+  const page = document.body.dataset.page;
+  // Tabs are wired before any await so a click during the session /
+  // dashboard round-trip is never dropped.
+  if (page === "dashboard") wireDashboardTabs();
+
   const identity = await requireAuth(); // { user, roles } — null after redirect
   if (!identity) return;
   const me = identity.user;
-  renderHeader(me, identity.roles ?? []);
+  renderAppHeader(identity, {
+    current: page === "canvas" ? "canvas" : "dashboard",
+  });
+  loadBranding().then(applyBranding);
 
-  const page = document.body.dataset.page;
-
-  if (page === "dashboard") {
-    const first = me.name.trim().split(/\s+/).slice(-1)[0];
-    const ptitle = document.getElementById("ptitle");
-    if (ptitle) ptitle.textContent = `Chào ${first}, đây là tình hình hôm nay`;
-    const psub = document.getElementById("psub");
-    if (psub) psub.textContent = me.title || me.email;
-
-    let data;
-    try {
-      data = await fetchDashboard();
-    } catch {
-      data = null;
-    }
-
-    const attention = document.getElementById("attention");
-    if (attention) {
-      attention.innerHTML = data
-        ? attentionHTML(data.attention)
-        : '<div class="eyebrow">Ưu tiên hôm nay</div><h2 class="title">Cần bạn xử lý</h2>' +
-          '<p class="note">Không tải được dữ liệu — thử tải lại trang.</p>';
-    }
-    const tree = document.getElementById("tree");
-    if (tree) {
-      tree.innerHTML = data
-        ? treeHTML(data.people, me.id)
-        : '<p class="note">Không tải được dữ liệu.</p>';
-    }
-    const mine = document.getElementById("mine");
-    if (mine) {
-      const myRows = data
-        ? data.canvases.filter((c) => c.ownerUserId === me.id)
-        : [];
-      mine.innerHTML =
-        '<h2 class="title">Canvas cá nhân</h2>' +
-        (myRows.length
-          ? '<div class="weeklist">' + myRows.map(canvasRowHTML).join("") + "</div>"
-          : '<p class="note">Bạn chưa có canvas nào. Mở Canvas Online để bắt đầu.</p>' +
-            '<div class="btnrow" style="margin-top:10px"><a class="btn ghost" href="/canvas-online/">Mở Canvas Online</a></div>');
-    }
-
-    // Tabs (layout giữ nguyên).
-    const tabs = [
-      ["tab-team", "panel-team"],
-      ["tab-mine", "panel-mine"],
-    ];
-    tabs.forEach(([tid, pid]) => {
-      document.getElementById(tid)?.addEventListener("click", () => {
-        tabs.forEach(([t, p]) => {
-          const on = t === tid;
-          document.getElementById(t)?.setAttribute("aria-selected", String(on));
-          const panel = document.getElementById(p);
-          if (panel) panel.hidden = !on;
-        });
-      });
-    });
-  }
-
-  if (page === "employee") {
-    const personId = new URLSearchParams(location.search).get("id");
-    const cname = document.getElementById("cname");
-    const head = document.getElementById("head");
-    const trend = document.getElementById("trend");
-    const list = document.getElementById("list");
-
-    let data = null;
-    try {
-      data = await fetchDashboard();
-    } catch {
-      data = null;
-    }
-    const person = data?.people.find((p) => p.userId === personId) || null;
-    const canvases = data
-      ? data.canvases.filter((c) => c.ownerUserId === personId)
-      : [];
-
-    if (!person) {
-      if (cname) cname.textContent = "Không xem được";
-      if (head) {
-        head.innerHTML =
-          '<div class="card"><h1 class="title">Không xem được hồ sơ này</h1>' +
-          '<p class="note">Người này không nằm trong phạm vi của bạn, hoặc liên kết đã cũ.</p>' +
-          '<div class="btnrow" style="margin-top:12px"><a class="btn ghost" href="dashboard.html">Về bảng theo dõi</a></div></div>';
-      }
-    } else {
-      if (cname) cname.textContent = person.name;
-      if (head) {
-        head.innerHTML =
-          '<div class="card"><div class="person" style="cursor:default">' +
-          '<span class="ava">' + esc(initials(person.name)) + "</span>" +
-          '<span><span class="nm" style="font-size:17px">' + esc(person.name) + "</span><br>" +
-          '<span class="rl">' + esc(person.title || "") + "</span></span>" +
-          '<span class="meta"><span class="cnt">' +
-          person.canvasCount + " canvas · " + person.publishedCount + " đã chốt · " +
-          person.overdueActions + " quá hạn</span></span></div></div>";
-      }
-      if (trend) {
-        trend.innerHTML =
-          '<div class="eyebrow">Biến đổi hiệu suất</div><h2 class="title">Bằng chứng đo được trên bản đã chốt</h2>' +
-          (canvases.length
-            ? canvases.map(chartHTML).join('<div style="height:18px"></div>')
-            : '<p class="note">Chưa có canvas nào trong phạm vi của bạn.</p>');
-      }
-      if (list) {
-        // Lịch sử bản chốt — tải song song per canvas (policy-gated server-side).
-        const lists = await Promise.all(
-          canvases.map(async (c) => {
-            const res = await apiFetch(
-              "/canvases/" + encodeURIComponent(c.id) + "/versions",
-            );
-            return res.ok ? { canvas: c, versions: await res.json() } : { canvas: c, versions: [] };
-          }),
-        );
-        const rows = lists
-          .flatMap(({ canvas, versions }) =>
-            versions.map((v) => ({ canvas, v })),
-          )
-          .sort((a, b) => String(b.v.publishedAt).localeCompare(String(a.v.publishedAt)));
-        list.innerHTML =
-          '<div class="eyebrow">Lịch sử</div><h2 class="title">Các bản canvas đã chốt</h2>' +
-          (rows.length
-            ? '<div class="weeklist">' +
-              rows
-                .map(
-                  ({ canvas, v }) =>
-                    '<a class="week" href="canvas.html?canvas=' + encodeURIComponent(canvas.id) + '">' +
-                    '<span><span class="wk">v' + v.versionNo + "</span>" +
-                    '<span class="wdate">' + esc(dmy(v.publishedAt)) + "</span></span>" +
-                    '<span><span class="wt">' + esc(canvas.name) + "</span>" +
-                    '<span class="wch">' +
-                    esc(v.changeSummary || "Bản chốt") +
-                    (v.publishedByName ? " · " + esc(v.publishedByName) : "") +
-                    "</span></span>" +
-                    '<span class="wact"><span class="chip piloting">Bất biến</span></span></a>',
-                )
-                .join("") +
-              "</div>"
-            : '<p class="note">Chưa có bản nào được chốt.</p>');
-      }
-    }
-  }
+  if (page === "dashboard") await initDashboard(me);
+  if (page === "employee") await initEmployee();
 
   if (page === "canvas") {
     // Task 2.5: the real editor lives at /canvas-online/?canvas=<id> —
@@ -457,7 +544,7 @@ async function init() {
     }
   }
 
-  renderFooter();
+  renderAppFooter();
 }
 
 init();

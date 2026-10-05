@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tài khoản — Performance Follow-up | GoWise Partners</title>
+<link rel="stylesheet" href="assets/fonts.css">
+<link rel="stylesheet" href="assets/gwp.css">
+</head>
+<body data-page="account">
+<main>
+  <p class="crumb"><a href="dashboard.html">Bảng theo dõi</a> <span>›</span> <span>Tài khoản</span></p>
+  <div class="eyebrow">Tài khoản của tôi</div>
+  <h1 class="title">Tài khoản</h1>
+  <p class="note">Thông tin hiển thị của bạn và mật khẩu đăng nhập. Email, vai trò và vị trí trong tổ chức do owner/quản trị quản lý.</p>
+  <p class="loading" id="acctLoading" role="status">Đang tải…</p>
+
+  <div class="acct-grid" style="margin-top:16px">
+    <section class="card" id="profileCard" aria-labelledby="profileTitle">
+      <h2 class="title" id="profileTitle">Thông tin cá nhân</h2>
+      <dl class="kv">
+        <dt>Email</dt><dd id="acctEmail" data-testid="account-email">—</dd>
+        <dt>Vai trò</dt><dd id="acctRoles">—</dd>
+      </dl>
+      <form class="form" id="frm-profile" novalidate>
+        <fieldset id="profileFields" disabled>
+          <label for="pf-name">Họ tên</label>
+          <input type="text" id="pf-name" name="name" autocomplete="name" maxlength="200" required>
+
+          <label for="pf-title">Chức danh <span class="opt">(không bắt buộc)</span></label>
+          <input type="text" id="pf-title" name="title" autocomplete="organization-title" maxlength="200">
+
+          <p class="form-msg err" id="profileErr" role="alert" hidden></p>
+          <p class="form-msg ok" id="profileOk" role="status" hidden></p>
+
+          <div class="btnrow"><button class="btn" type="submit" id="profileSubmit">Lưu thông tin</button></div>
+        </fieldset>
+      </form>
+    </section>
+
+    <section class="card" id="passwordCard" aria-labelledby="passwordTitle">
+      <h2 class="title" id="passwordTitle">Đổi mật khẩu</h2>
+      <p class="note">Mật khẩu mới tối thiểu 12 ký tự. Sau khi đổi, <b>mọi phiên đăng nhập của bạn</b> — kể cả phiên này và các thiết bị khác — sẽ kết thúc; bạn đăng nhập lại bằng mật khẩu mới.</p>
+      <form class="form" id="frm-password" novalidate>
+        <fieldset id="passwordFields" disabled>
+          <!-- Lets password managers pair the new password with the account. -->
+          <input type="text" id="pw-username" name="username" autocomplete="username" hidden>
+
+          <label for="pw-current">Mật khẩu hiện tại</label>
+          <input type="password" id="pw-current" name="current-password" autocomplete="current-password" required>
+
+          <label for="pw-new">Mật khẩu mới</label>
+          <input type="password" id="pw-new" name="new-password" autocomplete="new-password" minlength="12" maxlength="256" required>
+
+          <label for="pw-confirm">Nhập lại mật khẩu mới</label>
+          <input type="password" id="pw-confirm" autocomplete="new-password" minlength="12" maxlength="256" required>
+
+          <p class="form-msg err" id="passwordErr" role="alert" hidden></p>
+          <p class="form-msg ok" id="passwordOk" role="status" hidden></p>
+
+          <div class="btnrow"><button class="btn" type="submit" id="passwordSubmit">Đổi mật khẩu</button></div>
+        </fieldset>
+      </form>
+    </section>
+  </div>
+</main>
+
+<script type="module" src="web/account.js"></script>
+</body>
+</html>

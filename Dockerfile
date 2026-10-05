@@ -29,7 +29,7 @@ COPY web ./web
 COPY assets ./assets
 COPY canvas-online ./canvas-online
 COPY coaching-report ./coaching-report
-COPY index.html dashboard.html employee.html canvas.html admin.html activate.html ./
+COPY index.html dashboard.html employee.html canvas.html admin.html activate.html account.html ./
 
 # build = tsx scripts/build-public.ts (allowlisted public assets) && tsc -p
 # tsconfig.build.json (server + scripts → dist/). Then drop devDependencies.

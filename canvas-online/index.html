@@ -291,16 +291,22 @@ footer.app .gold{color:var(--gp-gold-500)}
   <div class="brandrow">
     <img class="mark" id="brandMark" alt="GoWise Partners">
     <div>
-      <div class="eyebrow">GoWise Partners · Performance Architecture</div>
+      <div class="eyebrow"><span data-brand-name>GoWise Partners</span> · Performance Architecture</div>
       <h1>Performance Architecture <span class="gp-accent">Canvas</span> — bản điền trực tuyến</h1>
       <p class="sub">Khung cấu trúc hiệu suất — từ mục tiêu đến hành trình tạo kết quả · Schema 3.0. Bản nháp được chia sẻ và tự lưu trên máy chủ; “Chốt phiên bản” tạo bản bất biến trong Lịch sử. Tải về Excel / PDF / Markdown / JSON để Leader và đội cùng theo dõi thực hiện.</p>
-      <nav class="sitenav-bar" aria-label="Điều hướng">
+      <!-- Shared shell (web/shell.js): fills the hidden account / admin /
+           logout slots from GET /auth/me + applies company branding. -->
+      <nav class="sitenav-bar" aria-label="Điều hướng" data-shell-nav>
         <a href="/dashboard.html">Bảng theo dõi</a>
-        <a class="current" href="/canvas-online/">Canvas Online</a>
+        <a class="current" href="/canvas-online/" aria-current="page">Canvas Online</a>
         <a href="/coaching-report/">Coaching Report</a>
+        <a href="/admin.html" data-shell-admin hidden>Quản trị</a>
+        <a href="/account.html" data-shell-account data-testid="account-name" style="margin-left:auto" hidden></a>
+        <a href="#" data-shell-logout hidden>Đăng xuất</a>
       </nav>
     </div>
   </div>
+  <script type="module" src="/web/shell.js"></script>
 </header>
 <main>
   <!-- Trạng thái từ chối / không tìm thấy — chỉ hiện khi API trả 404 -->

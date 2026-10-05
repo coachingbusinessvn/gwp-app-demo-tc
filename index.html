@@ -14,6 +14,8 @@
   <h1>Performance Follow-up</h1>
   <p class="sub">Theo dõi canvas hiệu suất của đội ngũ theo nhịp tuần: ai đang đúng nhịp, ai cần bạn vào cuộc, và điều gì đang chặn kết quả.</p>
 
+  <p class="notice" id="loginNotice" role="status" hidden></p>
+
   <label for="email">Email</label>
   <input type="email" id="email" name="email" autocomplete="username" required>
 
@@ -23,6 +25,8 @@
   <p class="err" id="loginErr" role="alert" hidden></p>
 
   <button class="btn" type="submit">Đăng nhập</button>
+
+  <p class="hint" data-testid="forgot-password-hint">Quên mật khẩu? Liên hệ owner/quản trị để nhận mã đặt lại.</p>
 </form>
 
 <script type="module" src="web/auth.js"></script>

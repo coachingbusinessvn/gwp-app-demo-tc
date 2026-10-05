@@ -145,16 +145,22 @@ footer.app .gold{color:var(--gp-gold-500)}
   <div class="brandrow">
     <img class="mark" id="brandMark" alt="GoWise Partners">
     <div>
-      <div class="eyebrow">GoWise Partners · Performance Coaching</div>
+      <div class="eyebrow"><span data-brand-name>GoWise Partners</span> · Performance Coaching</div>
       <h1>Coaching Report — <span class="gp-accent">ORACLE Grader</span></h1>
       <p class="sub">Ghi phiên coaching, chấm kỹ năng coach bằng grader ORACLE-v3 chạy trên AI nội bộ, xem trước rồi lưu báo cáo có phiên bản. Transcript chỉ tồn tại trong lần chấm — không lưu trong trình duyệt hay máy chủ.</p>
-      <nav class="sitenav-bar" aria-label="Điều hướng">
+      <!-- Shared shell (web/shell.js): fills the hidden account / admin /
+           logout slots from GET /auth/me + applies company branding. -->
+      <nav class="sitenav-bar" aria-label="Điều hướng" data-shell-nav>
         <a href="/dashboard.html">Bảng theo dõi</a>
         <a href="/canvas-online/">Canvas Online</a>
-        <a class="current" href="/coaching-report/">Coaching Report</a>
+        <a class="current" href="/coaching-report/" aria-current="page">Coaching Report</a>
+        <a href="/admin.html" data-shell-admin hidden>Quản trị</a>
+        <a href="/account.html" data-shell-account data-testid="account-name" style="margin-left:auto" hidden></a>
+        <a href="#" data-shell-logout hidden>Đăng xuất</a>
       </nav>
     </div>
   </div>
+  <script type="module" src="/web/shell.js"></script>
 </header>
 <main>
   <section class="card denied-card" id="deniedCard" hidden>
