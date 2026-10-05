@@ -56,6 +56,9 @@ function renderHeader(me, roles) {
       '<div><div class="brand">GoWise Partners</div><div class="appname">Performance Follow-up</div></div>' +
       '<nav class="sitenav" aria-label="Công cụ">' +
       '<a href="dashboard.html">Bảng theo dõi</a>' +
+      // Every signed-in user may coach or be coached; which sessions and
+      // reports they see is decided server-side by the report ACL.
+      '<a href="/coaching-report/">Coaching Report</a>' +
       adminNav +
       "</nav>" +
       '<div class="spacer"></div>' +

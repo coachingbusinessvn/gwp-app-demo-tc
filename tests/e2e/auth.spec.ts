@@ -110,7 +110,7 @@ test("refresh đồng thời giữa các tab không revoke nhầm (single-flight
   await expect(page).toHaveURL(/dashboard\.html$/);
 });
 
-test("bundle production không tải assets/data.js và trang không link mini-app demo", async ({
+test("bundle production không tải assets/data.js và header link tới Coaching Report", async ({
   page,
 }) => {
   const requested: string[] = [];
@@ -127,9 +127,13 @@ test("bundle production không tải assets/data.js và trang không link mini-a
     /\/assets\/(data|export)\.js(\?|$)/.test(u),
   );
   expect(demoAssets).toEqual([]);
-  // canvas-online is the real authenticated editor since task 2.5 — only
-  // coaching-report remains a demo mini-app that must not be linked.
-  for (const gone of ["coaching-report"]) {
-    await expect(page.locator(`a[href*="${gone}"]`)).toHaveCount(0);
-  }
+  // coaching-report is the real task-4.4 workflow — reachable from the
+  // shared header nav on every app page.
+  await expect(
+    page.locator('nav.sitenav a[href="/coaching-report/"]'),
+  ).toHaveText("Coaching Report");
+  await page.goto("/canvas-online/");
+  await expect(
+    page.locator('nav.sitenav-bar a[href="/coaching-report/"]'),
+  ).toHaveText("Coaching Report");
 });
