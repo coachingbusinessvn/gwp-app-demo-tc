@@ -31,6 +31,7 @@ import {
  *   GET  /canvases/:id/versions/:versionId        — one published snapshot
  *   POST /canvases/:id/versions/:versionId/restore — restore into the draft
  *   POST /canvases/:id/archive                    — archive (write-off flag)
+ *   POST /canvases/:id/unarchive                  — undo archive
  *   POST /canvases/:id/transfer                   — owner-only transfer
  *
  * Every handler is Bearer-only (requireAuth) and thin: parseBody + actorOf
@@ -245,6 +246,14 @@ export function canvasRoutes(deps: {
     requireAuth(auth),
     async (req: Request, res: Response) => {
       res.json(await canvas.archive(actorOf(res), pathId(req.params.id)));
+    },
+  );
+
+  router.post(
+    "/canvases/:id/unarchive",
+    requireAuth(auth),
+    async (req: Request, res: Response) => {
+      res.json(await canvas.unarchive(actorOf(res), pathId(req.params.id)));
     },
   );
 

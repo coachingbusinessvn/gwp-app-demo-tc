@@ -71,6 +71,8 @@ export const ERROR_MESSAGES = {
   REPORT_BRIDGE_INVALID: "Báo cáo này không dùng được làm đầu vào Renderer.",
   AI_INTERNAL:
     "Lỗi nội bộ khi chạy AI — thử lại; nếu lặp lại hãy báo admin kèm mã yêu cầu.",
+  CANVAS_NOT_ARCHIVED:
+    "Canvas đang hoạt động — không cần bỏ lưu trữ (tải lại trang để xem trạng thái mới).",
   CANVAS_ARCHIVED:
     "Canvas đã lưu trữ — chỉ xem, không chỉnh sửa hay chạy AI được nữa.",
   DRAFT_CONFLICT: "Bản nháp đã thay đổi — tải lại trang trước khi tiếp tục.",

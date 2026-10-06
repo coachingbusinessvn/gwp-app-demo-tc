@@ -12,6 +12,7 @@ import { fixture, type Persona } from "../helpers/fixture.js";
  *   POST /api/v1/canvases/:id/publish                  — idempotent publish
  *   POST /api/v1/canvases/:id/versions/:vid/restore    — restore into draft
  *   POST /api/v1/canvases/:id/archive                  — archive (write-off)
+ *   POST /api/v1/canvases/:id/unarchive                — undo archive
  *   POST /api/v1/canvases/:id/transfer                 — owner-only transfer
  *
  * Every concurrency invariant is proven on real PostgreSQL with Promise.all
@@ -95,6 +96,17 @@ function archive(
   return f
     .api(persona)
     .post(`/api/v1/canvases/${canvasId}/archive`)
+    .send({}) as unknown as Promise<TestResponse>;
+}
+
+function unarchive(
+  f: Fixture,
+  persona: Persona | undefined,
+  canvasId: string,
+): Promise<TestResponse> {
+  return f
+    .api(persona)
+    .post(`/api/v1/canvases/${canvasId}/unarchive`)
     .send({}) as unknown as Promise<TestResponse>;
 }
 
@@ -775,6 +787,74 @@ describe("POST /api/v1/canvases/:id/archive", () => {
       const again = await archive(f, "member", canvasId);
       expect(again.status).toBe(409);
       expect(again.body.code).toBe("CANVAS_ARCHIVED");
+    } finally {
+      await f.close();
+    }
+  });
+});
+
+describe("POST /api/v1/canvases/:id/unarchive", () => {
+  it("returns an archived canvas to active — writes work again, history kept, audited", async () => {
+    const f = await fixture({ seeded: true });
+    try {
+      const canvasId = await mustCreate(f, "member", f.ids.member, "Back");
+      expect((await archive(f, "member", canvasId)).status).toBe(200);
+
+      const res = await unarchive(f, "member", canvasId);
+      expect(res.status, JSON.stringify(res.body)).toBe(200);
+      expect(res.body.status).toBe("active");
+      expect(res.body.archivedAt).toBeNull();
+
+      // The flag and its who/when travel together (DB CHECK) — both cleared.
+      const row = await f.db("canvas").where({ id: canvasId }).first();
+      expect(row.status).toBe("active");
+      expect(row.archived_at).toBeNull();
+      expect(row.archived_by).toBeNull();
+
+      // Writes are open again: the live draft saves on its current revision.
+      const draft = await draftOf(f, canvasId);
+      const save = await putDraft(f, "member", canvasId, {
+        expectedRevision: draft.revision,
+        baseVersionId: draft.base_version_id,
+        body: publishableBody("Sau khi bỏ lưu trữ"),
+      });
+      expect(save.status, JSON.stringify(save.body)).toBe(200);
+
+      // The archive event stays in the audit trail next to the undo.
+      const actions = (
+        await f
+          .db("audit_event")
+          .where({ target_id: canvasId })
+          .whereIn("action", ["canvas.archive", "canvas.unarchive"])
+          .orderBy("created_at")
+          .select("action", "actor_id")
+      ).map((a: { action: string }) => a.action);
+      expect(actions).toEqual(["canvas.archive", "canvas.unarchive"]);
+    } finally {
+      await f.close();
+    }
+  });
+
+  it("is gated like archive — denied 404, unauthenticated 401, active canvas 409", async () => {
+    const f = await fixture({ seeded: true });
+    try {
+      const canvasId = await mustCreate(f, "member", f.ids.member);
+
+      // Not archived yet → state conflict, not a silent no-op.
+      const early = await unarchive(f, "member", canvasId);
+      expect(early.status).toBe(409);
+      expect(early.body.code).toBe("CANVAS_NOT_ARCHIVED");
+
+      expect((await archive(f, "member", canvasId)).status).toBe(200);
+      for (const p of ["admin", "outsider"] as Persona[]) {
+        expect((await unarchive(f, p, canvasId)).status, p).toBe(404);
+      }
+      expect((await unarchive(f, undefined, canvasId)).status).toBe(401);
+      expect((await unarchive(f, "owner", randomUUID())).status).toBe(404);
+
+      // Still archived after every denied attempt.
+      const row = await f.db("canvas").where({ id: canvasId }).first();
+      expect(row.status).toBe("archived");
     } finally {
       await f.close();
     }

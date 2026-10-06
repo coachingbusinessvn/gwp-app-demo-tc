@@ -362,6 +362,17 @@ export async function archiveCanvasRow(
     });
 }
 
+/** Undo archive — the flag and its who/when clear together (DB CHECK). */
+export async function unarchiveCanvasRow(
+  tx: Knex.Transaction,
+  companyId: string,
+  canvasId: string,
+): Promise<void> {
+  await tx("canvas")
+    .where({ id: canvasId, company_id: companyId })
+    .update({ status: "active", archived_at: null, archived_by: null });
+}
+
 /** Reassign the canvas owner (task 2.4 transferOwner — owner role only). */
 export async function transferCanvasOwner(
   tx: Knex.Transaction,

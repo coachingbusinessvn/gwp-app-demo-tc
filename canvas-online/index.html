@@ -183,6 +183,7 @@ ol.guide .sub-note{color:var(--gp-ink-soft)}
   border-left:4px solid var(--gp-slate-deep);border-radius:var(--gp-radius-sm);
   padding:14px 18px;margin-bottom:18px;font-size:13.5px}
 .archived-banner b{color:var(--gp-navy-900)}
+.archived-banner button{display:block;margin-top:10px}
 .manage-summary{display:grid;grid-template-columns:max-content 1fr;gap:4px 16px;margin:8px 0 4px;font-size:13.5px}
 .manage-summary dt{font-weight:600;color:var(--gp-ink-soft)}
 .manage-summary dd{margin:0;color:var(--gp-ink);overflow-wrap:anywhere}
@@ -410,6 +411,7 @@ footer.app .gold{color:var(--gp-gold-500)}
       <b>Canvas đã lưu trữ — chỉ xem.</b>
       Không thể sửa bản nháp, chốt phiên bản, chạy AI, đổi tên hay chuyển chủ.
       Các phiên bản đã chốt vẫn xem và tải về được trong “🕘 Lịch sử”.
+      <button type="button" id="btnUnarchive" class="add" data-testid="unarchive">Bỏ lưu trữ</button>
     </div>
 
     <!-- Quản lý canvas: đổi tên · chuyển chủ (owner) · lưu trữ -->

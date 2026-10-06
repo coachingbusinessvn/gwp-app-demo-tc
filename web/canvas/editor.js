@@ -1179,8 +1179,12 @@ async function init() {
       return saveState !== "error" && saveState !== "conflict";
     },
     onArchived: () => enterReadOnly(),
+    // Read-only mode froze autosave and disabled the form; a reload is the
+    // one clean way back to a writable editor with a fresh draft.
+    onUnarchived: () => location.reload(),
   });
   $("btnManage").addEventListener("click", () => manage.toggle());
+  $("btnUnarchive").addEventListener("click", () => manage.unarchive());
 
   bindToolbar();
   bindConflictUI();

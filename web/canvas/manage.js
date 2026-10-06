@@ -13,6 +13,8 @@
  *   (spec §3/§4) — other roles see why the control is unavailable. The
  *   picker lists ACTIVE users (every directory page). A confirm dialog
  *   spells out the permission impact before anything is sent.
+ * - Unarchive: POST /canvases/:id/unarchive (same gate as archive) —
+ *   confirmed, then the editor reloads into the writable state.
  * - Archive: POST /canvases/:id/archive. A confirm dialog explains the
  *   consequences (read-only, history kept, no in-app undo). Pending
  *   autosave is flushed first so nothing typed is lost.
@@ -87,6 +89,7 @@ const STATUS_LABEL = { active: "Đang hoạt động", archived: "Đã lưu tr�
  *   beforeArchive() → Promise<boolean>  settle pending edits; false aborts
  *   onChanged(dto)    any successful lifecycle op (new detail)
  *   onArchived(dto)   after archive succeeds — editor goes read-only
+ *   onUnarchived(dto) after unarchive succeeds — editor reopens writable
  */
 export function mountCanvasManage({
   panel,
@@ -95,6 +98,7 @@ export function mountCanvasManage({
   beforeArchive,
   onChanged,
   onArchived,
+  onUnarchived,
 }) {
   let canvas = detail;
   const isOwnerRole = identity.roles.includes("owner");
@@ -158,14 +162,17 @@ export function mountCanvasManage({
   /* ---- archive ---- */
   const archiveBox = el("div", "manage-block");
   const archiveBtn = button("Lưu trữ canvas", "danger-outline", "manageArchive");
+  const unarchiveBtn = button("Bỏ lưu trữ", "add", "manageUnarchive");
+  unarchiveBtn.dataset.testid = "manage-unarchive";
   archiveBox.append(
     el("label", null, "Lưu trữ"),
     el(
       "p",
       "note",
-      "Lưu trữ khi canvas không còn dùng: chuyển sang chỉ xem, lịch sử phiên bản giữ nguyên.",
+      "Lưu trữ khi canvas không còn dùng: chuyển sang chỉ xem, lịch sử phiên bản giữ nguyên. Có thể bỏ lưu trữ để mở lại bất cứ lúc nào.",
     ),
     archiveBtn,
+    unarchiveBtn,
   );
 
   body.append(summary, renameBox, transferBox, archiveBox, status);
@@ -193,9 +200,10 @@ export function mountCanvasManage({
         "Sau khi chuyển, quyền xem/sửa đi theo chủ mới (chủ mới, quản lý của họ và owner). Lịch sử phiên bản và tác giả giữ nguyên.";
       fillOwnerOptions();
     }
-    if (archived) {
-      archiveBtn.textContent = "Đã lưu trữ";
-    }
+    // Archived: every op above is closed; only "Bỏ lưu trữ" stays live.
+    archiveBtn.hidden = archived;
+    unarchiveBtn.hidden = !archived;
+    unarchiveBtn.disabled = !archived;
   }
 
   function fillOwnerOptions() {
@@ -333,7 +341,7 @@ export function mountCanvasManage({
       lines: [
         "Canvas chuyển sang CHỈ XEM: không sửa bản nháp, không chốt phiên bản, không chạy AI, không đổi tên hay chuyển chủ.",
         "Các phiên bản đã chốt và bản nháp hiện tại được giữ nguyên — vẫn xem và tải về được trong “Lịch sử”.",
-        "Ứng dụng hiện chưa có thao tác bỏ lưu trữ — cần owner/quản trị hệ thống can thiệp nếu muốn mở lại.",
+        "Muốn mở lại: “⚙ Quản lý canvas” → “Bỏ lưu trữ”.",
       ],
       confirmLabel: "Lưu trữ canvas",
     });
@@ -370,6 +378,45 @@ export function mountCanvasManage({
     }
   });
 
+  async function unarchive() {
+    const ok = await confirmDialog({
+      testid: "unarchive-dialog",
+      title: "Bỏ lưu trữ canvas này?",
+      intro: `“${canvas.name}” sẽ quay lại trạng thái đang hoạt động.`,
+      lines: [
+        "Canvas mở lại để sửa bản nháp, chốt phiên bản và chạy AI như trước.",
+        "Bản nháp và các phiên bản đã chốt giữ nguyên; lần lưu trữ trước vẫn nằm trong nhật ký.",
+      ],
+      confirmLabel: "Bỏ lưu trữ",
+    });
+    if (!ok) {
+      status.textContent = "Đã hủy bỏ lưu trữ.";
+      return;
+    }
+    unarchiveBtn.disabled = true;
+    status.textContent = "Đang bỏ lưu trữ…";
+    try {
+      const res = await apiFetch(`/canvases/${canvas.id}/unarchive`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      if (!res.ok) {
+        status.textContent = await failMessage(res, "bỏ lưu trữ");
+        return;
+      }
+      const dto = await res.json();
+      adopt(dto);
+      status.textContent = "Đã bỏ lưu trữ — đang mở lại trình sửa…";
+      onUnarchived?.(dto);
+    } catch {
+      status.textContent = "Mất kết nối máy chủ — thử lại sau.";
+    } finally {
+      render();
+    }
+  }
+  unarchiveBtn.addEventListener("click", unarchive);
+
   render();
   void loadUsers();
 
@@ -383,5 +430,6 @@ export function mountCanvasManage({
       panel.scrollIntoView({ behavior: "smooth" });
     },
     current: () => canvas,
+    unarchive,
   };
 }

@@ -2575,6 +2575,48 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/canvases/{id}/unarchive:
+    post:
+      tags: [canvas]
+      summary: Undo archive — the canvas becomes editable again
+      description: >
+        Flips status back to active and clears archived_at/archived_by
+        (they travel with the flag). Gated like archive: active actor,
+        canvas in the company, subject access on the owner — denials are
+        the uniform 404. The live draft and every published version are
+        untouched. Unarchiving an active canvas is 409 CANVAS_NOT_ARCHIVED.
+        Audits canvas.unarchive, metadata only; the earlier canvas.archive
+        row stays.
+      operationId: unarchiveCanvas
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CanvasId"
+      responses:
+        "200":
+          description: The canvas detail after unarchiving.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Canvas"
+        "401":
+          description: Missing/expired/revoked session or inactive user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: No such canvas, or no subject access to its owner.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: The canvas is not archived (CANVAS_NOT_ARCHIVED).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/v1/canvases/{id}/transfer:
     post:
       tags: [canvas]

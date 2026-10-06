@@ -42,8 +42,11 @@ off — the static demo lives at commit `8978129`). Follow-up work on `main`:
 Gates on `main` after this pass: vitest 451/451 (41 files), Playwright
 47/47, typecheck clean, build 48 files.
 
-Not built (no API, out of scope or needs a decision): canvas unarchive;
-coachee visibility of their own sessions (spec §6 says no by default);
+Canvas unarchive added afterwards: `POST /canvases/:id/unarchive` (same
+gate as archive; 409 CANVAS_NOT_ARCHIVED on an active canvas) + "Bỏ lưu
+trữ" in the archived banner and the Quản lý canvas card.
+
+Not built (out of scope or needs a decision): coachee visibility of their own sessions (spec §6 says no by default);
 SSO/MCP/mobile (spec §12).
 
 ## Open items — require human decision, not auto-waived

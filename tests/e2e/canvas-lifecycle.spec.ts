@@ -147,7 +147,7 @@ test.describe("canvas lifecycle — Quản lý canvas", () => {
     const dialog = page.getByTestId("archive-dialog");
     await expect(dialog).toBeVisible();
     await expect(dialog).toContainText("CHỈ XEM");
-    await expect(dialog).toContainText("chưa có thao tác bỏ lưu trữ");
+    await expect(dialog).toContainText("Bỏ lưu trữ");
     await dialog.getByRole("button", { name: "Lưu trữ canvas" }).click();
 
     await expect(page.getByTestId("archived-banner")).toBeVisible();
@@ -163,6 +163,39 @@ test.describe("canvas lifecycle — Quản lý canvas", () => {
       timeout: 20_000,
     });
     await expect(page.getByLabel("Mục tiêu (Goal)")).toBeDisabled();
+  });
+
+  test("unarchive from the banner reopens the editor writable", async ({ page }) => {
+    await loginAs(page, "member");
+    const id = await createCanvas(page, `Unarchive ${RUN}`);
+    const archived = await apiAsPage(page, "POST", `/canvases/${id}/archive`, {});
+    expect(archived.status).toBe(200);
+    await openEditor(page, id);
+    await expect(page.getByTestId("archived-banner")).toBeVisible({
+      timeout: 20_000,
+    });
+
+    // Cancel keeps it archived; confirm unarchives and reloads writable.
+    await page.getByTestId("unarchive").click();
+    const dialog = page.getByTestId("unarchive-dialog");
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Hủy" }).click();
+    await expect(page.getByTestId("archived-banner")).toBeVisible();
+
+    await page.getByTestId("unarchive").click();
+    await dialog.getByRole("button", { name: "Bỏ lưu trữ" }).click();
+    await expect(page.getByTestId("archived-banner")).toBeHidden({
+      timeout: 20_000,
+    });
+    const goal = page.getByLabel("Mục tiêu (Goal)");
+    await expect(goal).toBeEnabled();
+    await expect(page.getByRole("button", { name: /Chốt phiên bản/ })).toBeVisible();
+    await goal.fill(`Sửa lại sau khi bỏ lưu trữ ${RUN}`);
+    await expect(page.getByTestId("save-state")).toHaveText(/Đã lưu/, {
+      timeout: 15_000,
+    });
+    const detail = await apiAsPage(page, "GET", `/canvases/${id}`);
+    expect((detail.body as { status: string }).status).toBe("active");
   });
 
   test("toolbar '＋ Tạo canvas mới' opens the creation flow", async ({ page }) => {

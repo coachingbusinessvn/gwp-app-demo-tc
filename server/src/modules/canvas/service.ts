@@ -22,6 +22,7 @@ import {
 import type { SubjectPolicy } from "../authorization/policy.js";
 import {
   archiveCanvasRow,
+  unarchiveCanvasRow,
   deleteDraftByCanvas,
   findCanvasById,
   findDraftByCanvas,
@@ -1048,6 +1049,47 @@ export function createCanvasService({ db, policy, clock }: CanvasDeps) {
   }
 
   /**
+   * Unarchive: the inverse flag flip, gated exactly like archive (active
+   * actor → canvas in company → subject access on the OWNER, denials the
+   * uniform 404) minus the archived check, which inverts — an active
+   * canvas is 409 CANVAS_NOT_ARCHIVED (stale caller view, not a no-op).
+   * The live draft and every published version are untouched; the
+   * canvas.archive audit row stays next to this one.
+   */
+  async function unarchive(
+    actor: ActorContext,
+    canvasId: Id,
+  ): Promise<CanvasDto> {
+    return db.transaction(async (tx) => {
+      await lockCompany(tx, actor.companyId);
+      await assertActiveActor(tx, actor.companyId, actor.userId);
+      const canvas = await lockCanvasById(tx, actor.companyId, canvasId);
+      if (!canvas) throw notFound();
+      await policy.assertSubjectAccess(actor, canvas.owner_user_id, tx);
+      if (canvas.status !== "archived") {
+        throw new AppError(
+          409,
+          "CANVAS_NOT_ARCHIVED",
+          "Canvas chưa lưu trữ — không có gì để bỏ lưu trữ",
+        );
+      }
+      await unarchiveCanvasRow(tx, actor.companyId, canvasId);
+      await appendAudit(tx, {
+        companyId: actor.companyId,
+        actorId: actor.userId,
+        action: "canvas.unarchive",
+        targetType: "canvas",
+        targetId: canvasId,
+        outcome: "success",
+        requestId: actor.requestId,
+        metadata: { status: "active" },
+      });
+      const updated = await findCanvasById(tx, actor.companyId, canvasId);
+      return canvasDto(tx, actor, updated ?? canvas);
+    });
+  }
+
+  /**
    * Transfer ownership (task 2.4): OWNER ROLE ONLY — checked on fresh role
    * rows before anything else, so member/manager/admin are denied by role
    * (403) even where subject access would pass; this is deliberately not
@@ -1215,6 +1257,7 @@ export function createCanvasService({ db, policy, clock }: CanvasDeps) {
     publish,
     restore,
     archive,
+    unarchive,
     transferOwner,
     rename,
   };
