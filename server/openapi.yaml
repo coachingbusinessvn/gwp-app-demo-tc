@@ -2892,12 +2892,14 @@ paths:
       tags: [coaching]
       summary: List the caller's coaching sessions
       description: >
-        Lets a session without a report be resumed after a reload. Scope
-        mirrors the existing session relation and never widens it: an
-        owner sees every session of the company; anyone else only sessions
-        where they are the coach of record or the creator. The coachee,
-        other managers, admin and readers of a linked canvas see nothing
-        (spec §6). Metadata only. Ordered newest-created first over
+        Lets a session without a report be resumed after a reload. An owner
+        sees every session of the company; anyone else sees sessions where
+        they are the coach of record, the creator, or the coachee. The
+        coachee's view is read-only (relation "coachee": the write gate is
+        unchanged and reports keep their own ACL), and a linked canvas is
+        shown to them only when they own it (else canvasId is null). Other
+        managers, admin and readers of a linked canvas see nothing.
+        Metadata only. Ordered newest-created first over
         (created_at, id); limit defaults to 25, max 100; cursor is the
         opaque token from nextCursor.
       operationId: listCoachingSessions
@@ -4867,7 +4869,7 @@ components:
     CoachingSessionListItem:
       type: object
       required:
-        [id, coachUserId, coacheeUserId, canvasId, occurredAt, createdBy, createdAt]
+        [id, coachUserId, coacheeUserId, canvasId, occurredAt, createdBy, createdAt, relation]
       properties:
         id:
           type: string
@@ -4891,6 +4893,12 @@ components:
         createdAt:
           type: string
           format: date-time
+        relation:
+          type: string
+          enum: [coach, creator, owner, coachee]
+          description: >
+            Why the caller sees this session (precedence coach > creator >
+            owner > coachee). Only "coachee" is a read-only view.
     CoachingSessionPage:
       type: object
       required: [items, nextCursor]

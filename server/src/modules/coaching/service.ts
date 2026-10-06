@@ -104,6 +104,10 @@ interface SessionRow {
   created_at: Date | string;
 }
 
+/** Why the actor sees a session — precedence coach > creator > owner >
+ * coachee. Only "coachee" is a read-only view (no grading, no reports). */
+export type SessionRelation = "coach" | "creator" | "owner" | "coachee";
+
 export interface SessionListItemDto {
   id: string;
   coachUserId: string;
@@ -112,6 +116,7 @@ export interface SessionListItemDto {
   occurredAt: string;
   createdBy: string;
   createdAt: string;
+  relation: SessionRelation;
 }
 
 function toReportDto(row: ReportRow): ReportDto {
@@ -310,6 +315,11 @@ export function createCoachingService({
       await assertActiveActor(tx, actor.companyId, actor.userId);
       const isOwner = await actorIsOwner(tx, actor);
       let q = tx("coaching_session as s")
+        // Linked canvas owner — decides whether a coachee-only viewer may
+        // see the link (their own canvas) or gets null.
+        .leftJoin("canvas as c", function () {
+          this.on("c.id", "s.canvas_id").andOn("c.company_id", "s.company_id");
+        })
         .where("s.company_id", actor.companyId)
         .orderBy([
           { column: "s.created_at", order: "desc" },
@@ -324,6 +334,7 @@ export function createCoachingService({
           "s.occurred_at",
           "s.created_by",
           "s.created_at",
+          "c.owner_user_id as canvas_owner_user_id",
           tx.raw(
             `to_char(s.created_at AT TIME ZONE 'UTC', ` +
               `'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_ts`,
@@ -336,18 +347,40 @@ export function createCoachingService({
           opts.cursor.id,
         ]);
       }
-      const rows = (await q) as (SessionRow & { cursor_ts: string })[];
+      const rows = (await q) as (SessionRow & {
+        cursor_ts: string;
+        canvas_owner_user_id: string | null;
+      })[];
       const items = rows.slice(0, opts.limit);
+      const relationOf = (r: SessionRow): SessionRelation =>
+        r.coach_user_id === actor.userId
+          ? "coach"
+          : r.created_by === actor.userId
+            ? "creator"
+            : isOwner
+              ? "owner"
+              : "coachee";
       return {
-        items: items.map((r) => ({
-          id: r.id,
-          coachUserId: r.coach_user_id,
-          coacheeUserId: r.coachee_user_id,
-          canvasId: r.canvas_id,
-          occurredAt: new Date(r.occurred_at).toISOString(),
-          createdBy: r.created_by,
-          createdAt: new Date(r.created_at).toISOString(),
-        })),
+        items: items.map((r) => {
+          const relation = relationOf(r);
+          // A coachee sees the link only to a canvas they own — never the
+          // id of one they may have no read access to (spec §6).
+          const canvasId =
+            relation === "coachee" &&
+            r.canvas_owner_user_id !== actor.userId
+              ? null
+              : r.canvas_id;
+          return {
+            id: r.id,
+            coachUserId: r.coach_user_id,
+            coacheeUserId: r.coachee_user_id,
+            canvasId,
+            occurredAt: new Date(r.occurred_at).toISOString(),
+            createdBy: r.created_by,
+            createdAt: new Date(r.created_at).toISOString(),
+            relation,
+          };
+        }),
         nextCursor:
           rows.length > opts.limit
             ? `${items[items.length - 1].cursor_ts}|${items[items.length - 1].id}`

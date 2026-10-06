@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { fixture, type Persona } from "../helpers/fixture.js";
 
@@ -5,17 +6,23 @@ import { fixture, type Persona } from "../helpers/fixture.js";
  * GET /api/v1/coaching-sessions — the actor's own sessions, so a session
  * without a report survives a page reload.
  *
- * Visibility mirrors the existing session relation (policy.ts
- * assertSessionWrite) and never widens it: an owner sees the company; anyone
- * else sees only sessions where they are the coach of record or the
- * creator. The coachee, the coachee's other managers, admin and readers of
- * a linked canvas see nothing (spec §6: none of them gain coaching rights
- * by relation). Keyset pagination is the shared (created_at, id) cursor —
+ * Visibility: an owner sees the company; anyone else sees sessions where
+ * they are the coach of record, the creator, or the COACHEE (read-only —
+ * the write gate is unchanged, and reports keep their own ACL). The
+ * coachee's other managers, admin and readers of a linked canvas see
+ * nothing. Each item carries `relation` so clients know which rows are
+ * read-only; a coachee-only row hides a linked canvas that isn't theirs. Keyset pagination is the shared (created_at, id) cursor —
  * limit 1..100, malformed cursors 400.
  *
  * Seed tree: member → manager → owner, outsider → owner, admin.
  */
 type Fixture = Awaited<ReturnType<typeof fixture>>;
+const canonical = JSON.parse(
+  readFileSync(
+    new URL("../fixtures/canvas/canonical.json", import.meta.url),
+    "utf8",
+  ),
+) as unknown;
 type TestResponse = {
   status: number;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -38,17 +45,18 @@ async function mustCreate(
   coachUserId: string,
   coacheeUserId: string,
   occurredAt = "2026-09-20T10:00:00.000Z",
+  canvasId?: string,
 ): Promise<string> {
   const res = (await f
     .api(persona)
     .post("/api/v1/coaching-sessions")
-    .send({ coachUserId, coacheeUserId, occurredAt })) as unknown as TestResponse;
+    .send({ coachUserId, coacheeUserId, occurredAt, canvasId })) as unknown as TestResponse;
   expect(res.status, JSON.stringify(res.body)).toBe(201);
   return res.body.id as string;
 }
 
 describe("GET /api/v1/coaching-sessions", () => {
-  it("scopes to coach-of-record / creator; owner sees all; coachee, admin and outsiders see none", async () => {
+  it("scopes to coach / creator / coachee; owner sees all; admin and unrelated users see none", async () => {
     const f = await fixture({ seeded: true });
     try {
       const mine = await mustCreate(f, "manager", f.ids.manager, f.ids.member);
@@ -69,13 +77,33 @@ describe("GET /api/v1/coaching-sessions", () => {
         [mine, onBehalf, ownerOwn].sort(),
       );
 
-      // The coachee never sees sessions about them; nor do admin/outsider.
-      for (const p of ["member", "admin", "outsider"] as const) {
-        const r = await list(f, p);
-        expect(r.status, p).toBe(200);
-        expect(r.body.items, p).toEqual([]);
+      // The coachee sees the sessions about them — read-only relation.
+      const coachee = await list(f, "member");
+      expect(coachee.status).toBe(200);
+      expect(
+        coachee.body.items.map((s: { id: string }) => s.id).sort(),
+      ).toEqual([mine, onBehalf].sort());
+      for (const item of coachee.body.items) {
+        expect(item.relation).toBe("coachee");
       }
+      const outsider = await list(f, "outsider");
+      expect(outsider.body.items.map((s: { id: string }) => s.id)).toEqual([
+        ownerOwn,
+      ]);
+
+      // Admin is unrelated to every session — nothing.
+      const admin = await list(f, "admin");
+      expect(admin.status).toBe(200);
+      expect(admin.body.items).toEqual([]);
       expect((await list(f, undefined)).status).toBe(401);
+
+      // Relation precedence for the other viewers.
+      const rel = (r: TestResponse, id: string) =>
+        r.body.items.find((s: { id: string }) => s.id === id).relation;
+      expect(rel(mgr, mine)).toBe("coach");
+      expect(rel(mgr, onBehalf)).toBe("coach");
+      expect(rel(own, onBehalf)).toBe("creator");
+      expect(rel(own, mine)).toBe("owner");
 
       const item = mgr.body.items.find((s: { id: string }) => s.id === mine);
       expect(item).toEqual({
@@ -86,9 +114,52 @@ describe("GET /api/v1/coaching-sessions", () => {
         occurredAt: "2026-09-20T10:00:00.000Z",
         createdBy: f.ids.manager,
         createdAt: expect.any(String),
+        relation: "coach",
       });
       // Newest first.
       expect(own.body.items[0].id).toBe(ownerOwn);
+    } finally {
+      await f.close();
+    }
+  });
+
+  it("shows a coachee a linked canvas only when it is their own", async () => {
+    const f = await fixture({ seeded: true });
+    try {
+      const mkCanvas = async (ownerUserId: string, name: string) => {
+        const res = (await f
+          .api("manager")
+          .post("/api/v1/canvases")
+          .send({ ownerUserId, name, body: canonical })) as unknown as TestResponse;
+        expect(res.status, JSON.stringify(res.body)).toBe(201);
+        return res.body.id as string;
+      };
+      const theirs = await mkCanvas(f.ids.member, "Canvas của coachee");
+      const managers = await mkCanvas(f.ids.manager, "Canvas của quản lý");
+      const withTheirs = await mustCreate(
+        f, "manager", f.ids.manager, f.ids.member,
+        "2026-09-21T10:00:00.000Z", theirs,
+      );
+      const withManagers = await mustCreate(
+        f, "manager", f.ids.manager, f.ids.member,
+        "2026-09-22T10:00:00.000Z", managers,
+      );
+
+      const byId = (r: TestResponse) =>
+        Object.fromEntries(
+          r.body.items.map((s: { id: string; canvasId: string | null }) => [
+            s.id,
+            s.canvasId,
+          ]),
+        );
+      const coachee = byId(await list(f, "member"));
+      expect(coachee[withTheirs]).toBe(theirs);
+      expect(coachee[withManagers]).toBeNull();
+
+      // The coach still sees both links.
+      const coach = byId(await list(f, "manager"));
+      expect(coach[withTheirs]).toBe(theirs);
+      expect(coach[withManagers]).toBe(managers);
     } finally {
       await f.close();
     }

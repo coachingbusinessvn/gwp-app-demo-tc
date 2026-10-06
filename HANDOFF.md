@@ -46,8 +46,13 @@ Canvas unarchive added afterwards: `POST /canvases/:id/unarchive` (same
 gate as archive; 409 CANVAS_NOT_ARCHIVED on an active canvas) + "Bỏ lưu
 trữ" in the archived banner and the Quản lý canvas card.
 
-Not built (out of scope or needs a decision): coachee visibility of their own sessions (spec §6 says no by default);
-SSO/MCP/mobile (spec §12).
+Coachee visibility (2026-10-06, product decision — spec §6 updated):
+`GET /coaching-sessions` also returns sessions where the caller is the
+coachee, with `relation: "coachee"` (read-only; linked canvas shown only
+if it is theirs). The coaching page lists them under "Phiên bạn được
+coach". Reports are unchanged — a coachee reads one only via a share.
+
+Not built (out of scope): SSO/MCP/mobile (spec §12).
 
 ## Open items — require human decision, not auto-waived
 

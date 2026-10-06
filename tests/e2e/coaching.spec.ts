@@ -367,7 +367,8 @@ test.describe("coaching report workflow (task 4.4)", () => {
     await expect(page.getByTestId("session-current")).toContainText(
       "Fixture Member",
     );
-    // The coachee never sees the coach's session list.
+    // The coachee sees the session about them — read-only: it is listed
+    // under "Phiên bạn được coach", never in the grading picker.
     const ctx = await page.context().browser()!.newContext({
       baseURL: APP_ORIGIN,
     });
@@ -376,10 +377,23 @@ test.describe("coaching report workflow (task 4.4)", () => {
       await loginAs(member, "member");
       const list = await apiAsPage(member, "GET", "/coaching-sessions?limit=100");
       expect(list.status).toBe(200);
-      const ids = (list.body as { items: { id: string }[] }).items.map(
-        (s) => s.id,
+      const mine = (
+        list.body as { items: { id: string; relation: string }[] }
+      ).items.find((s) => s.id === sessionId);
+      expect(mine?.relation).toBe("coachee");
+
+      await member.goto("/coaching-report/");
+      const aboutMe = member.getByTestId("coachee-sessions");
+      await expect(aboutMe).toBeVisible({ timeout: 20_000 });
+      await expect(aboutMe).toContainText("Phiên bạn được coach");
+      await expect(member.getByTestId("coachee-session").first()).toContainText(
+        "Fixture Manager",
       );
-      expect(ids).not.toContain(sessionId);
+      await expect(
+        member
+          .getByTestId("session-existing")
+          .locator(`option[value="${sessionId}"]`),
+      ).toHaveCount(0);
     } finally {
       await ctx.close();
     }

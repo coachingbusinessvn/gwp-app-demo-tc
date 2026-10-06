@@ -16,6 +16,11 @@
  *   server lets this user see — owner: the company; anyone else: sessions
  *   they coach or created. A session without a report therefore survives
  *   a reload and can be resumed. Sessions are never kept in localStorage.
+ * - Rows with relation "coachee" (sessions ABOUT this user, which they
+ *   neither coach nor created) are read-only: they render in a separate
+ *   "Phiên bạn được coach" list and never enter the grading picker — the
+ *   server's write gate would refuse them anyway, and reports keep their
+ *   own ACL (a coachee reads one only when it is shared with them).
  */
 import { apiFetch, apiFetchAll } from "../api.js";
 import { readFriendlyError } from "../ai/status.js";
@@ -101,7 +106,29 @@ export function mountSession(host, { identity, onSession }) {
   const currentNote = el("p", "stage-note");
   currentNote.dataset.testid = "session-current";
 
-  host.append(grid, dateLabel, dateInput, createBtn, status, existingWrap, currentNote);
+  /* ---- read-only: sessions about me (relation "coachee") ---- */
+  const aboutMeWrap = el("div", "about-me");
+  aboutMeWrap.dataset.testid = "coachee-sessions";
+  aboutMeWrap.hidden = true;
+  const aboutMeTitle = el("label", null, "Phiên bạn được coach");
+  const aboutMeNote = el(
+    "p",
+    "note",
+    "Chỉ xem — báo cáo chấm điểm thuộc về coach; bạn đọc được khi coach hoặc owner chia sẻ.",
+  );
+  const aboutMeList = el("ul", "about-me-list");
+  aboutMeWrap.append(aboutMeTitle, aboutMeNote, aboutMeList);
+
+  host.append(
+    grid,
+    dateLabel,
+    dateInput,
+    createBtn,
+    status,
+    existingWrap,
+    currentNote,
+    aboutMeWrap,
+  );
 
   /**
    * In-memory session registry — id → {id, coachUserId, coacheeUserId,
@@ -109,6 +136,8 @@ export function mountSession(host, { identity, onSession }) {
    * from the server; sessions created here are re-inserted at the top).
    */
   let sessions = new Map();
+  /** Sessions where this user is only the coachee — display only. */
+  let aboutMe = [];
   /** Session ids that already carry at least one visible report. */
   let reported = new Set();
   let currentId = null;
@@ -132,6 +161,23 @@ export function mountSession(host, { identity, onSession }) {
   function sessionLabel(s) {
     const tag = reported.has(s.id) ? "đã có báo cáo" : "chưa có báo cáo";
     return `${userName(s.coacheeUserId)} · ${fmtWhen(s.occurredAt)} · coach ${userName(s.coachUserId)} · ${tag}`;
+  }
+
+  function refreshAboutMe() {
+    aboutMeWrap.hidden = aboutMe.length === 0;
+    aboutMeList.replaceChildren(
+      ...aboutMe.map((s) => {
+        const li = el("li");
+        li.dataset.testid = "coachee-session";
+        const canvas = s.canvasId
+          ? canvases.find((c) => c.id === s.canvasId)
+          : null;
+        li.textContent =
+          `${fmtWhen(s.occurredAt)} · coach ${userName(s.coachUserId)}` +
+          (canvas ? ` · canvas “${canvas.name}”` : "");
+        return li;
+      }),
+    );
   }
 
   function refreshExisting() {
@@ -245,6 +291,10 @@ export function mountSession(host, { identity, onSession }) {
     }
     if (sessionsR.status === "fulfilled") {
       for (const s of sessionsR.value) {
+        if (s.relation === "coachee") {
+          aboutMe.push(s);
+          continue;
+        }
         if (!sessions.has(s.id)) sessions.set(s.id, s);
       }
     } else {
@@ -280,6 +330,7 @@ export function mountSession(host, { identity, onSession }) {
     );
     refreshCurrent();
     refreshExisting();
+    refreshAboutMe();
   })().catch(() => {
     status.textContent = "Không tải được dữ liệu phiên — thử tải lại trang.";
   });

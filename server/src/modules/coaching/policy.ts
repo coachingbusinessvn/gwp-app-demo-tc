@@ -161,14 +161,17 @@ export interface CoachingSessionRow {
 }
 
 /**
- * Session LIST scope (GET /coaching-sessions) — the same relation
- * assertSessionWrite treats as "related", never wider:
+ * Session LIST scope (GET /coaching-sessions) — read-only visibility:
  *
  *   :isOwner OR s.coach_user_id = :actor OR s.created_by = :actor
+ *            OR s.coachee_user_id = :actor
  *
- * The coachee, other managers in the tree, admin and readers of a linked
- * canvas are deliberately absent (spec §6: none of them gain coaching
- * rights by relation). Queries must alias coaching_session as `s`.
+ * The coachee may SEE the sessions about them (metadata: coach, time,
+ * their own linked canvas) — product decision 2026-10-06. Seeing is all:
+ * assertSessionWrite is unchanged, and reports keep their independent ACL
+ * (a report evaluates the coach; the coachee reads one only via an
+ * explicit share). Other managers in the tree, admin and readers of a
+ * linked canvas stay absent. Queries must alias coaching_session as `s`.
  */
 export function applySessionListScope(
   q: Knex.QueryBuilder,
@@ -177,10 +180,9 @@ export function applySessionListScope(
 ): Knex.QueryBuilder {
   if (isOwner) return q;
   return q.andWhere(function () {
-    this.where("s.coach_user_id", actor.userId).orWhere(
-      "s.created_by",
-      actor.userId,
-    );
+    this.where("s.coach_user_id", actor.userId)
+      .orWhere("s.created_by", actor.userId)
+      .orWhere("s.coachee_user_id", actor.userId);
   });
 }
 

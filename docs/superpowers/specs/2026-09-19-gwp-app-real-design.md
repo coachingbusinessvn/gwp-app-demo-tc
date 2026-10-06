@@ -271,6 +271,9 @@ coach/coachee, có thể liên kết canvas nhưng chỉ khi actor có quyền �
   ràng cho user cùng company bằng `report_share`; creator nhập hộ không tự có quyền share.
 - Coachee, cấp trên mới hoặc người đọc canvas không tự có quyền report. Thu hồi share
   có hiệu lực từ request tiếp theo; quyền canvas/report luôn kiểm tra độc lập.
+  *Cập nhật 2026-10-06:* coachee **xem được danh sách phiên về mình** (metadata: coach,
+  thời điểm, canvas liên kết chỉ khi là canvas của họ) — chỉ xem, không ghi/chấm; report
+  vẫn theo quy tắc trên (chỉ đọc khi được share).
 - Khi dùng report làm input Renderer, actor cần cả quyền đọc report và sửa canvas đích;
   không tự chia sẻ toàn bộ report, transcript hay điểm coach vào canvas.
 - Transcript chỉ tồn tại trong bộ nhớ cho lần xử lý; **không lưu raw transcript** trong
