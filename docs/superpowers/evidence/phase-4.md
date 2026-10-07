@@ -101,6 +101,9 @@ Commits theo task: 4.1 `e93e8a0`, 4.2 `7a51d86`, 4.3 `282c64c`,
 3. **Benchmark trên host khách hàng thật**: số liệu hiện có đo trên
    12 CPU/32 GiB; pilot site cần chạy lại `npm run test:performance`
    trên phần cứng triển khai.
+4. **Restore sạch + rehearsal nâng cấp Phase3→4; RPO/RTO đo thực**:
+   drill hiện restore vào `gwp_restore_test` cùng PG, chưa rehearsal
+   nâng cấp, RPO ≤ 24h / RTO ≤ 4h mới là mục tiêu.
 
 ## Kiểm chứng lại trên main 2026-10-07
 

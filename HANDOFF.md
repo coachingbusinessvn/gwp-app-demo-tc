@@ -71,6 +71,10 @@ Not built (out of scope): SSO/MCP/mobile (spec §12).
    re-run `npm run test:performance` on the deployment box.
 4. **Docs approval** — `phase-4.md` + the Vietnamese runbooks
    (`docs/operations/*.md`) need human sign-off per the exit gate.
+5. **Restore/upgrade evidence** — restore drill only targets
+   `gwp_restore_test` on the same PG; no Phase3→4 upgrade rehearsal;
+   RPO/RTO are targets (≤24h/≤4h), not measured — record drill elapsed
+   time + backup age and rehearse an upgrade from a Phase-3 fixture.
 
 ## Last verified gates (on `9742bfd`, 2026-10-07)
 
