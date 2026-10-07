@@ -101,3 +101,28 @@ Commits theo task: 4.1 `e93e8a0`, 4.2 `7a51d86`, 4.3 `282c64c`,
 3. **Benchmark trên host khách hàng thật**: số liệu hiện có đo trên
    12 CPU/32 GiB; pilot site cần chạy lại `npm run test:performance`
    trên phần cứng triển khai.
+
+## Re-verify on main 2026-10-07
+
+HEAD `9742bfd` (`main`). Gate do worker Codex (gpt-6-astra) chạy trên
+host dev 32 CPU / 30 GiB, Node v24.21.0; PostgreSQL test từ
+`compose.test.yaml`.
+
+- `npm test` — lượt đầu **452/454** (41 file): 2 fail do tiến trình
+  thiếu docker group (`/var/run/docker.sock` permission denied khi
+  pg_dump) — môi trường, không phải flake. Chạy lại dưới `sg docker`:
+  `tests/ops/recovery.test.ts` 3/3, `tests/integration/deployment.test.ts`
+  10/10 → hiệu dụng **454/454**. Lưu ý: test backup/restore cần docker
+  group trong session.
+- `npm run test:e2e` — **48/48**, không flaky (~1,8 phút).
+- `npm run typecheck` — 0 lỗi. `npm run build` — 48 file.
+- `docker compose config -q` — hợp lệ (chỉ warning biến env chưa set,
+  expected khi không có `.env`).
+- `git diff --check` — sạch.
+- `npm run test:performance` — **PASS**: 800 request, 0 lỗi, 50
+  session; seed 501 users / 5.000 canvas / 100.000 versions; p95: GET
+  canvas 70 ms, list 49 ms, dashboard 60,5 ms, PUT draft 161 ms (login
+  loại khỏi gate — argon2id có chủ đích). Đo trên host dev, chưa phải
+  phần cứng pilot — open item 3 vẫn mở.
+- `npm run ops:bundle -- --no-images` — không chạy lại lượt này;
+  checksum lần cuối verify tại `489cd79`.

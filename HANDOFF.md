@@ -1,6 +1,6 @@
 # Handoff — Phase 4 (reports & delivery) complete
 
-Date: 2026-09-21. Branch: `feat/real-app-design`. HEAD: `489cd79`.
+Date: 2026-10-07. Branch: `main`. HEAD: `9742bfd`.
 
 ## Where things stand
 
@@ -12,8 +12,9 @@ backup/restore drill + offline bundle + upgrade gate → e2e journey +
 pilot benchmark.
 
 Evidence: `docs/superpowers/evidence/phase-4.md` (per-gate mapping,
-measured numbers, open exceptions). Progress ledger:
-`.superpowers/sdd/2026-09-20-phase-4-reports-delivery/progress.md`.
+measured numbers, open exceptions) — the checked-in record. The SDD
+progress ledger `.superpowers/sdd/2026-09-20-phase-4-reports-delivery/progress.md`
+is not in the checkout (`.superpowers/` is not committed).
 
 ## 2026-10-05 — merged to `main`, product-completeness pass
 
@@ -39,8 +40,8 @@ off — the static demo lives at commit `8978129`). Follow-up work on `main`:
 - Dashboard uses `company.timezone`; lists load every page
   (`apiFetchAll`); OpenAPI drift test guards `server/openapi.yaml`.
 
-Gates on `main` after this pass: vitest 451/451 (41 files), Playwright
-47/47, typecheck clean, build 48 files.
+Gates on `main` re-verified 2026-10-07 (HEAD `9742bfd`): vitest
+454/454 (41 files), Playwright 48/48, typecheck clean, build 48 files.
 
 Canvas unarchive added afterwards: `POST /canvases/:id/unarchive` (same
 gate as archive; 409 CANVAS_NOT_ARCHIVED on an active canvas) + "Bỏ lưu
@@ -67,18 +68,20 @@ Not built (out of scope): SSO/MCP/mobile (spec §12).
 4. **Docs approval** — `phase-4.md` + the Vietnamese runbooks
    (`docs/operations/*.md`) need human sign-off per the exit gate.
 
-## Last verified gates (on `489cd79`)
+## Last verified gates (on `9742bfd`, 2026-10-07)
 
 | Check | Result |
 |---|---|
-| `npm test` | 407/407 (34 files) |
-| `npm run test:e2e` | 29/29 |
-| `npm run test:performance` | PASS — p95 ≤160ms ordinary APIs, 0 errors (50 sessions, 100k versions) |
+| `npm test` | 454/454 (41 files) |
+| `npm run test:e2e` | 48/48 |
+| `npm run test:performance` | PASS — p95 ≤161ms ordinary APIs, 0 errors (800 requests, 50 sessions, 100k versions; 32-CPU/30-GiB dev host) |
 | `npm run typecheck` | 0 errors |
-| `npm run build` | 42 files |
+| `npm run build` | 48 files |
 | `docker compose config` | valid |
-| `npm run ops:bundle -- --no-images` | all checksums verify |
 | `git diff --check` | clean |
+
+`npm run ops:bundle -- --no-images` not re-run this pass — checksums
+last verified on `489cd79`.
 
 ## Conventions that matter
 

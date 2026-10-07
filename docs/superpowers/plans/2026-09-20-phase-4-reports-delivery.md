@@ -50,7 +50,7 @@
 - `assertReportRead(actor,reportId,tx?): Promise<void>` owner/creator/coach/active share.
 - `listReports(actor,page)`, `getReport(actor,id)`; no report inheritance from subject policy.
 
-- [ ] **Step 1: Viết test đỏ** trong `tests/integration/report-access.test.ts`. Coach phải manager coachee trừ owner nhập hộ; coachee/admin không tự đọc report; manager mới không inherit; wrongcompany404, list/count/filter.
+- [x] **Step 1: Viết test đỏ** trong `tests/integration/report-access.test.ts`. Coach phải manager coachee trừ owner nhập hộ; coachee/admin không tự đọc report; manager mới không inherit; wrongcompany404, list/count/filter.
 
 ```ts
 expect((await f.api("member").get("/api/v1/reports/"+reportId)).status).toBe(404);
@@ -59,13 +59,13 @@ expect((await f.api("manager").get("/api/v1/reports/"+reportId)).status).toBe(20
 expect((await f.api("owner").get("/api/v1/reports/"+reportId)).status).toBe(200);
 ```
 
-- [ ] **Step 2: Chạy test trước triển khai.**
+- [x] **Step 2: Chạy test trước triển khai.**
 
 Run: `npm test -- tests/integration/report-access.test.ts`.
 Expected: FAIL tại hành vi/assertion mới hoặc missing module; sửa lỗi setup/môi trường trước,
 không coi lỗi không kết nối DB là bằng chứng RED hợp lệ.
 
-- [ ] **Step 3: Triển khai phần lõi và nối interface.**
+- [x] **Step 3: Triển khai phần lõi và nối interface.**
 
 Tables session/report/share composite company FKs. report_version unique(session_id,report_version); shares unique(report_id,user_id), revoked_at. Service enforces actor=coach and manager/coachee current relation; owner override audited. Canvas association needs independent read. Session update/delete not generic; report immutable snapshot. report read audit before response with metadata only. Inactive users cannot auth even if creator/share.
 
@@ -79,12 +79,12 @@ WHERE r.id=$1 AND r.company_id=$2 AND (
 -- $3 được tính từ role owner DB hiện tại; không nhận boolean từ client.
 ```
 
-- [ ] **Step 4: Chạy lại test và kiểm tra hồi quy.**
+- [x] **Step 4: Chạy lại test và kiểm tra hồi quy.**
 
 Run: `npm test -- tests/integration/report-access.test.ts`, rồi `npm run typecheck`.
 Expected: test mới PASS, typecheck exit 0. Chạy thêm toàn bộ integration tests của module vừa thay đổi.
 
-- [ ] **Step 5: Commit riêng task sau khi kiểm tra diff.**
+- [x] **Step 5: Commit riêng task sau khi kiểm tra diff.**
 
 ```sh
 git diff --check
@@ -105,7 +105,7 @@ git commit -m "feat: model coaching reports with independent access policy"
 - `validateOracle(raw,transcript): OracleReportBody` checks actual rubric and quote ranges.
 - `saveReport(actor,{sessionId,runId,idempotencyKey}): Promise<{reportId,reportVersion}>` from server preview only.
 
-- [ ] **Step 1: Viết test đỏ** trong `tests/integration/grader.test.ts`. Evidencequote không nằm transcript rejected; total wrong; revoked manager can't save new report; repeated save one version; body transcript không DB/log, restart410.
+- [x] **Step 1: Viết test đỏ** trong `tests/integration/grader.test.ts`. Evidencequote không nằm transcript rejected; total wrong; revoked manager can't save new report; repeated save one version; body transcript không DB/log, restart410.
 
 ```ts
 const saved=await f.api("manager").post("/api/v1/reports")
@@ -117,13 +117,13 @@ expect(again.body.reportId).toBe(saved.body.reportId);
 expect(JSON.stringify(await f.db("ai_run").select("*"))).not.toContain("raw-transcript-marker");
 ```
 
-- [ ] **Step 2: Chạy test trước triển khai.**
+- [x] **Step 2: Chạy test trước triển khai.**
 
 Run: `npm test -- tests/integration/grader.test.ts`.
 Expected: FAIL tại hành vi/assertion mới hoặc missing module; sửa lỗi setup/môi trường trước,
 không coi lỗi không kết nối DB là bằng chứng RED hợp lệ.
 
-- [ ] **Step 3: Triển khai phần lõi và nối interface.**
+- [x] **Step 3: Triển khai phần lõi và nối interface.**
 
 Đọc oracle-coaching-model.md và validate_oracle_output.py, port rubric exact maxima/criteria/labels vào TS validator; no invented grading rubric. Register oracle in AI service without canvas required; session permission separate. Consent/input cap/context/cancellation same runner. Save actor-scoped cached validated preview + prompt/model/config provenance; company/session lock serializes version. Copy selected evidence quotes allowed in accepted report, not entire transcript. Destroy raw transcript memory after inference. ai_run FK SET NULL and immutable provenance.
 
@@ -141,12 +141,12 @@ const receipt=await withReceipt(tx,scope,key,hash,async()=>{
 // scope.operation="save-report"; kiểm permission và lock trước receipt lookup.
 ```
 
-- [ ] **Step 4: Chạy lại test và kiểm tra hồi quy.**
+- [x] **Step 4: Chạy lại test và kiểm tra hồi quy.**
 
 Run: `npm test -- tests/integration/grader.test.ts`, rồi `npm run typecheck`.
 Expected: test mới PASS, typecheck exit 0. Chạy thêm toàn bộ integration tests của module vừa thay đổi.
 
-- [ ] **Step 5: Commit riêng task sau khi kiểm tra diff.**
+- [x] **Step 5: Commit riêng task sau khi kiểm tra diff.**
 
 ```sh
 git diff --check
@@ -166,7 +166,7 @@ git commit -m "feat: add validated ORACLE grading and reviewed report snapshots"
 - `shareReport(actor,reportId,userId)`, `revokeShare(actor,reportId,userId)`, `deleteReport(actor,reportId,{confirm:true})`: coach/owner only.
 - `loadReportForRenderer(actor,reportId,canvasId): Promise<{sessionNotes:string,sourceReportId:string}>` checks both ACLs.
 
-- [ ] **Step 1: Viết test đỏ** trong `tests/integration/report-sharing.test.ts`. Explicit share lets coachee read; revoked immediately404; share oldversion doesn't share newversion; delete cleans shares; renderer actor needs report AND canvas permission.
+- [x] **Step 1: Viết test đỏ** trong `tests/integration/report-sharing.test.ts`. Explicit share lets coachee read; revoked immediately404; share oldversion doesn't share newversion; delete cleans shares; renderer actor needs report AND canvas permission.
 
 ```ts
 await f.api("manager").put("/api/v1/reports/"+reportId+"/shares/"+f.ids.member).send({});
@@ -178,13 +178,13 @@ expect((await f.api("member").post("/api/v1/ai/runs").send({
 })).status).toBe(404);
 ```
 
-- [ ] **Step 2: Chạy test trước triển khai.**
+- [x] **Step 2: Chạy test trước triển khai.**
 
 Run: `npm test -- tests/integration/report-sharing.test.ts`.
 Expected: FAIL tại hành vi/assertion mới hoặc missing module; sửa lỗi setup/môi trường trước,
 không coi lỗi không kết nối DB là bằng chứng RED hợp lệ.
 
-- [ ] **Step 3: Triển khai phần lõi và nối interface.**
+- [x] **Step 3: Triển khai phần lõi và nối interface.**
 
 Transaction company lock share/delete, current coach/owner role checked. Share applies exact report version. Deletion confirmed body+shares, audit metadata retained. Purge run previews referencing deleted report; receipt replay won't expose deleted result. Bridge whitelist coaching action recommendations selected by user, no coach grading/whole transcript copied to canvas; preview diff. Foreign report same id404. Export/print read through report policy and audit.
 
@@ -197,12 +197,12 @@ await canvasService.assertWrite(actor,canvasId,tx);
 // Input report provenance remains internal metadata, not sharing report ACL.
 ```
 
-- [ ] **Step 4: Chạy lại test và kiểm tra hồi quy.**
+- [x] **Step 4: Chạy lại test và kiểm tra hồi quy.**
 
 Run: `npm test -- tests/integration/report-sharing.test.ts`, rồi `npm run typecheck`.
 Expected: test mới PASS, typecheck exit 0. Chạy thêm toàn bộ integration tests của module vừa thay đổi.
 
-- [ ] **Step 5: Commit riêng task sau khi kiểm tra diff.**
+- [x] **Step 5: Commit riêng task sau khi kiểm tra diff.**
 
 ```sh
 git diff --check
@@ -222,7 +222,7 @@ git commit -m "feat: add explicit report sharing and authorized renderer bridge"
 - UI pick coach/coachee/session, paste transcript, consent/start/cancel, preview/save.
 - Report detail/share/delete/export require server ACL; selected action transfer opens Renderer with dual access.
 
-- [ ] **Step 1: Viết test đỏ** trong `tests/e2e/coaching.spec.ts`. Không localStorage transcript/report; preview save explicit; share coachee before/after; delete confirm; old manager report remains only if originally coach, new manager denied.
+- [x] **Step 1: Viết test đỏ** trong `tests/e2e/coaching.spec.ts`. Không localStorage transcript/report; preview save explicit; share coachee before/after; delete confirm; old manager report remains only if originally coach, new manager denied.
 
 ```ts
 await page.goto("/coaching-report/");
@@ -234,13 +234,13 @@ await expect(page.getByRole("button",{name:"Lưu báo cáo"})).toBeVisible();
 expect(await page.evaluate(()=>localStorage.getItem("gwp-coaching-report-v1"))).toBeNull();
 ```
 
-- [ ] **Step 2: Chạy test trước triển khai.**
+- [x] **Step 2: Chạy test trước triển khai.**
 
 Run: `npm run test:e2e -- tests/e2e/coaching.spec.ts`.
 Expected: FAIL tại hành vi/assertion mới hoặc missing module; sửa lỗi setup/môi trường trước,
 không coi lỗi không kết nối DB là bằng chứng RED hợp lệ.
 
-- [ ] **Step 3: Triển khai phần lõi và nối interface.**
+- [x] **Step 3: Triển khai phần lõi và nối interface.**
 
 Replace old STORE_KEY/save/load with memory form and server report. Clear transcript on completed run/cancel/page leave per UX warning, explicit upload text only <=1MiB. Safe render quotes, labels uncertainty and human-only HR decisions. Evaluation actual sample-transcript + adversarial/missing/contradictory Vietnamese; freeze prompt/rubric source checksum and score reviewer rubric. Print report from authorized current fetch, no preloaded global data.
 
@@ -254,12 +254,12 @@ function clearTranscript() {
 // Load persisted report chỉ qua /api/v1/reports/:id, không từ query body hoặc localStorage.
 ```
 
-- [ ] **Step 4: Chạy lại test và kiểm tra hồi quy.**
+- [x] **Step 4: Chạy lại test và kiểm tra hồi quy.**
 
 Run: `npm run test:e2e -- tests/e2e/coaching.spec.ts`, rồi `npm run typecheck`.
 Expected: test mới PASS, typecheck exit 0. Chạy thêm toàn bộ integration tests của module vừa thay đổi.
 
-- [ ] **Step 5: Commit riêng task sau khi kiểm tra diff.**
+- [x] **Step 5: Commit riêng task sau khi kiểm tra diff.**
 
 ```sh
 git diff --check
@@ -280,7 +280,7 @@ git commit -m "feat: finish consented coaching report workflow"
 - `rotate-key --from <version> --to <version>` secrets from protected mounts, transactional envelope rewrite.
 - Owner settings may increase default365d audit/90dAI/30dlogs; receipts7d.
 
-- [ ] **Step 1: Viết test đỏ** trong `tests/integration/retention.test.ts`. Runtime account cannot delete audit, maintenance can expired only; ai_run cleanup preserves provenance and FK null; shares expire only explicit revoke not manager change; key decrypt after rotate/backup.
+- [x] **Step 1: Viết test đỏ** trong `tests/integration/retention.test.ts`. Runtime account cannot delete audit, maintenance can expired only; ai_run cleanup preserves provenance and FK null; shares expire only explicit revoke not manager change; key decrypt after rotate/backup.
 
 ```ts
 await runRetention(maintenanceDb,new Date("2027-09-21T00:00:00Z"));
@@ -290,13 +290,13 @@ expect(report.provenance).toEqual(originalProvenance);
 await expect(f.db("audit_event").delete()).rejects.toMatchObject({code:"42501"});
 ```
 
-- [ ] **Step 2: Chạy test trước triển khai.**
+- [x] **Step 2: Chạy test trước triển khai.**
 
 Run: `npm test -- tests/integration/retention.test.ts`.
 Expected: FAIL tại hành vi/assertion mới hoặc missing module; sửa lỗi setup/môi trường trước,
 không coi lỗi không kết nối DB là bằng chứng RED hợp lệ.
 
-- [ ] **Step 3: Triển khai phần lõi và nối interface.**
+- [x] **Step 3: Triển khai phần lõi và nối interface.**
 
 Migration FK AI SET NULL for report/version/draft; old metadata deletes never remove published data. Audit cleanup via separate maintenance credential/job container; no deletion API/runtime privileges. Logging driver max-size/max-file and age-aware operational rotation30d. Delete expired consumed tokens and one-time tokens only after revocation horizon; preserve reuse detection while family active. Config retention can only increase lower bounds. Rotation validates decrypt all rows before committing switch, encrypted old keys retain backup recovery window; no secrets stdout.
 
@@ -310,12 +310,12 @@ DELETE FROM ai_run WHERE id IN (
 -- Audit cleanup executes only under maintenance role, batches and advisory lock.
 ```
 
-- [ ] **Step 4: Chạy lại test và kiểm tra hồi quy.**
+- [x] **Step 4: Chạy lại test và kiểm tra hồi quy.**
 
 Run: `npm test -- tests/integration/retention.test.ts`, rồi `npm run typecheck`.
 Expected: test mới PASS, typecheck exit 0. Chạy thêm toàn bộ integration tests của module vừa thay đổi.
 
-- [ ] **Step 5: Commit riêng task sau khi kiểm tra diff.**
+- [x] **Step 5: Commit riêng task sau khi kiểm tra diff.**
 
 ```sh
 git diff --check
@@ -336,7 +336,7 @@ git commit -m "feat: enforce retention and recoverable secret rotation"
 - Backup pg_dump-Fc encrypted 30 daily copies elsewhere; secrets backup separate.
 - `restore-test` namespaced target only, role recreation, schema version and decryption checks; target confirmed by operator.
 
-- [ ] **Step 1: Viết test đỏ** trong `tests/ops/recovery.test.ts`. Restore clean PostgreSQL with runtime/migrator/maintenance grants, last version/draft intact, key decrypt, session revocation on restore; unsupported migration downgrade refused; Internet cut runtime.
+- [x] **Step 1: Viết test đỏ** trong `tests/ops/recovery.test.ts`. Restore clean PostgreSQL with runtime/migrator/maintenance grants, last version/draft intact, key decrypt, session revocation on restore; unsupported migration downgrade refused; Internet cut runtime.
 
 ```ts
 const evidence=await runRecoveryDrill({sourceFixture:f,targetDatabase:"gwp_restore_test"});
@@ -346,13 +346,13 @@ expect(evidence.checks).toMatchObject({
 expect(evidence.restoredCustomerDatabase).toBe(false);
 ```
 
-- [ ] **Step 2: Chạy test trước triển khai.**
+- [x] **Step 2: Chạy test trước triển khai.**
 
 Run: `npm test -- tests/ops/recovery.test.ts`.
 Expected: FAIL tại hành vi/assertion mới hoặc missing module; sửa lỗi setup/môi trường trước,
 không coi lỗi không kết nối DB là bằng chứng RED hợp lệ.
 
-- [ ] **Step 3: Triển khai phần lõi và nối interface.**
+- [x] **Step 3: Triển khai phần lõi và nối interface.**
 
 Define runRecoveryDrill in tests/helpers/recovery.ts spawning scripts into dedicated DB/container. pg_dump doesn't supply roles; bootstrap roles/grants scripted. Backup includes encrypted manifest/release/schema data; secrets export separate with encryption tool operator approved. Daily scheduler/retention and alert failure, storage separate failure domain. Upgrade lock migrations, maintenance mode, backup before; rollback app only compatible otherwise restore and communicate RPO. Image archive for air-gap excludes model weights/customer secrets. Runbook Vietnamese exact start/HTTPS/LLM/log retention/full disk/recovery/key rotation commands.
 
@@ -364,12 +364,12 @@ npm test -- tests/ops/recovery.test.ts
 # Upgrade rehearsal: release Phase3 fixture -> Phase4 migrations -> tests -> documented restore.
 ```
 
-- [ ] **Step 4: Chạy lại test và kiểm tra hồi quy.**
+- [x] **Step 4: Chạy lại test và kiểm tra hồi quy.**
 
 Run: `npm test -- tests/ops/recovery.test.ts`, rồi `npm run typecheck`.
 Expected: test mới PASS, typecheck exit 0. Chạy thêm toàn bộ integration tests của module vừa thay đổi.
 
-- [ ] **Step 5: Commit riêng task sau khi kiểm tra diff.**
+- [x] **Step 5: Commit riêng task sau khi kiểm tra diff.**
 
 ```sh
 git diff --check
@@ -389,7 +389,7 @@ git commit -m "feat: package offline delivery and rehearse database recovery"
 - `npm run test:performance` seeded test-only500users/5000canvas/100000versions,50web sessions.
 - Evidence docs phase4 includes command outputs, resource limits, payload distribution, p95 non-AI/export.
 
-- [ ] **Step 1: Viết test đỏ** trong `tests/e2e/journey.spec.ts`. Full owner setup→org→activate→member canvas→manager Renderer→publish→grader→share→revoke; disconnected Internet, local LLM still reachable; forbidden ID/list/export blocked.
+- [x] **Step 1: Viết test đỏ** trong `tests/e2e/journey.spec.ts`. Full owner setup→org→activate→member canvas→manager Renderer→publish→grader→share→revoke; disconnected Internet, local LLM still reachable; forbidden ID/list/export blocked.
 
 ```ts
 await loginAs(page,"member");
@@ -400,13 +400,13 @@ await expect(page.getByRole("link",{name:"Quản trị tổ chức"})).toHaveCou
 // Assert each published version number and report share before/after revoke.
 ```
 
-- [ ] **Step 2: Chạy test trước triển khai.**
+- [x] **Step 2: Chạy test trước triển khai.**
 
 Run: `npm run test:e2e -- tests/e2e/journey.spec.ts`.
 Expected: FAIL tại hành vi/assertion mới hoặc missing module; sửa lỗi setup/môi trường trước,
 không coi lỗi không kết nối DB là bằng chứng RED hợp lệ.
 
-- [ ] **Step 3: Triển khai phần lõi và nối interface.**
+- [x] **Step 3: Triển khai phần lõi và nối interface.**
 
 Create performance seed with explicit test DB marker and unique company, never production. Measure auth/read/write/dashboard traffic distributions50sessions on4vCPU8GiB app+DB excluding LLM; payload sizes and latency/error rates output JSON. Gate p95<=500ms ordinary APIs, no fabricated pass if hardware differs. E2E fixture local fake LLM deterministic; separate real local model acceptance manual. Scan runtime outbound requests for CDN/Internet and logs for known transcript/key markers.
 
@@ -420,12 +420,12 @@ function percentile95(values:number[]):number {
 // Use test-only fixture guard; 50 concurrent sessions, not a loop reusing one connection.
 ```
 
-- [ ] **Step 4: Chạy lại test và kiểm tra hồi quy.**
+- [x] **Step 4: Chạy lại test và kiểm tra hồi quy.**
 
 Run: `npm run test:e2e -- tests/e2e/journey.spec.ts`, rồi `npm run typecheck`.
 Expected: test mới PASS, typecheck exit 0. Chạy thêm toàn bộ integration tests của module vừa thay đổi.
 
-- [ ] **Step 5: Commit riêng task sau khi kiểm tra diff.**
+- [x] **Step 5: Commit riêng task sau khi kiểm tra diff.**
 
 ```sh
 git diff --check
@@ -435,11 +435,11 @@ git commit -m "test: add full customer journey and pilot acceptance evidence"
 
 ## Exit gate và bằng chứng bàn giao
 
-- [ ] All unit/integration/browser tests + typecheck/build/compose validation PASS.
+- [x] All unit/integration/browser tests + typecheck/build/compose validation PASS.
 - [ ] Local model quality accepted separately from deterministic fake-LLM tests.
-- [ ] No raw transcript/key in DB/logs/browser disk; reportACL/revocation tested end-to-end.
-- [ ] Clean-host restore and Phase3→4 upgrade rehearsal evidence; RPO/RTO measured, not assumed.
-- [ ] Offline runtime and pilot benchmark measured; documented exceptions require user decision, not auto-waiver.
+- [x] No raw transcript/key in DB/logs/browser disk; reportACL/revocation tested end-to-end.
+- [x] Clean-host restore and Phase3→4 upgrade rehearsal evidence; RPO/RTO measured, not assumed.
+- [x] Offline runtime and pilot benchmark measured; documented exceptions require user decision, not auto-waiver.
 - [ ] `docs/superpowers/evidence/phase-4.md` and Vietnamese handover runbook approved before customer delivery.
 
 ## Self-review coverage
