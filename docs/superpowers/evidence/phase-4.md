@@ -135,39 +135,66 @@ host dev 32 CPU / 30 GiB, Node v24.21.0; PostgreSQL test từ
 Lấp ngoại lệ #4 (phần evidence tự động; gate vẫn mở chờ người duyệt).
 Host dev, Node v24.21.0, PostgreSQL 18-alpine qua `compose.test.yaml`.
 
-**Test mới/sửa** (`npx vitest run tests/ops/...` — đo trên host dev):
+**Điều kiện tiên quyết**: pg_dump/pg_restore đi qua `docker compose exec`
+nên chạy `sg docker -c "npm test -- tests/ops/..."`; container test dựng
+từ trước khi có service `restore-db` cần
+`sg docker -c "npm run db:test:down && npm run db:test:up"` — các test
+clean-host có precheck báo đúng lỗi này ("restore-db not reachable on
+54330 — run npm run db:test:up").
+
+**Test mới/sửa** (đo trên host dev):
 
 - `tests/ops/upgrade-rehearsal.test.ts` — rehearsal Phase 3 → 4 trọn vẹn:
   schema migrate tới `0005-ai` (`migrate(db, {upTo})`, tuỳ chọn additive,
   production không đổi), seed SQL (personas, `canvas_version` đã publish,
   envelope BYOK mã hoá), `pg_dump -Fc` + manifest → `checkUpgrade()` OK với
-  đúng `0006-coaching,0007-oracle` pending; TỪ CHỐI khi backup 48h > trần
-  RPO 24h → migrate nốt → Phase-3 data nguyên (version history + decrypt
-  envelope) và Phase-4 chạy (coaching session + report; ACL 404 cho user
-  không share). **1/1 PASS.**
+  đúng `0006-coaching,0007-oracle` pending; TỪ CHỐI backup 48h > trần RPO
+  24h cả khi tuổi đọc từ `createdAt` manifest lẫn fallback mtime file →
+  migrate nốt → Phase-3 data nguyên (version history + decrypt envelope)
+  và Phase-4 chạy (coaching session + report; ACL 404 cho user không
+  share). **Nhánh rollback** trên `restore-db`: wipe roles → bootstrap →
+  `pg_restore` dump Phase-3 → bản restored báo đúng `0006+0007` pending và
+  canvas Phase-3 đọc được (backup pre-upgrade restore được trên host sạch)
+  → `migrate()` + bootstrap trên chính copy đó → lặp lại toàn bộ proof
+  app-level (bản restored nâng tiếp lên Phase-4 được). **1/1 PASS.**
 - `tests/ops/recovery.test.ts` — **5/5 PASS**, gồm 2 test mới:
   - `clean-host`: restore trọn vẹn lên `restore-db` — service Postgres
     thứ hai trong `compose.test.yaml` (process/volume/port riêng,
-    `pg_control_system()` `system_identifier` khác cluster nguồn);
+    `pg_control_system()` `system_identifier` khác cluster nguồn). Mỗi
+    lần chạy wipe `gwp_restore_test` + `DROP OWNED/DROP ROLE` các
+    `gwp_*` và assert `pg_roles` không còn role app trước khi bootstrap —
+    bootstrap-on-empty được chứng minh, không phải warm-run trên role cũ;
     bootstrap-db-roles chạy TRƯỚC pg_restore (pg_dump không mang roles)
     và SAU để grants đầy đủ; toàn bộ check drill (roles/login/canvas
     history/report ACL/decrypt/publish) xanh trên cluster sạch.
   - `metrics`: spawn thật `ops:restore-test` lên `restore-db`, parse dòng
     `restore-test metrics: {...}` — assert `rtoMs`/`rpoAgeMs`/`backupBytes`
-    số, trong ngưỡng RTO ≤ 4h / RPO ≤ 24h.
+    số. Các bound ≤4h/≤24h trong test chỉ là sanity check trên fixture —
+    KHÔNG phải bằng chứng mục tiêu pilot đạt.
 
 **Số đo thực (dev host, dataset fixture seed — nhỏ; KHÔNG phải pilot hw):**
 
-- `ops:restore-test` lên `restore-db` (clean cluster):
+- `ops:restore-test` CLI lên `restore-db`:
   `restore-test metrics: {"rtoMs":1479,"rpoAgeMs":7867,"backupBytes":83172}`
-  → **RTO ≈ 1,5 s**, **RPO ≈ 7,9 s** (tuổi backup lúc restore), dump ~81 KiB.
-  Mục tiêu pilot RTO ≤ 4h / RPO ≤ 24h — đo được, dư cực lớn trên dataset
-  test; số pilot-site vẫn phải đo lại trên host triển khai (ngoại lệ 3).
+  — `rtoMs` ở đây **chỉ phần restore+smoke** (dropdb/createdb/pg_restore +
+  post-checks), không gồm bootstrap roles lẫn check app-level.
+- **RTO clean-host đầy đủ** từ drill vitest trên `restore-db` (bootstrap
+  roles + pg_restore + grants + login/history/ACL/decrypt/publish):
+  `drill metrics (clean-cluster): {"rtoMs":2484,"rpoAgeMs":47,
+  "backupBytes":88311,"endpoint":"127.0.0.1:54330"}` → **≈ 2,5 s**.
+- `rpoAgeMs` = tuổi backup lúc restore — **cơ chế đo đã kiểm chứng**;
+  RPO vận hành = chu kỳ `ops:backup`, phải đo tại pilot (ngoại lệ 3).
+  Mục tiêu RTO ≤ 4h / RPO ≤ 24h vẫn phải đo lại trên host triển khai —
+  số trên chỉ chứng minh đường đo hoạt động, không phải mục tiêu đã đạt.
 - `ops:upgrade-check` CLI sanity: backup mới → `OK: 7 pending migration(s)`;
   backup 48h → `FAIL: backup is 48.0h old — beyond the 24h RPO ceiling`,
   exit 1.
 
 Cơ chế: `runRecoveryDrill` nhận `restoreTarget` tuỳ chọn (clean cluster);
-evidence trả `rtoMs`/`rpoAgeMs`/`restoreEndpoint`. `ops:restore-test` in
-dòng metrics máy đọc được làm dòng cuối. `checkUpgrade()` export từ
-`scripts/ops/upgrade-check.ts` — CLI giữ nguyên output/exit code.
+evidence trả `rtoMs`/`rpoAgeMs`/`restoreEndpoint`; `resetCleanCluster()`
+wipe `gwp_restore_test` + role `gwp_*` trước mỗi clean drill (guard
+DISPOSABLE_HOSTS + port 54330). `ops:restore-test` in dòng metrics máy
+đọc được làm dòng cuối. `checkUpgrade()` export từ
+`scripts/ops/upgrade-check.ts` — CLI giữ nguyên output/exit code — và đọc
+tuổi backup từ `createdAt` manifest (fallback mtime), cùng logic
+`backupCreatedAtMs` của restore-test.

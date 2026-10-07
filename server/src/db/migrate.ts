@@ -106,8 +106,11 @@ export interface MigrateOptions {
    * Rehearsal/testing only: apply migrations up to and INCLUDING the named
    * one, leaving the rest pending. Lets a disposable schema stand at a
    * pre-release state (e.g. "0005-ai" reproduces the Phase-3 schema) so the
-   * upgrade path can be rehearsed against a real dump. Never passed by the
-   * production migrator — omitting it preserves the run-to-latest behavior.
+   * rehearsal can walk a real dump through the full upgrade story — the
+   * forward upgrade AND the rollback leg (the pre-upgrade dump restoring
+   * on a clean cluster, then that restored copy migrating to latest).
+   * Never passed by the production migrator — omitting it preserves the
+   * run-to-latest behavior.
    */
   upTo?: string;
 }

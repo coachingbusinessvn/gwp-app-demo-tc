@@ -16,8 +16,10 @@ import {
   type Fixture,
 } from "../helpers/fixture.js";
 import {
+  acquireCleanCluster,
   checkOfflineRuntime,
   dumpFixtureSchema,
+  resetCleanCluster,
   runRecoveryDrill,
   writeBackupManifest,
 } from "../helpers/recovery.js";
@@ -188,6 +190,16 @@ describe("restore drill (task 4.6, spec §9)", () => {
         const u = new URL(restoreAdminUrl);
         return `${u.hostname}:${u.port}`;
       })();
+      // Fast fail with a clear precheck message when restore-db is not up
+      // (compose.test.yaml) — and prove the drill starts from an EMPTY
+      // cluster every run (roles wiped, asserted zero inside). The cluster
+      // lock keeps this leg exclusive vs. the parallel rehearsal file.
+      const releasePrecheck = await acquireCleanCluster(restoreAdminUrl);
+      try {
+        await resetCleanCluster(restoreAdminUrl);
+      } finally {
+        await releasePrecheck();
+      }
       const f = await fixture({ seeded: true });
       try {
         const seeded = await seedDrillData(f);
@@ -272,14 +284,22 @@ describe("restore drill (task 4.6, spec §9)", () => {
       const restoreRuntimeUrl =
         process.env.TEST_RESTORE_DATABASE_URL ??
         "postgres://gwp_runtime:gwp_runtime@127.0.0.1:54330/gwp_test";
-      const f = await fixture({ seeded: false });
+      // Same precheck/empty-cluster guarantee as the clean-host drill —
+      // fails fast with "run npm run db:test:up" when restore-db is down.
+      // The cluster lock stays held across the CLI run so a parallel file
+      // cannot reset the cluster mid-restore.
+      const releaseClean = await acquireCleanCluster(restoreAdminUrl);
+      let f: Fixture | undefined;
+      let restoreAdmin: ReturnType<typeof createDb> | undefined;
       const dump = path.join(
         os.tmpdir(),
         `gwp-cli-metrics-${process.pid}-${randomUUID().slice(0, 8)}.dump`,
       );
-      const restoreAdmin = createDb(restoreAdminUrl, { poolMax: 1 });
       try {
-        dumpFixtureSchema(f.schema, dump);
+        f = await fixture({ seeded: false });
+        restoreAdmin = createDb(restoreAdminUrl, { poolMax: 1 });
+        await resetCleanCluster(restoreAdminUrl);
+        dumpFixtureSchema(f!.schema, dump);
         writeBackupManifest(dump, []);
         // Clean cluster needs the roles a pg_dump never carries — the
         // runbook's bootstrap step — before pg_restore can replay ACLs.
@@ -339,9 +359,9 @@ describe("restore drill (task 4.6, spec §9)", () => {
         expect(metrics.backupBytes as number).toBeGreaterThan(0);
       } finally {
         await restoreAdmin
-          .raw(`DROP DATABASE IF EXISTS ${RESTORE_DB} WITH (FORCE)`)
+          ?.raw(`DROP DATABASE IF EXISTS ${RESTORE_DB} WITH (FORCE)`)
           .catch(() => {});
-        await restoreAdmin.destroy().catch(() => {});
+        await restoreAdmin?.destroy().catch(() => {});
         for (const file of [dump, `${dump}.manifest.json`]) {
           try {
             unlinkSync(file);
@@ -349,7 +369,8 @@ describe("restore drill (task 4.6, spec §9)", () => {
             /* temp artifacts are best-effort cleanup */
           }
         }
-        await f.close();
+        await f?.close();
+        await releaseClean();
       }
     },
     180_000,

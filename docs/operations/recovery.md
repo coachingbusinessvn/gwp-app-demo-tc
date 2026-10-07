@@ -59,19 +59,27 @@ npm run ops:restore-test -- --backup /srv/gwp-backups/gwp-2026-09-21.dump
 
 # 4. Ghi lại bằng chứng: dòng cuối in metrics ĐO ĐƯỢC, dạng máy đọc được —
 #    restore-test metrics: {"rtoMs":1479,"rpoAgeMs":7867,"backupBytes":83172}
-#    rtoMs     = thời gian restore + verify (RTO thực đo)
+#    rtoMs     = CHỈ phần restore+smoke của CLI (dropdb/createdb/pg_restore
+#               + post-restore checks) — không gồm bootstrap roles lẫn các
+#               check app-level. RTO clean-host đầy đủ lấy từ drill vitest
+#               (dòng "drill metrics (clean-cluster): ..." — gồm cả 2 lần
+#               bootstrap + login/history/ACL/decrypt/publish): lần chạy
+#               dev-host đo rtoMs ≈ 2505 ms trên fixture nhỏ.
 #    rpoAgeMs  = tuổi backup lúc bắt đầu restore — createdAt trong manifest
-#               .json, fallback mtime file (RPO thực đo)
+#               .json, fallback mtime file (cơ chế đo RPO; RPO vận hành =
+#               chu kỳ ops:backup, đo tại pilot — xem ngoại lệ 3).
 #    backupBytes = dung lượng dump
-#    Copy nguyên dòng vào biên bản drill; so với mục tiêu RTO ≤ 4h, RPO ≤ 24h.
+#    Copy nguyên dòng vào biên bản drill; so với mục tiêu RTO ≤ 4h, RPO ≤ 24h
+#    (assert trong test chỉ là sanity bound trên fixture, không phải bằng
+#    chứng đạt mục tiêu).
 ```
 
 ## 3a. Restore lên cluster SẠCH (clean host)
 
-Drill trong CI có một biến thể chạy lên **cluster Postgres thứ hai** —
-service `restore-db` trong `compose.test.yaml` (process + volume riêng,
-port 54330) — chứng minh restore không phụ thuộc cluster nguồn. Trên host
-sạch thật, trình tự tương đương:
+Drill tự động (vitest, chạy local/gate) có một biến thể chạy lên **cluster
+Postgres thứ hai** — service `restore-db` trong `compose.test.yaml`
+(process + volume riêng, port 54330) — chứng minh restore không phụ thuộc
+cluster nguồn. Trên host sạch thật, trình tự tương đương:
 
 ```sh
 # 1. Roles TRƯỚC restore: pg_dump không mang roles; pg_restore
@@ -94,13 +102,17 @@ BOOTSTRAP_ADMIN_URL="postgres://<superuser>@<host-sach>/gwp_restore_test" \
   npx tsx scripts/ops/bootstrap-db-roles.ts
 ```
 
-Drill tự động trong CI: `npm test -- tests/ops/recovery.test.ts` chứng
-minh trên DB sạch: roles+grants, login thật, lịch sử canvas version nguyên
-vẹn, report ACL + share, giải mã envelope BYOK bằng APP_KEY, publish thử
-— và DB nguồn không bị đụng. Test `clean-host` chạy trọn vẹn trên
-`restore-db` (cluster riêng, `system_identifier` khác — kiểm chứng trong
-test); test `metrics` chạy thật `ops:restore-test` và bắt dòng
-`restore-test metrics:` để assert RTO/RPO đo được trong ngưỡng mục tiêu.
+Drill tự động (vitest, chạy local/gate): `sg docker -c "npm test --
+tests/ops/recovery.test.ts"` — cần group docker vì pg_dump/pg_restore đi
+qua `docker compose exec`. Test `clean-host` chứng minh trên `restore-db`
+(cluster riêng, `system_identifier` khác — kiểm chứng trong test), luôn
+bắt đầu từ cluster RỖNG vai trò: helper wipe `gwp_restore_test` + DROP
+ROLE `gwp_*` và assert `pg_roles` không còn role app trước khi bootstrap —
+nghĩa là mỗi lần chạy kiểm chứng trọn vẹn roles+grants, login thật, lịch
+sử canvas version, report ACL + share, giải mã envelope BYOK, publish thử
+— và DB nguồn không bị đụng. Test `metrics` chạy thật `ops:restore-test`
+và bắt dòng `restore-test metrics:`; các assert ≤4h/≤24h chỉ là sanity
+bound trên fixture, không phải bằng chứng đạt mục tiêu vận hành.
 
 ## 4. Phục hồi thật (sau sự cố)
 

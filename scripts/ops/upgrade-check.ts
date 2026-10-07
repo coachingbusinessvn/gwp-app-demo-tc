@@ -7,6 +7,7 @@ import {
   migrationStatus,
 } from "../../server/src/db/migrate.js";
 import { parsePgUrl } from "./pg-runner.js";
+import { backupCreatedAtMs } from "./restore-test.js";
 
 /**
  * `npm run ops:upgrade-check` (task 4.6, spec §9) — the pre-upgrade gate.
@@ -111,7 +112,11 @@ export async function checkUpgrade(opts: {
   if (!existsSync(backup) || statSync(backup).size === 0) {
     problems.push(`backup missing or empty: ${backup}`);
   } else {
-    const ageH = (Date.now() - statSync(backup).mtimeMs) / 3_600_000;
+    // Age counts from when the backup was TAKEN — the sidecar manifest's
+    // createdAt (ops:backup writes it) — not from the file's mtime, which
+    // a copy/rsync to this host would have refreshed. mtime only ever
+    // applies when no manifest exists.
+    const ageH = (Date.now() - backupCreatedAtMs(backup)) / 3_600_000;
     if (ageH > maxAgeHours) {
       problems.push(
         `backup is ${ageH.toFixed(1)}h old — beyond the ${maxAgeHours}h ` +

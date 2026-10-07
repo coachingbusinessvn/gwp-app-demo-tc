@@ -36,7 +36,8 @@ import {
 
 export const RESTORE_DB = "gwp_restore_test";
 
-const DISPOSABLE_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
+/** Hosts that are always disposable-local — exported for the drill harness. */
+export const DISPOSABLE_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
 
 const USAGE = `usage: npm run ops:restore-test -- --backup <file.dump> [options]
 
@@ -355,9 +356,9 @@ export async function restoreArchive(
 /**
  * Backup age basis for the measured RPO: the sidecar manifest's createdAt
  * (ops:backup writes it), else the dump file's mtime when the manifest is
- * missing or unparsable.
+ * missing or unparsable. Exported — upgrade-check uses the same rule.
  */
-function backupCreatedAtMs(backup: string): number {
+export function backupCreatedAtMs(backup: string): number {
   try {
     const manifest = JSON.parse(
       readFileSync(`${backup}.manifest.json`, "utf8"),

@@ -23,6 +23,7 @@ import {
 } from "../../scripts/ops/pg-runner.js";
 import { bootstrapDbRoles } from "../../scripts/ops/bootstrap-db-roles.js";
 import {
+  DISPOSABLE_HOSTS,
   restoreArchive,
   RESTORE_DB,
 } from "../../scripts/ops/restore-test.js";
@@ -121,8 +122,123 @@ export interface DrillRestoreTarget {
   composeService: string;
 }
 
-/** Disposable-local hosts — same guard set as scripts/ops/restore-test.ts. */
-const DISPOSABLE_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
+/** compose.test.yaml restore-db port — the only port resetCleanCluster will
+ *  ever drop roles on (the gwp_test superuser itself is never touched). */
+const CLEAN_CLUSTER_PORT = "54330";
+
+/** App roles a clean restore target must be provably empty of. */
+const APP_ROLES = ["gwp_runtime", "gwp_migrator", "gwp_maintenance"];
+
+/**
+ * Cross-file mutual exclusion for the disposable clean cluster: parallel
+ * vitest FILES would otherwise drop/recreate the same gwp_restore_test
+ * mid-flight (a concurrent drill's reset wiped roles between another
+ * leg's drop and assert). Every leg touching restore-db must hold this
+ * advisory lock for the whole leg — reset, bootstrap, restore, checks.
+ * Taken on a dedicated checked-out connection (a pooled conn could be
+ * idle-reaped mid-leg and silently drop the lock). Cooperative — every
+ * caller locks via the adminUrl database on the same cluster.
+ * Returns the release function.
+ */
+export async function acquireCleanCluster(
+  adminUrl: string,
+): Promise<() => Promise<void>> {
+  const t = parsePgUrl(adminUrl, "clean-cluster adminUrl");
+  if (!DISPOSABLE_HOSTS.has(t.host) || t.port !== CLEAN_CLUSTER_PORT) {
+    throw new Error(
+      `clean-cluster lock only applies to the disposable restore-db ` +
+        `service (${CLEAN_CLUSTER_PORT}) — got ${t.host}:${t.port}`,
+    );
+  }
+  const db = createDb(adminUrl, { poolMax: 1 });
+  let conn: { query: (sql: string) => Promise<unknown> };
+  try {
+    conn = (await db.client.acquireConnection()) as typeof conn;
+  } catch (err) {
+    await db.destroy().catch(() => {});
+    throw new Error(
+      `restore-db not reachable on ${t.port} — run \`npm run db:test:up\``,
+      { cause: err },
+    );
+  }
+  // Blocks server-side until the lock is ours.
+  await conn.query(
+    `SELECT pg_advisory_lock(hashtext('gwp-restore-cluster'))`,
+  );
+  return async () => {
+    try {
+      await conn.query(
+        `SELECT pg_advisory_unlock(hashtext('gwp-restore-cluster'))`,
+      );
+    } catch {
+      /* conn already gone — process exit releases session locks anyway */
+    }
+    try {
+      await db.client.releaseConnection(conn);
+    } catch {
+      /* best effort */
+    }
+    await db.destroy().catch(() => {});
+  };
+}
+
+/**
+ * Return a clean disposable cluster to a pre-bootstrap state so every
+ * clean-host drill proves the full bootstrap-on-empty sequence, not a warm
+ * run against leftover roles: drop gwp_restore_test, then DROP OWNED BY +
+ * DROP ROLE for the app roles, and assert no gwp_* app role remains.
+ *
+ * Guarded harder than the rest of the drill — role drops are too
+ * destructive to aim anywhere but the disposable restore-db service: the
+ * host must be disposable-local AND the port must be the compose
+ * restore-db port. Callers that mutate the cluster hold
+ * acquireCleanCluster() first.
+ */
+export async function resetCleanCluster(adminUrl: string): Promise<void> {
+  const t = parsePgUrl(adminUrl, "clean-cluster adminUrl");
+  if (!DISPOSABLE_HOSTS.has(t.host) || t.port !== CLEAN_CLUSTER_PORT) {
+    throw new Error(
+      `resetCleanCluster only runs on the disposable restore-db service ` +
+        `(${CLEAN_CLUSTER_PORT}) — refusing to drop roles on ${t.host}:${t.port}`,
+    );
+  }
+  const db = createDb(adminUrl, { poolMax: 1 });
+  try {
+    try {
+      await db.raw("select 1");
+    } catch (err) {
+      throw new Error(
+        `restore-db not reachable on ${t.port} — run \`npm run db:test:up\``,
+        { cause: err },
+      );
+    }
+    await db.raw(`DROP DATABASE IF EXISTS ${RESTORE_DB} WITH (FORCE)`);
+    for (const role of APP_ROLES) {
+      const exists = await db.raw(
+        "select 1 from pg_roles where rolname = ?",
+        [role],
+      );
+      if (exists.rows.length > 0) {
+        await db.raw(`DROP OWNED BY "${role}"`);
+        await db.raw(`DROP ROLE "${role}"`);
+      }
+    }
+    // Proof of empty: every gwp_* role except the cluster's own superuser
+    // (gwp_test, which owns the postgres we are connected through).
+    const left = await db.raw(
+      `select count(*) as n from pg_roles ` +
+        `where rolname like 'gwp\\_%' escape '\\' and rolname <> 'gwp_test'`,
+    );
+    if (Number(left.rows[0].n) !== 0) {
+      throw new Error(
+        `clean-cluster reset left gwp_* roles behind: ` +
+          JSON.stringify(left.rows),
+      );
+    }
+  } finally {
+    await db.destroy().catch(() => {});
+  }
+}
 
 function maintenanceTarget(): ReturnType<typeof parsePgUrl> {
   return parsePgUrl(TEST_MAINTENANCE_DATABASE_URL, "TEST_MAINTENANCE_DATABASE_URL");
@@ -190,7 +306,9 @@ function dumpSchema(
   }
 }
 
-function urlForDb(url: string, dbName: string): string {
+/** Same credentials/host, different database — used to aim a URL at the
+ *  restored gwp_restore_test (exported for the upgrade rehearsal). */
+export function urlForDb(url: string, dbName: string): string {
   const u = new URL(url);
   u.pathname = `/${dbName}`;
   return u.toString();
@@ -299,6 +417,9 @@ export async function runRecoveryDrill(opts: {
   const admin = createDb(TEST_MAINTENANCE_DATABASE_URL, { poolMax: 1 });
   let restored: Knex | undefined;
   let restoredAdmin: Knex | undefined;
+  // Held for the WHOLE clean leg — parallel vitest files share the one
+  // disposable restore-db cluster and its single gwp_restore_test.
+  let releaseClean: (() => Promise<void>) | undefined;
   try {
     // 1. Backup the fixture schema (+ its sidecar manifest, same shape as
     //    ops:backup), then restore it into gwp_restore_test through the
@@ -313,6 +434,16 @@ export async function runRecoveryDrill(opts: {
       dump,
       (migRows.rows[0].migrations as string[]) ?? [],
     );
+
+    // Prove bootstrap-on-empty every run: wipe the clean cluster back to
+    // its fresh state BEFORE the clock starts (harness setup — a real
+    // clean host starts empty, so the wipe is not restore work). The
+    // cluster lock is taken first so a parallel test file cannot
+    // drop/recreate gwp_restore_test underneath this leg.
+    if (clean) {
+      releaseClean = await acquireCleanCluster(clean.adminUrl);
+      await resetCleanCluster(clean.adminUrl);
+    }
 
     // The RTO clock starts when restore work begins on the target — on a
     // clean cluster that includes creating the roles a pg_dump never
@@ -547,6 +678,9 @@ export async function runRecoveryDrill(opts: {
     } else {
       await dropRestoreDb(admin).catch(() => {});
     }
+    // Release AFTER the drop — the cluster is exclusively ours until the
+    // leg has fully vacated it.
+    await releaseClean?.();
     await admin.destroy().catch(() => {});
     for (const file of [dump, `${dump}.manifest.json`]) {
       try {
