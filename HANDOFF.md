@@ -1,7 +1,7 @@
 # Handoff — Phase 4 (reports & delivery) complete
 
-Date: 2026-10-07. Branch: `main`. HEAD: `9742bfd`. Gates verified on
-`9742bfd`; docs-only `410549d` (+ this review fix) on top.
+Date: 2026-10-07. Branch: `main`. HEAD: `ee8e1e2`. Gates verified on
+`ee8e1e2` (full Codex re-run, numbers below).
 
 ## Where things stand
 
@@ -59,6 +59,14 @@ coach". Reports are unchanged — a coachee reads one only via a share.
 
 Not built (out of scope): SSO/MCP/mobile (spec §12).
 
+Restore/upgrade gate closed (2026-10-07 — former open item 5):
+Phase3→4 upgrade rehearsal + clean-cluster restore landed in `c365187`,
+review fixes in `c3447e4`, test/evidence lock in `ee8e1e2`. Measured on
+the dev host: clean-cluster drill `{rtoMs:2610, rpoAgeMs:67,
+backupBytes:88316}`, same-cluster drill `{rtoMs:2150}`,
+`ops:restore-test` CLI `{rtoMs:1486}`. Operational RPO (= `ops:backup`
+cadence) is still measured at pilot — see open item 3.
+
 ## Open items — require human decision, not auto-waived
 
 1. **Real local-model quality acceptance** — fake-LLM tests prove the
@@ -67,26 +75,25 @@ Not built (out of scope): SSO/MCP/mobile (spec §12).
    endpoint before customer delivery.
 2. **PDF/A4 manual checklist** — `docs/operations/pilot.md` §3.
 3. **Benchmark on real pilot hardware** — current numbers are from dev
-   hosts (12-CPU/32-GiB on `489cd79`; 32-CPU/30-GiB on `9742bfd`);
-   re-run `npm run test:performance` on the deployment box.
+   hosts (12-CPU/32-GiB on `489cd79`; 32-CPU/30-GiB on `9742bfd` and
+   `ee8e1e2`); re-run `npm run test:performance` on the deployment box.
+   Operational RPO (= `ops:backup` cadence) is also measured here at
+   pilot — the drill tooling was verified on dev hosts (former item 5).
 4. **Docs approval** — `phase-4.md` + the Vietnamese runbooks
    (`docs/operations/*.md`) need human sign-off per the exit gate.
-5. **Restore/upgrade evidence** — restore drill only targets
-   `gwp_restore_test` on the same PG; no Phase3→4 upgrade rehearsal;
-   RPO/RTO are targets (≤24h/≤4h), not measured — record drill elapsed
-   time + backup age and rehearse an upgrade from a Phase-3 fixture.
 
-## Last verified gates (on `9742bfd`, 2026-10-07)
+## Last verified gates (on `ee8e1e2`, 2026-10-07)
 
 | Check | Result |
 |---|---|
-| `npm test` | 454/454 (41 files) — first run 452/454; recovery.test.ts 3/3 + deployment.test.ts 10/10 green on re-run under `sg docker` (pg_dump needs the docker group) |
-| `npm run test:e2e` | 48/48 |
-| `npm run test:performance` | PASS — p95 ≤161ms ordinary APIs, 0 errors (800 requests, 50 sessions, 100k versions; 32-CPU/30-GiB dev host) |
+| `npm test` | 458/458 (42 files) — first run clean |
+| `npm run test:e2e` | 48/48, 0 flaky |
+| `npm run test:performance` | PASS — 800 requests, 0 errors; p95 GET canvas 75.9ms, list 51ms, dashboard 68.7ms, PUT draft 173.1ms; login excluded (argon2id by design; 32-CPU/30-GiB dev host) |
 | `npm run typecheck` | 0 errors |
 | `npm run build` | 48 files |
 | `docker compose config` | valid |
 | `git diff --check` | clean |
+| `tests/ops` drills | 7/7 twice (stable); clean-cluster `{rtoMs:2610, rpoAgeMs:67, backupBytes:88316}`, same-cluster `{rtoMs:2150}`, `ops:restore-test` CLI `{rtoMs:1486}` |
 
 `npm run ops:bundle -- --no-images` not re-run this pass — checksums
 last verified on `489cd79`.

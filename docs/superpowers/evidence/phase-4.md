@@ -101,9 +101,12 @@ Commits theo task: 4.1 `e93e8a0`, 4.2 `7a51d86`, 4.3 `282c64c`,
 3. **Benchmark trên host khách hàng thật**: số liệu hiện có đo trên
    12 CPU/32 GiB; pilot site cần chạy lại `npm run test:performance`
    trên phần cứng triển khai.
-4. **Restore sạch + rehearsal nâng cấp Phase3→4; RPO/RTO đo thực**:
-   drill hiện restore vào `gwp_restore_test` cùng PG, chưa rehearsal
-   nâng cấp, RPO ≤ 24h / RTO ≤ 4h mới là mục tiêu.
+4. **Restore sạch + rehearsal nâng cấp Phase3→4; RPO/RTO đo thực** —
+   ✓ đóng 2026-10-07 (`c365187`, `c3447e4`, `ee8e1e2`; chi tiết mục
+   "Bổ sung 2026-10-07" và bảng gate `ee8e1e2` bên dưới): rehearsal
+   Phase3→4 + restore lên cluster sạch đã chạy, RTO đo thực trên dev
+   host. RPO vận hành (chu kỳ `ops:backup`) vẫn đo tại pilot — gộp vào
+   ngoại lệ 3.
 
 ## Kiểm chứng lại trên main 2026-10-07
 
@@ -211,3 +214,24 @@ dẫm nhau trên cùng restore-db. `ops:restore-test` in dòng metrics máy
 `scripts/ops/upgrade-check.ts` — CLI giữ nguyên output/exit code — và đọc
 tuổi backup từ `createdAt` manifest (fallback mtime), cùng logic
 `backupCreatedAtMs` của restore-test.
+
+## Kiểm chứng lại trên main 2026-10-07 — HEAD `ee8e1e2`
+
+Gate do worker Codex (gpt-6-astra) chạy trên host dev 32 CPU / 30 GiB,
+Node v24.21.0; PostgreSQL test từ `compose.test.yaml`.
+
+| Check | Kết quả |
+|---|---|
+| `npm test` | **458/458** (42 file) — pass ngay lượt đầu |
+| `npm run test:e2e` | **48/48**, 0 flaky |
+| `npm run typecheck` | 0 lỗi |
+| `npm run build` | `public-build/` 48 file |
+| `docker compose config` | hợp lệ |
+| `git diff --check` | sạch |
+| `npm run test:performance` | **PASS** — 800 request, 0 lỗi; p95 GET canvas 75,9 ms, list 51 ms, dashboard 68,7 ms, PUT draft 173,1 ms; login ngoài gate (argon2id có chủ đích) |
+| `tests/ops` (2 file) | **7/7 PASS** hai lượt liên tiếp — ổn định, không flake |
+| Drill metrics | clean-cluster `{rtoMs:2610, rpoAgeMs:67, backupBytes:88316}`; same-cluster `{rtoMs:2150}`; `ops:restore-test` CLI `{rtoMs:1486}` |
+
+Số RTO/RPO-age đo trên dev host với dataset fixture — chứng minh đường
+đo và rehearsal/restore hoạt động; mục tiêu RTO ≤ 4h / RPO ≤ 24h vẫn
+phải đo trên phần cứng pilot (ngoại lệ 3).

@@ -438,7 +438,7 @@ git commit -m "test: add full customer journey and pilot acceptance evidence"
 - [x] All unit/integration/browser tests + typecheck/build/compose validation PASS.
 - [ ] Local model quality accepted separately from deterministic fake-LLM tests.
 - [x] No raw transcript/key in DB/logs/browser disk; reportACL/revocation tested end-to-end.
-- [ ] Clean-host restore and Phase3→4 upgrade rehearsal evidence; RPO/RTO measured, not assumed. — chưa đạt: restore chỉ vào gwp_restore_test cùng PG, chưa có rehearsal Phase3→4, RPO/RTO mới là mục tiêu
+- [x] Clean-host restore and Phase3→4 upgrade rehearsal evidence; RPO/RTO measured, not assumed. — xem evidence/phase-4.md: rehearsal Phase3→4 + restore cluster sạch, RTO đo trên dev host; RPO vận hành đo tại pilot
 - [ ] Offline runtime and pilot benchmark measured; documented exceptions require user decision, not auto-waiver. — offline runtime ✓; benchmark phần cứng pilot chưa đo (ngoại lệ 3)
 - [ ] `docs/superpowers/evidence/phase-4.md` and Vietnamese handover runbook approved before customer delivery.
 
