@@ -1,6 +1,7 @@
 # Handoff — Phase 4 (reports & delivery) complete
 
-Date: 2026-10-07. Branch: `main`. HEAD: `9742bfd`.
+Date: 2026-10-07. Branch: `main`. HEAD: `9742bfd`. Gates verified on
+`9742bfd`; docs-only `410549d` (+ this review fix) on top.
 
 ## Where things stand
 
@@ -41,7 +42,10 @@ off — the static demo lives at commit `8978129`). Follow-up work on `main`:
   (`apiFetchAll`); OpenAPI drift test guards `server/openapi.yaml`.
 
 Gates on `main` re-verified 2026-10-07 (HEAD `9742bfd`): vitest
-454/454 (41 files), Playwright 48/48, typecheck clean, build 48 files.
+454/454 (41 files) — first run 452/454; recovery.test.ts 3/3 +
+deployment.test.ts 10/10 green on re-run under `sg docker` (pg_dump
+needs the docker group); Playwright 48/48, typecheck clean, build 48
+files.
 
 Canvas unarchive added afterwards: `POST /canvases/:id/unarchive` (same
 gate as archive; 409 CANVAS_NOT_ARCHIVED on an active canvas) + "Bỏ lưu
@@ -62,9 +66,9 @@ Not built (out of scope): SSO/MCP/mobile (spec §12).
    `docs/evaluation/canvas-ai.md` against an operator-approved local
    endpoint before customer delivery.
 2. **PDF/A4 manual checklist** — `docs/operations/pilot.md` §3.
-3. **Benchmark on real pilot hardware** — current numbers are from a
-   12-CPU/32-GiB dev host; re-run `npm run test:performance` on the
-   deployment box.
+3. **Benchmark on real pilot hardware** — current numbers are from dev
+   hosts (12-CPU/32-GiB on `489cd79`; 32-CPU/30-GiB on `9742bfd`);
+   re-run `npm run test:performance` on the deployment box.
 4. **Docs approval** — `phase-4.md` + the Vietnamese runbooks
    (`docs/operations/*.md`) need human sign-off per the exit gate.
 
@@ -72,7 +76,7 @@ Not built (out of scope): SSO/MCP/mobile (spec §12).
 
 | Check | Result |
 |---|---|
-| `npm test` | 454/454 (41 files) |
+| `npm test` | 454/454 (41 files) — first run 452/454; recovery.test.ts 3/3 + deployment.test.ts 10/10 green on re-run under `sg docker` (pg_dump needs the docker group) |
 | `npm run test:e2e` | 48/48 |
 | `npm run test:performance` | PASS — p95 ≤161ms ordinary APIs, 0 errors (800 requests, 50 sessions, 100k versions; 32-CPU/30-GiB dev host) |
 | `npm run typecheck` | 0 errors |

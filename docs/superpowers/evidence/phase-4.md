@@ -31,7 +31,7 @@ Commits theo task: 4.1 `e93e8a0`, 4.2 `7a51d86`, 4.3 `282c64c`,
 | Không raw transcript/key trong DB/logs/browser | `ai-runs.test.ts` (notes/output vắng mặt trong DB — truy vấn trực tiếp); `coaching.spec.ts` (`localStorage.length === 0`, transcript field xóa sau run); `retention.test.ts` (rotate-key không emit material); audit chỉ metadata |
 | Report ACL/revocation end-to-end | `report-sharing.test.ts` 4/4 + `journey.spec.ts` (404 → share → 200 → revoke → 404) + `coaching.spec.ts` (confirmed delete, row biến mất) |
 | Clean-host restore + upgrade rehearsal; RPO/RTO đo được | `tests/ops/recovery.test.ts` 3/3 (dump -Fc → restore `gwp_restore_test` → login/canvas history/report ACL/key decrypt/publish); `ops:upgrade-check` + downgrade guard (`SCHEMA_AHEAD_OF_CODE`); restore drill hoàn tất trong vài phút trên dataset test — RPO ≤ 24h / RTO ≤ 4h là mục tiêu pilot |
-| Offline runtime + pilot benchmark đo được | `checkOfflineRuntime` quét đúng build allowlist (0 external load — đã sửa Google-Fonts CDN); journey air-gap chặn mọi request ≠ loopback mà app vẫn chạy; benchmark PASS ở trên |
+| Offline runtime + pilot benchmark đo được | `checkOfflineRuntime` quét đúng build allowlist (0 external load — đã sửa Google-Fonts CDN); journey air-gap chặn mọi request ≠ loopback mà app vẫn chạy; benchmark PASS ở trên — phần cứng pilot chưa đo (ngoại lệ 3) |
 | `phase-4.md` + runbook tiếng Việt được duyệt trước bàn giao | File này + `docs/operations/{deployment-vn,recovery,upgrade,security-retention,acceptance}.md` — **chờ người phê duyệt** |
 
 ## Các phát hiện đáng nhớ theo task
@@ -102,7 +102,7 @@ Commits theo task: 4.1 `e93e8a0`, 4.2 `7a51d86`, 4.3 `282c64c`,
    12 CPU/32 GiB; pilot site cần chạy lại `npm run test:performance`
    trên phần cứng triển khai.
 
-## Re-verify on main 2026-10-07
+## Kiểm chứng lại trên main 2026-10-07
 
 HEAD `9742bfd` (`main`). Gate do worker Codex (gpt-6-astra) chạy trên
 host dev 32 CPU / 30 GiB, Node v24.21.0; PostgreSQL test từ
@@ -121,7 +121,7 @@ host dev 32 CPU / 30 GiB, Node v24.21.0; PostgreSQL test từ
 - `git diff --check` — sạch.
 - `npm run test:performance` — **PASS**: 800 request, 0 lỗi, 50
   session; seed 501 users / 5.000 canvas / 100.000 versions; p95: GET
-  canvas 70 ms, list 49 ms, dashboard 60,5 ms, PUT draft 161 ms (login
+  canvas 70,3 ms, list 49 ms, dashboard 60,5 ms, PUT draft 161 ms (login
   loại khỏi gate — argon2id có chủ đích). Đo trên host dev, chưa phải
   phần cứng pilot — open item 3 vẫn mở.
 - `npm run ops:bundle -- --no-images` — không chạy lại lượt này;

@@ -242,7 +242,7 @@ không coi lỗi không kết nối DB là bằng chứng RED hợp lệ.
 
 - [x] **Step 3: Triển khai phần lõi và nối interface.**
 
-Replace old STORE_KEY/save/load with memory form and server report. Clear transcript on completed run/cancel/page leave per UX warning, explicit upload text only <=1MiB. Safe render quotes, labels uncertainty and human-only HR decisions. Evaluation actual sample-transcript + adversarial/missing/contradictory Vietnamese; freeze prompt/rubric source checksum and score reviewer rubric. Print report from authorized current fetch, no preloaded global data.
+Replace old STORE_KEY/save/load with memory form and server report. Clear transcript on completed run/cancel/page leave per UX warning, explicit upload text only <=1MiB. Safe render quotes, labels uncertainty and human-only HR decisions. Evaluation actual sample-transcript + adversarial/missing/contradictory Vietnamese; freeze prompt/rubric source checksum and score reviewer rubric. Print report from authorized current fetch, no preloaded global data. — eval trên model thật: xem ngoại lệ 1
 
 ```ts
 const transient={transcript:""};
@@ -354,7 +354,7 @@ không coi lỗi không kết nối DB là bằng chứng RED hợp lệ.
 
 - [x] **Step 3: Triển khai phần lõi và nối interface.**
 
-Define runRecoveryDrill in tests/helpers/recovery.ts spawning scripts into dedicated DB/container. pg_dump doesn't supply roles; bootstrap roles/grants scripted. Backup includes encrypted manifest/release/schema data; secrets export separate with encryption tool operator approved. Daily scheduler/retention and alert failure, storage separate failure domain. Upgrade lock migrations, maintenance mode, backup before; rollback app only compatible otherwise restore and communicate RPO. Image archive for air-gap excludes model weights/customer secrets. Runbook Vietnamese exact start/HTTPS/LLM/log retention/full disk/recovery/key rotation commands.
+Define runRecoveryDrill in tests/helpers/recovery.ts spawning scripts into dedicated DB/container. pg_dump doesn't supply roles; bootstrap roles/grants scripted. Backup includes encrypted manifest/release/schema data; secrets export separate with encryption tool operator approved. Daily scheduler/retention and alert failure, storage separate failure domain. Upgrade lock migrations, maintenance mode, backup before; rollback app only compatible otherwise restore and communicate RPO. Image archive for air-gap excludes model weights/customer secrets. Runbook Vietnamese exact start/HTTPS/LLM/log retention/full disk/recovery/key rotation commands. — scheduler: operator cron (compose.yaml gợi ý), chưa có alert
 
 ```sh
 npm run ops:backup -- --output /tmp/gwp-delivery.dump
@@ -438,8 +438,8 @@ git commit -m "test: add full customer journey and pilot acceptance evidence"
 - [x] All unit/integration/browser tests + typecheck/build/compose validation PASS.
 - [ ] Local model quality accepted separately from deterministic fake-LLM tests.
 - [x] No raw transcript/key in DB/logs/browser disk; reportACL/revocation tested end-to-end.
-- [x] Clean-host restore and Phase3→4 upgrade rehearsal evidence; RPO/RTO measured, not assumed.
-- [x] Offline runtime and pilot benchmark measured; documented exceptions require user decision, not auto-waiver.
+- [ ] Clean-host restore and Phase3→4 upgrade rehearsal evidence; RPO/RTO measured, not assumed. — chưa đạt: restore chỉ vào gwp_restore_test cùng PG, chưa có rehearsal Phase3→4, RPO/RTO mới là mục tiêu
+- [ ] Offline runtime and pilot benchmark measured; documented exceptions require user decision, not auto-waiver. — offline runtime ✓; benchmark phần cứng pilot chưa đo (ngoại lệ 3)
 - [ ] `docs/superpowers/evidence/phase-4.md` and Vietnamese handover runbook approved before customer delivery.
 
 ## Self-review coverage
