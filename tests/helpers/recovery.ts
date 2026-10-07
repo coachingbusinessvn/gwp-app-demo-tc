@@ -126,8 +126,35 @@ export interface DrillRestoreTarget {
  *  ever drop roles on (the gwp_test superuser itself is never touched). */
 const CLEAN_CLUSTER_PORT = "54330";
 
+/** Deadline for acquiring the cross-file clean-cluster lock — a vitest
+ *  timeout or crash must never leave a waiter parked on the lock query. */
+const CLEAN_CLUSTER_LOCK_TIMEOUT_MS = 120_000;
+
 /** App roles a clean restore target must be provably empty of. */
 const APP_ROLES = ["gwp_runtime", "gwp_migrator", "gwp_maintenance"];
+
+/**
+ * URL-level guard shared by acquireCleanCluster/resetCleanCluster: the
+ * host must be disposable-local AND the port must be the compose
+ * restore-db port AND the database must not be gwp_restore_test itself —
+ * the reset drops that database WITH (FORCE), which would sever the very
+ * session (including one holding the advisory lock) connected to it.
+ */
+function assertCleanClusterUrl(t: ReturnType<typeof parsePgUrl>): void {
+  if (!DISPOSABLE_HOSTS.has(t.host) || t.port !== CLEAN_CLUSTER_PORT) {
+    throw new Error(
+      `clean-cluster helpers only run on the disposable restore-db ` +
+        `service (${CLEAN_CLUSTER_PORT}) — refusing ${t.host}:${t.port}`,
+    );
+  }
+  if (t.dbName === RESTORE_DB) {
+    throw new Error(
+      `clean-cluster adminUrl must not BE "${RESTORE_DB}" — the reset ` +
+        `drops that database WITH (FORCE), which would kill this very ` +
+        `session. Point at the cluster's maintenance db (e.g. gwp_test).`,
+    );
+  }
+}
 
 /**
  * Cross-file mutual exclusion for the disposable clean cluster: parallel
@@ -135,21 +162,22 @@ const APP_ROLES = ["gwp_runtime", "gwp_migrator", "gwp_maintenance"];
  * mid-flight (a concurrent drill's reset wiped roles between another
  * leg's drop and assert). Every leg touching restore-db must hold this
  * advisory lock for the whole leg — reset, bootstrap, restore, checks.
+ *
  * Taken on a dedicated checked-out connection (a pooled conn could be
- * idle-reaped mid-leg and silently drop the lock). Cooperative — every
- * caller locks via the adminUrl database on the same cluster.
- * Returns the release function.
+ * idle-reaped mid-leg and silently drop the lock) via NON-blocking
+ * pg_try_advisory_lock polls against a deadline: a blocking
+ * pg_advisory_lock call would leave a vitest-timed-out waiter parked on
+ * the server-side lock, later grabbing it for a dead test and deadlocking
+ * the next retry in the same worker. Any failure releases the connection
+ * and destroys the pool before rethrowing. Cooperative — every caller
+ * locks via the adminUrl database on the same cluster. Returns the
+ * release function.
  */
 export async function acquireCleanCluster(
   adminUrl: string,
 ): Promise<() => Promise<void>> {
   const t = parsePgUrl(adminUrl, "clean-cluster adminUrl");
-  if (!DISPOSABLE_HOSTS.has(t.host) || t.port !== CLEAN_CLUSTER_PORT) {
-    throw new Error(
-      `clean-cluster lock only applies to the disposable restore-db ` +
-        `service (${CLEAN_CLUSTER_PORT}) — got ${t.host}:${t.port}`,
-    );
-  }
+  assertCleanClusterUrl(t);
   const db = createDb(adminUrl, { poolMax: 1 });
   let conn: { query: (sql: string) => Promise<unknown> };
   try {
@@ -161,10 +189,32 @@ export async function acquireCleanCluster(
       { cause: err },
     );
   }
-  // Blocks server-side until the lock is ours.
-  await conn.query(
-    `SELECT pg_advisory_lock(hashtext('gwp-restore-cluster'))`,
-  );
+  try {
+    const deadline = Date.now() + CLEAN_CLUSTER_LOCK_TIMEOUT_MS;
+    for (;;) {
+      const res = (await conn.query(
+        `SELECT pg_try_advisory_lock(hashtext('gwp-restore-cluster')) AS got`,
+      )) as { rows?: { got?: boolean }[] };
+      if (res.rows?.[0]?.got === true) break;
+      if (Date.now() > deadline) {
+        throw new Error(
+          `timed out after ${CLEAN_CLUSTER_LOCK_TIMEOUT_MS / 1000}s ` +
+            "waiting for the clean-cluster lock — another test leg is " +
+            "still holding restore-db",
+        );
+      }
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  } catch (err) {
+    // Never leave the checked-out conn or its pending state behind.
+    try {
+      await db.client.releaseConnection(conn);
+    } catch {
+      /* best effort */
+    }
+    await db.destroy().catch(() => {});
+    throw err;
+  }
   return async () => {
     try {
       await conn.query(
@@ -190,19 +240,21 @@ export async function acquireCleanCluster(
  *
  * Guarded harder than the rest of the drill — role drops are too
  * destructive to aim anywhere but the disposable restore-db service: the
- * host must be disposable-local AND the port must be the compose
- * restore-db port. Callers that mutate the cluster hold
- * acquireCleanCluster() first.
+ * URL must pass assertCleanClusterUrl AND the cluster it resolves to must
+ * NOT be the source cluster (a port-forward could make 127.0.0.1:54330
+ * answer as test-db — system_identifier proves which initdb we reached).
+ * Callers that mutate the cluster hold acquireCleanCluster() first.
+ * `sourceUrl` exists only so tests can simulate the forwarded-to-source
+ * case; production callers leave it at the default.
  */
-export async function resetCleanCluster(adminUrl: string): Promise<void> {
+export async function resetCleanCluster(
+  adminUrl: string,
+  sourceUrl: string = TEST_MAINTENANCE_DATABASE_URL,
+): Promise<void> {
   const t = parsePgUrl(adminUrl, "clean-cluster adminUrl");
-  if (!DISPOSABLE_HOSTS.has(t.host) || t.port !== CLEAN_CLUSTER_PORT) {
-    throw new Error(
-      `resetCleanCluster only runs on the disposable restore-db service ` +
-        `(${CLEAN_CLUSTER_PORT}) — refusing to drop roles on ${t.host}:${t.port}`,
-    );
-  }
+  assertCleanClusterUrl(t);
   const db = createDb(adminUrl, { poolMax: 1 });
+  const src = createDb(sourceUrl, { poolMax: 1 });
   try {
     try {
       await db.raw("select 1");
@@ -210,6 +262,20 @@ export async function resetCleanCluster(adminUrl: string): Promise<void> {
       throw new Error(
         `restore-db not reachable on ${t.port} — run \`npm run db:test:up\``,
         { cause: err },
+      );
+    }
+    const dstId = await db.raw(
+      "select system_identifier from pg_control_system()",
+    );
+    const srcId = await src.raw(
+      "select system_identifier from pg_control_system()",
+    );
+    if (
+      dstId.rows[0].system_identifier === srcId.rows[0].system_identifier
+    ) {
+      throw new Error(
+        `clean-cluster adminUrl resolves to the SOURCE cluster ` +
+          `(identical system_identifier) — refusing to drop roles on it`,
       );
     }
     await db.raw(`DROP DATABASE IF EXISTS ${RESTORE_DB} WITH (FORCE)`);
@@ -236,6 +302,7 @@ export async function resetCleanCluster(adminUrl: string): Promise<void> {
       );
     }
   } finally {
+    await src.destroy().catch(() => {});
     await db.destroy().catch(() => {});
   }
 }

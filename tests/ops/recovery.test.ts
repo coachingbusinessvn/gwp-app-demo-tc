@@ -376,6 +376,36 @@ describe("restore drill (task 4.6, spec §9)", () => {
     180_000,
   );
 
+  it("resetCleanCluster/acquireCleanCluster refuse anything but the disposable clean cluster", async () => {
+    const restoreAdminUrl =
+      process.env.TEST_RESTORE_ADMIN_URL ??
+      "postgres://gwp_test:gwp_test@127.0.0.1:54330/gwp_test";
+
+    // Wrong port — could be test-db or anything else.
+    await expect(
+      resetCleanCluster("postgres://gwp_test:x@127.0.0.1:54329/gwp_test"),
+    ).rejects.toThrow(/refusing/);
+    await expect(
+      acquireCleanCluster("postgres://gwp_test:x@127.0.0.1:54329/gwp_test"),
+    ).rejects.toThrow(/refusing/);
+
+    // adminUrl naming gwp_restore_test itself — DROP ... WITH (FORCE)
+    // would sever the very session holding the advisory lock.
+    await expect(
+      resetCleanCluster(`postgres://gwp_test:x@127.0.0.1:54330/${RESTORE_DB}`),
+    ).rejects.toThrow(/must not BE/);
+    await expect(
+      acquireCleanCluster(`postgres://gwp_test:x@127.0.0.1:54330/${RESTORE_DB}`),
+    ).rejects.toThrow(/must not BE/);
+
+    // Same system_identifier as the "source" — i.e. 54330 forwarded to the
+    // test-db cluster — must refuse before dropping anything. Passing the
+    // restore URL as both args simulates exactly that.
+    await expect(
+      resetCleanCluster(restoreAdminUrl, restoreAdminUrl),
+    ).rejects.toThrow(/SOURCE cluster/);
+  });
+
   it("refuses migrations when the database is ahead of the code — no blind downgrade", async () => {
     const f = await fixture({ seeded: false });
     try {

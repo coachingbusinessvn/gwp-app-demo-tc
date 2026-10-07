@@ -157,7 +157,7 @@ clean-host có precheck báo đúng lỗi này ("restore-db not reachable on
   canvas Phase-3 đọc được (backup pre-upgrade restore được trên host sạch)
   → `migrate()` + bootstrap trên chính copy đó → lặp lại toàn bộ proof
   app-level (bản restored nâng tiếp lên Phase-4 được). **1/1 PASS.**
-- `tests/ops/recovery.test.ts` — **5/5 PASS**, gồm 2 test mới:
+- `tests/ops/recovery.test.ts` — **6/6 PASS**, gồm các test mới:
   - `clean-host`: restore trọn vẹn lên `restore-db` — service Postgres
     thứ hai trong `compose.test.yaml` (process/volume/port riêng,
     `pg_control_system()` `system_identifier` khác cluster nguồn). Mỗi
@@ -171,6 +171,9 @@ clean-host có precheck báo đúng lỗi này ("restore-db not reachable on
     `restore-test metrics: {...}` — assert `rtoMs`/`rpoAgeMs`/`backupBytes`
     số. Các bound ≤4h/≤24h trong test chỉ là sanity check trên fixture —
     KHÔNG phải bằng chứng mục tiêu pilot đạt.
+  - `refuse anything but the disposable clean cluster`: helper từ chối
+    port sai, adminUrl trỏ vào chính `gwp_restore_test`, và target có cùng
+    `system_identifier` với cluster nguồn — trước khi DROP bất cứ thứ gì.
 
 **Số đo thực (dev host, dataset fixture seed — nhỏ; KHÔNG phải pilot hw):**
 
@@ -179,21 +182,31 @@ clean-host có precheck báo đúng lỗi này ("restore-db not reachable on
   — `rtoMs` ở đây **chỉ phần restore+smoke** (dropdb/createdb/pg_restore +
   post-checks), không gồm bootstrap roles lẫn check app-level.
 - **RTO clean-host đầy đủ** từ drill vitest trên `restore-db` (bootstrap
-  roles + pg_restore + grants + login/history/ACL/decrypt/publish):
-  `drill metrics (clean-cluster): {"rtoMs":2484,"rpoAgeMs":47,
-  "backupBytes":88311,"endpoint":"127.0.0.1:54330"}` → **≈ 2,5 s**.
+  roles + pg_restore + grants + login/history/ACL/decrypt/publish), đo
+  lại trên code cuối: `drill metrics (clean-cluster):
+  {"rtoMs":2596,"rpoAgeMs":90,"backupBytes":88302,
+  "endpoint":"127.0.0.1:54330"}` → **≈ 2,6 s**. Cùng lượt chạy, drill
+  same-cluster: `{"rtoMs":2241,"rpoAgeMs":0,"backupBytes":88299}`.
+  Hai lượt `vitest run` liên tiếp đều **7/7 PASS** (2 file) — ổn định,
+  không flake.
 - `rpoAgeMs` = tuổi backup lúc restore — **cơ chế đo đã kiểm chứng**;
   RPO vận hành = chu kỳ `ops:backup`, phải đo tại pilot (ngoại lệ 3).
   Mục tiêu RTO ≤ 4h / RPO ≤ 24h vẫn phải đo lại trên host triển khai —
   số trên chỉ chứng minh đường đo hoạt động, không phải mục tiêu đã đạt.
-- `ops:upgrade-check` CLI sanity: backup mới → `OK: 7 pending migration(s)`;
-  backup 48h → `FAIL: backup is 48.0h old — beyond the 24h RPO ceiling`,
-  exit 1.
+- `ops:upgrade-check` CLI sanity trên code cuối: backup mới → `OK: 7
+  pending migration(s)`; backup bị làm cũ **48h qua `createdAt` của
+  manifest** (không phải mtime file) → `upgrade-check FAIL: backup is
+  48.0h old — beyond the 24h RPO ceiling; take a fresh backup before
+  upgrading`, exit 1.
 
 Cơ chế: `runRecoveryDrill` nhận `restoreTarget` tuỳ chọn (clean cluster);
 evidence trả `rtoMs`/`rpoAgeMs`/`restoreEndpoint`; `resetCleanCluster()`
 wipe `gwp_restore_test` + role `gwp_*` trước mỗi clean drill (guard
-DISPOSABLE_HOSTS + port 54330). `ops:restore-test` in dòng metrics máy
+disposable-host + port 54330 + adminUrl ≠ `gwp_restore_test` +
+`system_identifier` phải khác cluster nguồn); `acquireCleanCluster()`
+giữ `pg_try_advisory_lock` trên conn riêng với deadline 120 s (poll
+non-blocking, fail dọn sạch conn/pool) chống hai file test song song
+dẫm nhau trên cùng restore-db. `ops:restore-test` in dòng metrics máy
 đọc được làm dòng cuối. `checkUpgrade()` export từ
 `scripts/ops/upgrade-check.ts` — CLI giữ nguyên output/exit code — và đọc
 tuổi backup từ `createdAt` manifest (fallback mtime), cùng logic
