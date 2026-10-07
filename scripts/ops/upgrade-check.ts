@@ -2,7 +2,10 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { createDb } from "../../server/src/db/connection.js";
-import { migrationStatus } from "../../server/src/db/migrate.js";
+import {
+  MIGRATIONS,
+  migrationStatus,
+} from "../../server/src/db/migrate.js";
 import { parsePgUrl } from "./pg-runner.js";
 
 /**
@@ -80,29 +83,38 @@ interface BackupManifest {
   schemaMigrations?: string[];
 }
 
-async function main(): Promise<void> {
-  const args = parseArgs(process.argv.slice(2));
-  const rawUrl =
-    args.url ?? process.env.MAINTENANCE_DATABASE_URL ?? process.env.DATABASE_URL;
-  if (!rawUrl) {
-    throw new Error(
-      "no database URL — pass --url or set MAINTENANCE_DATABASE_URL/DATABASE_URL",
-    );
-  }
-  parsePgUrl(rawUrl, "database URL"); // shape check; the URL itself is never printed
-  if (!args.backup) throw new Error("--backup is required");
+export interface UpgradeCheckResult {
+  /** true = safe to proceed (same as exit 0 on the CLI). */
+  ok: boolean;
+  problems: string[];
+  /** Migrations this build would apply — operator confirms the step forward. */
+  pending: string[];
+}
 
+/**
+ * The gate's logic, callable in-process — the Phase3→4 upgrade rehearsal
+ * test drives it directly. `schema` pins the connection's search_path for
+ * the fixture's schema-isolated databases; the CLI never sets it (a real
+ * deployment lives in `public`). Read-only — never writes.
+ */
+export async function checkUpgrade(opts: {
+  url: string;
+  backup: string;
+  maxAgeHours?: number;
+  schema?: string;
+}): Promise<UpgradeCheckResult> {
+  const maxAgeHours = opts.maxAgeHours ?? 24;
   const problems: string[] = [];
 
   // --- backup freshness ---
-  const backup = path.resolve(args.backup);
+  const backup = path.resolve(opts.backup);
   if (!existsSync(backup) || statSync(backup).size === 0) {
     problems.push(`backup missing or empty: ${backup}`);
   } else {
     const ageH = (Date.now() - statSync(backup).mtimeMs) / 3_600_000;
-    if (ageH > args.maxAgeHours) {
+    if (ageH > maxAgeHours) {
       problems.push(
-        `backup is ${ageH.toFixed(1)}h old — beyond the ${args.maxAgeHours}h ` +
+        `backup is ${ageH.toFixed(1)}h old — beyond the ${maxAgeHours}h ` +
           "RPO ceiling; take a fresh backup before upgrading",
       );
     }
@@ -111,11 +123,7 @@ async function main(): Promise<void> {
     const sidecar = `${backup}.manifest.json`;
     if (existsSync(sidecar)) {
       const m = JSON.parse(readFileSync(sidecar, "utf8")) as BackupManifest;
-      const known = new Set(
-        (await import("../../server/src/db/migrate.js")).MIGRATIONS.map(
-          (x) => x.name,
-        ),
-      );
+      const known = new Set(MIGRATIONS.map((x) => x.name));
       const unknown = (m.schemaMigrations ?? []).filter((n) => !known.has(n));
       if (unknown.length > 0) {
         problems.push(
@@ -127,7 +135,7 @@ async function main(): Promise<void> {
   }
 
   // --- schema direction ---
-  const db = createDb(rawUrl, { poolMax: 1 });
+  const db = createDb(opts.url, { poolMax: 1, searchPath: opts.schema });
   let pending: string[] = [];
   try {
     const status = await migrationStatus(db);
@@ -143,14 +151,34 @@ async function main(): Promise<void> {
     await db.destroy().catch(() => {});
   }
 
-  if (problems.length > 0) {
-    for (const p of problems) console.error(`upgrade-check FAIL: ${p}`);
+  return { ok: problems.length === 0, problems, pending };
+}
+
+async function main(): Promise<void> {
+  const args = parseArgs(process.argv.slice(2));
+  const rawUrl =
+    args.url ?? process.env.MAINTENANCE_DATABASE_URL ?? process.env.DATABASE_URL;
+  if (!rawUrl) {
+    throw new Error(
+      "no database URL — pass --url or set MAINTENANCE_DATABASE_URL/DATABASE_URL",
+    );
+  }
+  parsePgUrl(rawUrl, "database URL"); // shape check; the URL itself is never printed
+  if (!args.backup) throw new Error("--backup is required");
+
+  const result = await checkUpgrade({
+    url: rawUrl,
+    backup: args.backup,
+    maxAgeHours: args.maxAgeHours,
+  });
+  if (!result.ok) {
+    for (const p of result.problems) console.error(`upgrade-check FAIL: ${p}`);
     process.exitCode = 1;
     return;
   }
   console.log(
-    `upgrade-check OK: ${pending.length} pending migration(s)` +
-      (pending.length ? ` — ${pending.join(", ")}` : "") +
+    `upgrade-check OK: ${result.pending.length} pending migration(s)` +
+      (result.pending.length ? ` — ${result.pending.join(", ")}` : "") +
       "; backup within RPO; schema compatible with this build",
   );
 }

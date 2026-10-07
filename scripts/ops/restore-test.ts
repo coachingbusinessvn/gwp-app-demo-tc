@@ -1,4 +1,4 @@
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import knex, { type Knex } from "knex";
@@ -352,6 +352,24 @@ export async function restoreArchive(
     : runCompose(r, target, backup);
 }
 
+/**
+ * Backup age basis for the measured RPO: the sidecar manifest's createdAt
+ * (ops:backup writes it), else the dump file's mtime when the manifest is
+ * missing or unparsable.
+ */
+function backupCreatedAtMs(backup: string): number {
+  try {
+    const manifest = JSON.parse(
+      readFileSync(`${backup}.manifest.json`, "utf8"),
+    ) as { createdAt?: string };
+    const t = Date.parse(manifest.createdAt ?? "");
+    if (Number.isFinite(t)) return t;
+  } catch {
+    /* no/invalid manifest — fall back to the dump file's mtime */
+  }
+  return statSync(backup).mtimeMs;
+}
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   // Guard FIRST — validate the target before touching anything else.
@@ -362,6 +380,8 @@ async function main(): Promise<void> {
   if (!existsSync(backup) || statSync(backup).size === 0) {
     throw new Error(`backup file missing or empty: ${backup}`);
   }
+  const backupBytes = statSync(backup).size;
+  const backupCreatedAt = backupCreatedAtMs(backup);
 
   const runner = resolvePgRunner({
     tools: ["psql", "pg_restore"],
@@ -376,7 +396,10 @@ async function main(): Promise<void> {
         : `docker compose exec ${runner.service}`),
   );
 
+  const restoreStartedAt = Date.now();
   const info = await restoreArchive(target, backup, runner);
+  const rtoMs = Date.now() - restoreStartedAt;
+  const rpoAgeMs = Math.max(0, restoreStartedAt - backupCreatedAt);
   console.log(
     `smoke query on ${RESTORE_DB}: companies=${info.companies} ` +
       `migrations=${info.migrations.length}`,
@@ -404,6 +427,13 @@ async function main(): Promise<void> {
   }
   console.log(
     `restore-test complete: "${RESTORE_DB}" recreated and verified`,
+  );
+  // Measured, not assumed (spec §9): RTO = restore+verification wall time;
+  // RPO = backup age at restore start (manifest createdAt, else mtime).
+  // Last line stays machine-readable so an operator can paste it into the
+  // drill record — `restore-test metrics: {"rtoMs":…,"rpoAgeMs":…,…}`.
+  console.log(
+    `restore-test metrics: ${JSON.stringify({ rtoMs, rpoAgeMs, backupBytes })}`,
   );
 }
 

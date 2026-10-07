@@ -102,6 +102,14 @@ export interface MigrateOptions {
    * later tasks may UPDATE the row directly for per-test overrides.
    */
   mode?: DemoMode;
+  /**
+   * Rehearsal/testing only: apply migrations up to and INCLUDING the named
+   * one, leaving the rest pending. Lets a disposable schema stand at a
+   * pre-release state (e.g. "0005-ai" reproduces the Phase-3 schema) so the
+   * upgrade path can be rehearsed against a real dump. Never passed by the
+   * production migrator — omitting it preserves the run-to-latest behavior.
+   */
+  upTo?: string;
 }
 
 export async function migrate(
@@ -117,9 +125,23 @@ export async function migrate(
         "(no blind downgrade, spec §9).",
     );
   }
-  if (pending.length > 0) {
+  let toApply = pending;
+  if (options?.upTo !== undefined) {
+    const cutoff = MIGRATIONS.findIndex((m) => m.name === options.upTo);
+    if (cutoff === -1) {
+      throw new Error(
+        `migrate: upTo "${options.upTo}" is not a known migration ` +
+          `(${MIGRATIONS.map((m) => m.name).join(", ")})`,
+      );
+    }
+    const allowed = new Set(
+      MIGRATIONS.slice(0, cutoff + 1).map((m) => m.name),
+    );
+    toApply = pending.filter((n) => allowed.has(n));
+  }
+  if (toApply.length > 0) {
     await ensureTrackingTable(db);
-    for (const name of pending) {
+    for (const name of toApply) {
       const migration = MIGRATIONS.find((m) => m.name === name);
       if (!migration) continue;
       await db.transaction(async (tx) => {

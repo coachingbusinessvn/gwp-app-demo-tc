@@ -57,14 +57,50 @@ npm run ops:restore-test -- --backup /srv/gwp-backups/gwp-2026-09-21.dump
 # 3. Đọc cảnh báo cuối output: roles thiếu, migration lạ (backup mới hơn
 #    code → không chạy app/migrate trên nó), version APP_KEY cần thiết.
 
-# 4. Ghi lại bằng chứng: giờ bắt đầu/kết thúc (RTO thực đo), tuổi backup
-#    (RPO), kết quả smoke query.
+# 4. Ghi lại bằng chứng: dòng cuối in metrics ĐO ĐƯỢC, dạng máy đọc được —
+#    restore-test metrics: {"rtoMs":1479,"rpoAgeMs":7867,"backupBytes":83172}
+#    rtoMs     = thời gian restore + verify (RTO thực đo)
+#    rpoAgeMs  = tuổi backup lúc bắt đầu restore — createdAt trong manifest
+#               .json, fallback mtime file (RPO thực đo)
+#    backupBytes = dung lượng dump
+#    Copy nguyên dòng vào biên bản drill; so với mục tiêu RTO ≤ 4h, RPO ≤ 24h.
+```
+
+## 3a. Restore lên cluster SẠCH (clean host)
+
+Drill trong CI có một biến thể chạy lên **cluster Postgres thứ hai** —
+service `restore-db` trong `compose.test.yaml` (process + volume riêng,
+port 54330) — chứng minh restore không phụ thuộc cluster nguồn. Trên host
+sạch thật, trình tự tương đương:
+
+```sh
+# 1. Roles TRƯỚC restore: pg_dump không mang roles; pg_restore
+#    --exit-on-error chết ngay trên OWNER/ACL nếu thiếu gwp_*.
+BOOTSTRAP_ADMIN_URL="postgres://<superuser>@<host-sach>/<db>" \
+  npx tsx scripts/ops/bootstrap-db-roles.ts     # hoặc service db-bootstrap
+
+# 2. Restore vào gwp_restore_test trên cluster đó. Ví dụ trên cùng máy dev
+#    với restore-db của compose.test.yaml:
+GWP_OPS_COMPOSE_FILE=compose.test.yaml GWP_OPS_DB_SERVICE=restore-db \
+  npm run ops:restore-test -- \
+    --backup /srv/gwp-backups/<latest>.dump \
+    --target "postgres://<superuser>@127.0.0.1:54330/gwp_test"
+#    Host không phải disposable-local (127.0.0.1/localhost/::1) cần thêm
+#    --i-understand sau khi đã kiểm tra kỹ target.
+
+# 3. Bootstrap LẠI trên schema vừa restore để grants/revokes đầy đủ:
+BOOTSTRAP_ADMIN_URL="postgres://<superuser>@<host-sach>/gwp_restore_test" \
+  BOOTSTRAP_SCHEMA=public \
+  npx tsx scripts/ops/bootstrap-db-roles.ts
 ```
 
 Drill tự động trong CI: `npm test -- tests/ops/recovery.test.ts` chứng
 minh trên DB sạch: roles+grants, login thật, lịch sử canvas version nguyên
 vẹn, report ACL + share, giải mã envelope BYOK bằng APP_KEY, publish thử
-— và DB nguồn không bị đụng.
+— và DB nguồn không bị đụng. Test `clean-host` chạy trọn vẹn trên
+`restore-db` (cluster riêng, `system_identifier` khác — kiểm chứng trong
+test); test `metrics` chạy thật `ops:restore-test` và bắt dòng
+`restore-test metrics:` để assert RTO/RPO đo được trong ngưỡng mục tiêu.
 
 ## 4. Phục hồi thật (sau sự cố)
 

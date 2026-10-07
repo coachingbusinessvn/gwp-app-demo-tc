@@ -75,9 +75,33 @@ curl -k -X POST https://localhost:8080/api/v1/auth/login \
 ## 6. Diễn tập trước khi bàn giao
 
 ```sh
-npm test -- tests/ops/recovery.test.ts
+npm run db:test:up   # compose.test.yaml — test-db + restore-db (cluster sạch)
+npm test -- tests/ops/recovery.test.ts tests/ops/upgrade-rehearsal.test.ts
 ```
 
-Suite chứng minh: restore trên DB sạch (roles/login/history/ACL/decrypt/
-publish), từ chối migrate trên schema mới hơn code, và runtime không phụ
-thuộc mạng ngoài (offline).
+Suite `recovery.test.ts` chứng minh: restore trên DB sạch (roles/login/
+history/ACL/decrypt/publish), restore lên **cluster riêng** `restore-db`
+(system_identifier khác — bằng chứng clean-host), `ops:restore-test` in
+dòng `restore-test metrics:` với RTO/RPO đo được, từ chối migrate trên
+schema mới hơn code, và runtime không phụ thuộc mạng ngoài (offline).
+
+`upgrade-rehearsal.test.ts` diễn tập **nâng cấp Phase 3 → Phase 4** trọn
+vẹn trên schema disposable:
+
+1. Schema `test_*` migrate chỉ tới `0005-ai` (`migrate(db, {upTo})` — tuỳ
+   chọn chỉ dành cho test/rehearsal; migrator production luôn chạy hết) —
+   tái hiện đúng schema Phase 3.
+2. Seed dữ liệu Phase 3 bằng SQL: users owner/member, canvas đã publish
+   (`canvas_version`), envelope AI BYOK mã hoá bằng APP_KEY.
+3. `pg_dump -Fc` + manifest sidecar → `checkUpgrade()` (cùng logic
+   `ops:upgrade-check`) phải OK với đúng 2 migration pending
+   (`0006-coaching`, `0007-oracle`) — và phải TỪ CHỐI khi backup cũ hơn
+   trần RPO 24h.
+4. `migrate()` chạy nốt 0006/0007 → `bootstrap-db-roles` cấp lại grants —
+   đúng trình tự runbook §3.
+5. Kiểm chứng trên app thật: dữ liệu Phase 3 nguyên vẹn (version history
+   đọc được, envelope giải mã được), Phase 4 hoạt động (tạo coaching
+   session + report; ACL chặn user không được share — 404).
+
+Đoạn tương đương manual trên staging: dump DB Phase 3 → `ops:upgrade-check`
+→ migrate → smoke §4.

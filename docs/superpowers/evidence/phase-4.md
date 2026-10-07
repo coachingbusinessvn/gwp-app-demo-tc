@@ -129,3 +129,45 @@ host dev 32 CPU / 30 GiB, Node v24.21.0; PostgreSQL test từ
   phần cứng pilot — open item 3 vẫn mở.
 - `npm run ops:bundle -- --no-images` — không chạy lại lượt này;
   checksum lần cuối verify tại `489cd79`.
+
+## Bổ sung 2026-10-07 — restore/upgrade rehearsal + RPO/RTO đo thực
+
+Lấp ngoại lệ #4 (phần evidence tự động; gate vẫn mở chờ người duyệt).
+Host dev, Node v24.21.0, PostgreSQL 18-alpine qua `compose.test.yaml`.
+
+**Test mới/sửa** (`npx vitest run tests/ops/...` — đo trên host dev):
+
+- `tests/ops/upgrade-rehearsal.test.ts` — rehearsal Phase 3 → 4 trọn vẹn:
+  schema migrate tới `0005-ai` (`migrate(db, {upTo})`, tuỳ chọn additive,
+  production không đổi), seed SQL (personas, `canvas_version` đã publish,
+  envelope BYOK mã hoá), `pg_dump -Fc` + manifest → `checkUpgrade()` OK với
+  đúng `0006-coaching,0007-oracle` pending; TỪ CHỐI khi backup 48h > trần
+  RPO 24h → migrate nốt → Phase-3 data nguyên (version history + decrypt
+  envelope) và Phase-4 chạy (coaching session + report; ACL 404 cho user
+  không share). **1/1 PASS.**
+- `tests/ops/recovery.test.ts` — **5/5 PASS**, gồm 2 test mới:
+  - `clean-host`: restore trọn vẹn lên `restore-db` — service Postgres
+    thứ hai trong `compose.test.yaml` (process/volume/port riêng,
+    `pg_control_system()` `system_identifier` khác cluster nguồn);
+    bootstrap-db-roles chạy TRƯỚC pg_restore (pg_dump không mang roles)
+    và SAU để grants đầy đủ; toàn bộ check drill (roles/login/canvas
+    history/report ACL/decrypt/publish) xanh trên cluster sạch.
+  - `metrics`: spawn thật `ops:restore-test` lên `restore-db`, parse dòng
+    `restore-test metrics: {...}` — assert `rtoMs`/`rpoAgeMs`/`backupBytes`
+    số, trong ngưỡng RTO ≤ 4h / RPO ≤ 24h.
+
+**Số đo thực (dev host, dataset fixture seed — nhỏ; KHÔNG phải pilot hw):**
+
+- `ops:restore-test` lên `restore-db` (clean cluster):
+  `restore-test metrics: {"rtoMs":1479,"rpoAgeMs":7867,"backupBytes":83172}`
+  → **RTO ≈ 1,5 s**, **RPO ≈ 7,9 s** (tuổi backup lúc restore), dump ~81 KiB.
+  Mục tiêu pilot RTO ≤ 4h / RPO ≤ 24h — đo được, dư cực lớn trên dataset
+  test; số pilot-site vẫn phải đo lại trên host triển khai (ngoại lệ 3).
+- `ops:upgrade-check` CLI sanity: backup mới → `OK: 7 pending migration(s)`;
+  backup 48h → `FAIL: backup is 48.0h old — beyond the 24h RPO ceiling`,
+  exit 1.
+
+Cơ chế: `runRecoveryDrill` nhận `restoreTarget` tuỳ chọn (clean cluster);
+evidence trả `rtoMs`/`rpoAgeMs`/`restoreEndpoint`. `ops:restore-test` in
+dòng metrics máy đọc được làm dòng cuối. `checkUpgrade()` export từ
+`scripts/ops/upgrade-check.ts` — CLI giữ nguyên output/exit code.

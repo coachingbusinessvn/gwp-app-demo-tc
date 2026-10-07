@@ -1,5 +1,5 @@
 import { closeSync, openSync, statSync, unlinkSync } from "node:fs";
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import request from "supertest";
@@ -21,6 +21,7 @@ import {
   runTool,
   type PgRunner,
 } from "../../scripts/ops/pg-runner.js";
+import { bootstrapDbRoles } from "../../scripts/ops/bootstrap-db-roles.js";
 import {
   restoreArchive,
   RESTORE_DB,
@@ -33,6 +34,7 @@ import {
 import {
   TEST_DATABASE_URL,
   TEST_MAINTENANCE_DATABASE_URL,
+  TEST_MIGRATOR_DATABASE_URL,
   testEnv,
   type Fixture,
 } from "./fixture.js";
@@ -83,9 +85,44 @@ export interface RecoveryDrillEvidence {
   restoredCustomerDatabase: boolean;
   backupBytes: number;
   elapsedMs: number;
+  /**
+   * Measured RTO: elapsed wall time of the restore + verification work on
+   * the target — for a clean cluster that includes creating the roles a
+   * pg_dump never carries (the real clean-host sequence). Never includes
+   * the backup itself.
+   */
+  rtoMs: number;
+  /**
+   * Measured RPO: age of the backup at the moment restore started, taken
+   * from the sidecar manifest's createdAt (same contract as ops:backup).
+   */
+  rpoAgeMs: number;
+  /** host:port of the cluster the restore landed on — same-cluster drills
+   *  report the test-db endpoint; clean-cluster drills the restore-db one. */
+  restoreEndpoint: string;
   migrations: string[];
   envelopeKeyVersions: string[];
 }
+
+/**
+ * A restore destination OTHER than the source cluster (Phase-4 clean-host
+ * evidence): the drill recreates gwp_restore_test on a fresh disposable
+ * Postgres — roles bootstrapped there by the shipped script before and
+ * after pg_restore, exactly like the runbook sequence.
+ */
+export interface DrillRestoreTarget {
+  /** Superuser URL on the restore cluster (any database — used for
+   *  drop/create, the pre/post bootstrap and the post-restore checks). */
+  adminUrl: string;
+  /** Runtime-role URL the restored app connects through (password must be
+   *  what the bootstrap sets on that cluster). */
+  runtimeUrl: string;
+  /** Compose service hosting that cluster, for the tool fallback runner. */
+  composeService: string;
+}
+
+/** Disposable-local hosts — same guard set as scripts/ops/restore-test.ts. */
+const DISPOSABLE_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
 
 function maintenanceTarget(): ReturnType<typeof parsePgUrl> {
   return parsePgUrl(TEST_MAINTENANCE_DATABASE_URL, "TEST_MAINTENANCE_DATABASE_URL");
@@ -159,18 +196,59 @@ function urlForDb(url: string, dbName: string): string {
   return u.toString();
 }
 
+function urlPassword(url: string): string | undefined {
+  const password = new URL(url).password;
+  return password === "" ? undefined : decodeURIComponent(password);
+}
+
 async function dropRestoreDb(admin: Knex): Promise<void> {
   await admin.raw(`DROP DATABASE IF EXISTS ${RESTORE_DB} WITH (FORCE)`);
+}
+
+/** pg_dump -Fc of the fixture schema — exported for the upgrade rehearsal. */
+export function dumpFixtureSchema(schema: string, output: string): void {
+  dumpSchema(runnerFor(["pg_dump"]), maintenanceTarget(), schema, output);
+}
+
+/**
+ * Sidecar manifest in the exact shape ops:backup writes — upgrade-check
+ * reads schemaMigrations from it, restore-test reads createdAt for the
+ * measured RPO age. Returns the createdAt ISO stamped into the file.
+ */
+export function writeBackupManifest(
+  dumpPath: string,
+  schemaMigrations: string[],
+): string {
+  const createdAt = new Date().toISOString();
+  writeFileSync(
+    `${dumpPath}.manifest.json`,
+    JSON.stringify(
+      {
+        backup: path.basename(dumpPath),
+        createdAt,
+        format: "pg_dump-custom",
+        schemaMigrations,
+      },
+      null,
+      2,
+    ) + "\n",
+  );
+  return createdAt;
 }
 
 export async function runRecoveryDrill(opts: {
   sourceFixture: Fixture;
   targetDatabase?: string;
   appKey: string;
+  /**
+   * Restore onto a DIFFERENT disposable cluster (compose.test.yaml's
+   * restore-db) instead of beside the source — the clean-host proof.
+   */
+  restoreTarget?: DrillRestoreTarget;
   expected: DrillExpected;
 }): Promise<RecoveryDrillEvidence> {
   const startedAt = Date.now();
-  const target = maintenanceTarget();
+  const source = maintenanceTarget();
   // The drill target is a compile-time constant of restore-test.ts — a
   // caller may pass it for readability but it can never be changed.
   if (opts.targetDatabase && opts.targetDatabase !== RESTORE_DB) {
@@ -178,29 +256,95 @@ export async function runRecoveryDrill(opts: {
       `drill target is fixed to ${RESTORE_DB} — got "${opts.targetDatabase}"`,
     );
   }
+  const clean = opts.restoreTarget;
+  const restoreTarget = clean
+    ? parsePgUrl(clean.adminUrl, "restoreTarget.adminUrl")
+    : source;
+  const runtimeTarget = clean
+    ? parsePgUrl(clean.runtimeUrl, "restoreTarget.runtimeUrl")
+    : undefined;
+  // Same guard as the shipped script: a restore target must be a
+  // disposable-local host — the constant database name is not enough.
+  if (clean) {
+    for (const t of [restoreTarget, runtimeTarget!]) {
+      if (!DISPOSABLE_HOSTS.has(t.host)) {
+        throw new Error(
+          `restoreTarget host "${t.host}" is not a disposable-local ` +
+            "target (127.0.0.1/localhost/::1) — refusing to restore there",
+        );
+      }
+    }
+  }
   const schema = opts.sourceFixture.schema;
   const dump = path.join(
     os.tmpdir(),
     `gwp-drill-${process.pid}-${randomSuffix()}.dump`,
   );
 
+  // On a clean cluster the tools must run against that cluster's compose
+  // service, not the source's.
+  const restoreRunner = clean
+    ? resolvePgRunner({
+        tools: ["psql", "pg_restore"],
+        composeFile: COMPOSE_FILE,
+        dbService: clean.composeService,
+      })
+    : runnerFor(["psql", "pg_restore"]);
+  const rolePasswords = {
+    gwp_migrator: urlPassword(TEST_MIGRATOR_DATABASE_URL),
+    gwp_runtime: runtimeTarget?.password ?? urlPassword(TEST_DATABASE_URL),
+    gwp_maintenance: process.env.GWP_MAINTENANCE_PASSWORD ?? "gwp_maintenance",
+  };
+
   const admin = createDb(TEST_MAINTENANCE_DATABASE_URL, { poolMax: 1 });
   let restored: Knex | undefined;
   let restoredAdmin: Knex | undefined;
   try {
-    // 1. Backup the fixture schema, then restore it into gwp_restore_test
-    //    through the SHIPPED restore path (restore-test.ts internals).
-    dumpSchema(runnerFor(["pg_dump"]), target, schema, dump);
+    // 1. Backup the fixture schema (+ its sidecar manifest, same shape as
+    //    ops:backup), then restore it into gwp_restore_test through the
+    //    SHIPPED restore path (restore-test.ts internals).
+    dumpSchema(runnerFor(["pg_dump"]), source, schema, dump);
     const backupBytes = statSync(dump).size;
-    const info = await restoreArchive(target, dump, runnerFor(["psql", "pg_restore"]));
+    const migRows = await admin.raw(
+      `select coalesce(array_agg(name order by name), '{}') as migrations ` +
+        `from "${schema}".schema_migration`,
+    );
+    const backupCreatedAt = writeBackupManifest(
+      dump,
+      (migRows.rows[0].migrations as string[]) ?? [],
+    );
+
+    // The RTO clock starts when restore work begins on the target — on a
+    // clean cluster that includes creating the roles a pg_dump never
+    // carries (pg_restore's OWNER/ACL replay fails without them).
+    const restoreStartedAt = Date.now();
+    if (clean) {
+      await bootstrapDbRoles({
+        adminUrl: clean.adminUrl,
+        schema: "public",
+        allowPasswords: true,
+        passwords: rolePasswords,
+      });
+    }
+    const info = await restoreArchive(restoreTarget, dump, restoreRunner);
+    if (clean) {
+      // Grants/revokes on the restored schema — the same step the runbook
+      // runs on a clean host once the dump lands.
+      await bootstrapDbRoles({
+        adminUrl: urlForDb(clean.adminUrl, RESTORE_DB),
+        schema,
+        allowPasswords: true,
+        passwords: rolePasswords,
+      });
+    }
 
     // 2. Roles + privileges: pg_dump carries object ACLs but NOT cluster
     //    roles — they must already exist (bootstrap-db-roles on a clean
     //    cluster). Verify both here.
-    restoredAdmin = createDb(
-      urlForDb(TEST_MAINTENANCE_DATABASE_URL, RESTORE_DB),
-      { poolMax: 1, searchPath: schema },
-    );
+    restoredAdmin = createDb(urlForDb(restoreTarget.url, RESTORE_DB), {
+      poolMax: 1,
+      searchPath: schema,
+    });
     const priv = await restoredAdmin.raw(
       `SELECT
          has_schema_privilege('gwp_runtime', ?, 'USAGE') AS rt_usage,
@@ -227,13 +371,17 @@ export async function runRecoveryDrill(opts: {
 
     // 3. A full app on the restored DB over the RUNTIME credential — the
     //    same account production uses, so grant drift fails loudly.
-    restored = createDb(urlForDb(TEST_DATABASE_URL, RESTORE_DB), {
+    const runtimeUrl = urlForDb(
+      clean ? clean.runtimeUrl : TEST_DATABASE_URL,
+      RESTORE_DB,
+    );
+    restored = createDb(runtimeUrl, {
       searchPath: schema,
       poolMax: 3,
     });
     const config = loadConfig({
       ...testEnv,
-      DATABASE_URL: urlForDb(TEST_DATABASE_URL, RESTORE_DB),
+      DATABASE_URL: runtimeUrl,
     });
     const app: Express = createApp({ db: restored, clock: () => new Date(), config });
     const login = async (persona: Persona): Promise<string | null> => {
@@ -377,18 +525,35 @@ export async function runRecoveryDrill(opts: {
       restoredCustomerDatabase,
       backupBytes,
       elapsedMs: Date.now() - startedAt,
+      rtoMs: Date.now() - restoreStartedAt,
+      rpoAgeMs: Math.max(
+        0,
+        restoreStartedAt - Date.parse(backupCreatedAt),
+      ),
+      restoreEndpoint: `${restoreTarget.host}:${restoreTarget.port}`,
       migrations: info.migrations,
       envelopeKeyVersions: info.envelopeKeyVersions,
     };
   } finally {
     await restored?.destroy().catch(() => {});
     await restoredAdmin?.destroy().catch(() => {});
-    await dropRestoreDb(admin).catch(() => {});
+    if (clean) {
+      // The restore landed on the clean cluster — drop it THERE only. A
+      // same-named database on the source cluster may belong to another
+      // worker's in-flight drill; it is not ours to drop.
+      const dropAdmin = createDb(clean.adminUrl, { poolMax: 1 });
+      await dropRestoreDb(dropAdmin).catch(() => {});
+      await dropAdmin.destroy().catch(() => {});
+    } else {
+      await dropRestoreDb(admin).catch(() => {});
+    }
     await admin.destroy().catch(() => {});
-    try {
-      unlinkSync(dump);
-    } catch {
-      /* temp dump best-effort cleanup */
+    for (const file of [dump, `${dump}.manifest.json`]) {
+      try {
+        unlinkSync(file);
+      } catch {
+        /* temp dump best-effort cleanup */
+      }
     }
   }
 }
